@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card chat-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <div class="dm-title">
+        <div class="avatar-circle small">✨</div>
+        <h1 style="font-size:18px;">Linko AI</h1>
+      </div>
+      <button id="clear-btn" class="clear-btn" title="Yangi suhbat">🗑️</button>
+    </div>
+
+    <div id="messages" class="messages-box">
+      <div class="msg-row msg-left">
+        <div class="msg-bubble msg-other">
+          <div class="msg-text">Salom! Men Linko AI'man. Istalgan savolingizni bering.</div>
+        </div>
+      </div>
+    </div>
+
+    <form id="send-form" class="send-form">
+      <input type="text" id="message-input" placeholder="Savolingizni yozing..." autocomplete="off" maxlength="2000">
+      <button type="submit" class="btn-primary send-btn">→</button>
+    </form>
+  </div>
+
+  <script>
+    const messagesBox = document.getElementById("messages");
+    const form = document.getElementById("send-form");
+    const input = document.getElementById("message-input");
+    const clearBtn = document.getElementById("clear-btn");
+
+    let history = []; // {role: "user"/"assistant", content: "..."}
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function addBubble(text, isMe, isLoading = false) {
+      const row = document.createElement("div");
+      row.className = "msg-row " + (isMe ? "msg-right" : "msg-left");
+      if (isLoading) row.id = "loading-bubble";
+      row.innerHTML = `
+        <div class="msg-bubble ${isMe ? "msg-mine" : "msg-other"}">
+          <div class="msg-text">${isLoading ? "..." : escapeHtml(text)}</div>
+        </div>
+      `;
+      messagesBox.appendChild(row);
+      messagesBox.scrollTop = messagesBox.scrollHeight;
+      return row;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+      input.value = "";
+
+      addBubble(message, true);
+      const loadingRow = addBubble("", false, true);
+
+      try {
+        const res = await fetch("/api/ai/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history, message }),
+        });
+        const data = await res.json();
+        loadingRow.remove();
+
+        if (data.error) {
+          addBubble("⚠️ " + data.error, false);
+        } else {
+          addBubble(data.reply, false);
+          history.push({ role: "user", content: message });
+          history.push({ role: "assistant", content: data.reply });
+        }
+      } catch (err) {
+        loadingRow.remove();
+        addBubble("⚠️ Bog'lanishda xato yuz berdi.", false);
+      }
+    });
+
+    clearBtn.addEventListener("click", () => {
+      history = [];
+      messagesBox.innerHTML = "";
+      addBubble("Yangi suhbat boshlandi. Savolingizni yozing.", false);
+    });
+  </script>
+
+  {% include 'navbar.html' %}
+</body>
+</html>

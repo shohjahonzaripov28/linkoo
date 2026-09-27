@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Profil</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">Profil</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <div class="profile-avatar-wrap">
+      <div class="avatar-circle" style="margin-bottom:8px;">{{ avatar_letter }}</div>
+      <a href="{{ url_for('profile_edit') }}" class="edit-pencil">✏️</a>
+    </div>
+    <h1 style="font-size:20px; text-align:center;">{{ nickname if nickname else username }}</h1>
+    {% if nickname %}
+    <p class="subtitle" style="margin-bottom:2px;">@{{ username }}</p>
+    {% endif %}
+    <p class="subtitle" style="margin-bottom:20px;">{{ posts|length }} post &nbsp;·&nbsp; {{ products|length }} mahsulot</p>
+
+    <div class="profile-tabs">
+      <button class="tab-btn active" data-tab="posts-tab">Postlar</button>
+      <button class="tab-btn" data-tab="products-tab">Mahsulotlar</button>
+    </div>
+
+    <div id="posts-tab" class="feed-list tab-panel">
+      {% if posts|length == 0 %}
+        <p class="empty-feed">Hali post joylamagansiz.</p>
+      {% endif %}
+      {% for post in posts %}
+      <div class="post-card">
+        <div class="post-time">{{ post.created_at }}</div>
+        {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
+        {% if post.image_file %}
+        <img class="post-image" src="{{ url_for('static', filename='uploads/' + post.image_file) }}" alt="post">
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="products-tab" class="feed-list tab-panel" style="display:none;">
+      {% if products|length == 0 %}
+        <p class="empty-feed">Hali mahsulot qo'shmagansiz.</p>
+      {% endif %}
+      {% for p in products %}
+      <div class="product-card">
+        {% if p.image_file %}
+        <img class="product-image" src="{{ url_for('static', filename='uploads/' + p.image_file) }}" alt="{{ p.title }}">
+        {% endif %}
+        <div class="product-info">
+          <div class="product-title">{{ p.title }}</div>
+          <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} so'm</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.tab).style.display = "flex";
+      });
+    });
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>

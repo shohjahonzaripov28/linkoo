@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Bosh sahifa</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card dashboard-card">
+    <span class="settings-icon">⚙️</span>
+
+    <a href="{{ url_for('profile') }}" class="avatar-link">
+      <div class="avatar-circle">{{ avatar_letter }}</div>
+    </a>
+    <h1 style="font-size:22px;">Salom, {{ display_name }}!</h1>
+    <p class="subtitle">Linko'ga xush kelibsiz</p>
+
+    <div class="feature-grid">
+      <a href="{{ url_for('people') }}" class="feature-tile">
+        <div class="icon-badge badge-people">👤</div>
+        <div class="tile-label">Odamlar</div>
+        <span class="chevron">›</span>
+      </a>
+      <a href="{{ url_for('chat') }}" class="feature-tile">
+        <div class="icon-badge badge-chat">💬</div>
+        <div class="tile-label">Umumiy chat</div>
+        <span class="chevron">›</span>
+      </a>
+      <a href="{{ url_for('feed') }}" class="feature-tile">
+        <div class="icon-badge badge-feed">📷</div>
+        <div class="tile-label">Feed</div>
+        <span class="chevron">›</span>
+      </a>
+      <a href="{{ url_for('shop') }}" class="feature-tile">
+        <div class="icon-badge badge-shop">🛍️</div>
+        <div class="tile-label">Do'kon</div>
+        <span class="chevron">›</span>
+      </a>
+      <a href="{{ url_for('ai_page') }}" class="feature-tile">
+        <div class="icon-badge badge-ai">✨</div>
+        <div class="tile-label">Linko AI</div>
+        <span class="chevron">›</span>
+      </a>
+    </div>
+
+    <a href="{{ url_for('logout') }}" class="logout-link">Chiqish</a>
+  </div>
+  {% include 'navbar.html' %}
+</body>
+</html>

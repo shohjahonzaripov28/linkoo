@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Profilni tahrirlash</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card">
+    <div class="chat-header">
+      <a href="{{ url_for('profile') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">Profilni tahrirlash</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <div class="avatar-circle" style="margin: 10px auto 20px auto;">{{ avatar_letter }}</div>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST">
+      <div class="field">
+        <label>Nickname (ko'rinadigan ism)</label>
+        <input type="text" name="nickname" value="{{ nickname }}" placeholder="masalan: Shoh_UZ" maxlength="30">
+      </div>
+      <p style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:16px;">
+        Har bir nickname faqat bitta kishida bo'lishi mumkin. Login nomingiz (<b>{{ username }}</b>) o'zgarmaydi.
+      </p>
+      <button type="submit" class="btn-primary">Saqlash</button>
+    </form>
+  </div>
+
+  {% include 'navbar.html' %}
+</body>
+</html>

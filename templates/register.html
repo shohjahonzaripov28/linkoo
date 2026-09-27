@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Ro'yxatdan o'tish</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card">
+    <h1>Linko</h1>
+    <p class="subtitle">Yangi hisob yarating</p>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST">
+      <div class="field">
+        <label>Foydalanuvchi nomi</label>
+        <input type="text" name="username" placeholder="masalan: aziz_dev" required>
+      </div>
+      <div class="field">
+        <label>Parol</label>
+        <input type="password" name="password" placeholder="kamida 4 ta belgi" required>
+      </div>
+      <div class="field">
+        <label>Parolni tasdiqlang</label>
+        <input type="password" name="confirm" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="btn-primary">Ro'yxatdan o'tish</button>
+    </form>
+
+    <p class="switch-link">Hisobingiz bormi? <a href="{{ url_for('login') }}">Kirish</a></p>
+  </div>
+</body>
+</html>

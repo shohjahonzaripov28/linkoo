@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Odamlar</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">Odamlar</h1>
+      <div class="avatar-circle small">{{ avatar_letter }}</div>
+    </div>
+
+    <div class="feed-list">
+      {% if users|length == 0 %}
+        <p class="empty-feed">Hali boshqa foydalanuvchi ro'yxatdan o'tmagan.</p>
+      {% endif %}
+
+      {% for u in users %}
+      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
+        <div class="avatar-circle small">{{ u.avatar_letter }}</div>
+        <div class="person-name">{{ u.username }}</div>
+        <div class="person-arrow">→</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% include 'navbar.html' %}
+</body>
+</html>

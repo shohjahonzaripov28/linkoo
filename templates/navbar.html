@@ -1,0 +1,30 @@
+<div class="bottom-nav">
+  <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'home' %}active{% endif %}">
+    <span class="nav-icon">🏠</span>
+    <span>Bosh sahifa</span>
+  </a>
+  <a href="{{ url_for('people') }}" class="nav-item {% if active == 'people' %}active{% endif %}">
+    <span class="nav-icon">👥</span>
+    <span>Odamlar</span>
+  </a>
+  <a href="{{ url_for('chat') }}" class="nav-item {% if active == 'chat' %}active{% endif %}">
+    <span class="nav-icon">💬</span>
+    <span>Chat</span>
+  </a>
+  <a href="{{ url_for('feed') }}" class="nav-item {% if active == 'feed' %}active{% endif %}">
+    <span class="nav-icon">📷</span>
+    <span>Feed</span>
+  </a>
+  <a href="{{ url_for('shop') }}" class="nav-item {% if active == 'shop' %}active{% endif %}">
+    <span class="nav-icon">🛍️</span>
+    <span>Do'kon</span>
+  </a>
+  <a href="{{ url_for('ai_page') }}" class="nav-item {% if active == 'ai' %}active{% endif %}">
+    <span class="nav-icon">✨</span>
+    <span>AI</span>
+  </a>
+  <a href="{{ url_for('settings_page') }}" class="nav-item {% if active == 'settings' %}active{% endif %}">
+    <span class="nav-icon">⚙️</span>
+    <span>Sozlama</span>
+  </a>
+</div>

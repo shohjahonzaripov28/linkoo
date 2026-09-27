@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Kirish</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card">
+    <h1>Linko</h1>
+    <p class="subtitle">Hisobingizga kiring</p>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST">
+      <div class="field">
+        <label>Foydalanuvchi nomi</label>
+        <input type="text" name="username" placeholder="masalan: aziz_dev" required>
+      </div>
+      <div class="field">
+        <label>Parol</label>
+        <input type="password" name="password" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="btn-primary">Kirish</button>
+    </form>
+
+    <p class="switch-link">Hisobingiz yo'qmi? <a href="{{ url_for('register') }}">Ro'yxatdan o'tish</a></p>
+  </div>
+</body>
+</html>

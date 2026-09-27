@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Do'kon</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">Do'kon</h1>
+      <a href="{{ url_for('cart') }}" class="cart-link">
+        🛒
+        {% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
+      </a>
+    </div>
+
+    <form method="POST" enctype="multipart/form-data" class="new-post-form">
+      <input type="text" name="title" placeholder="Mahsulot nomi" class="shop-input" required>
+      <textarea name="description" placeholder="Tavsif (ixtiyoriy)" rows="2"></textarea>
+      <input type="number" name="price" placeholder="Narxi (so'm)" class="shop-input" min="1" required>
+      <div class="new-post-actions">
+        <label class="file-label">
+          📷 Rasm
+          <input type="file" name="image" accept="image/*" style="display:none;">
+        </label>
+        <button type="submit" class="btn-primary post-btn">Sotuvga qo'yish</button>
+      </div>
+    </form>
+
+    <div class="feed-list">
+      {% if products|length == 0 %}
+        <p class="empty-feed">Hali mahsulot yo'q. Birinchi bo'lib qo'shing!</p>
+      {% endif %}
+
+      {% for p in products %}
+      <div class="product-card">
+        {% if p.image_file %}
+        <img class="product-image" src="{{ url_for('static', filename='uploads/' + p.image_file) }}" alt="{{ p.title }}">
+        {% endif %}
+        <div class="product-info">
+          <div class="product-title">{{ p.title }}</div>
+          {% if p.description %}
+          <div class="product-desc">{{ p.description }}</div>
+          {% endif %}
+          <div class="product-footer">
+            <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} so'm</div>
+            <button class="add-cart-btn" data-product-id="{{ p.id }}">Savatga</button>
+          </div>
+          <div class="product-seller">Sotuvchi: {{ p.seller_username }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.querySelector('input[name="image"]');
+    const fileLabel = document.querySelector('.file-label');
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files.length > 0) {
+        fileLabel.innerHTML = "✅ " + fileInput.files[0].name;
+      }
+    });
+
+    document.querySelectorAll(".add-cart-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const productId = btn.dataset.productId;
+        const res = await fetch(`/api/cart/add/${productId}`, { method: "POST" });
+        const data = await res.json();
+        btn.textContent = "Qo'shildi ✓";
+        setTimeout(() => { btn.textContent = "Savatga"; }, 1200);
+
+        let badge = document.querySelector(".cart-badge");
+        const cartLink = document.querySelector(".cart-link");
+        if (!badge) {
+          badge = document.createElement("span");
+          badge.className = "cart-badge";
+          cartLink.appendChild(badge);
+        }
+        badge.textContent = data.cart_count;
+      });
+    });
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>
