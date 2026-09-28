@@ -15,7 +15,11 @@
     </div>
 
     <div class="profile-avatar-wrap">
-      <div class="avatar-circle" style="margin-bottom:8px;">{{ avatar_letter }}</div>
+      {% if avatar_file %}
+        <img class="avatar-circle" src="{{ url_for('static', filename='uploads/' + avatar_file) }}" alt="" style="margin-bottom:8px;">
+      {% else %}
+        <div class="avatar-circle" style="margin-bottom:8px;">{{ avatar_letter }}</div>
+      {% endif %}
       <a href="{{ url_for('profile_edit') }}" class="edit-pencil">✏️</a>
     </div>
     <h1 style="font-size:20px; text-align:center;">{{ nickname if nickname else username }}</h1>

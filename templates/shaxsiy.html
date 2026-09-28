@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Shaxsiy</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">Shaxsiy</h1>
+      <a href="{{ url_for('people') }}" class="back-link" title="Yangi suhbat">＋</a>
+    </div>
+
+    <div class="feed-list">
+      {% if conversations|length == 0 %}
+        <p class="empty-feed">Hali suhbatingiz yo'q. <a href="{{ url_for('people') }}" style="color:#c4b5fd;">Kontaklar</a>dan birini tanlang.</p>
+      {% endif %}
+
+      {% for u in conversations %}
+      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
+        {% if u.avatar_file %}
+          <img class="avatar-circle small" src="{{ url_for('static', filename='uploads/' + u.avatar_file) }}" alt="">
+        {% else %}
+          <div class="avatar-circle small">{{ u.avatar_letter }}</div>
+        {% endif %}
+        <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
+        <div class="person-arrow">→</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% include 'navbar.html' %}
+</body>
+</html>

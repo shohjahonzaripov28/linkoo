@@ -19,7 +19,19 @@
         <div class="avatar-circle small">{{ avatar_letter }}</div>
         <div class="person-name">{{ username }}</div>
       </div>
-      <p class="empty-feed">Boshqa sozlamalar (til, bildirishnoma, parolni o'zgartirish) tez orada qo'shiladi.</p>
+      <a href="{{ url_for('profile_edit') }}" class="person-row">
+        <div class="tile-label" style="font-size:14px;">✏️ Profilni tahrirlash</div>
+        <div class="person-arrow">→</div>
+      </a>
+      <a href="{{ url_for('storage_page') }}" class="person-row">
+        <div class="tile-label" style="font-size:14px;">💾 Xotira</div>
+        <div class="person-arrow">→</div>
+      </a>
+      <a href="{{ url_for('privacy_page') }}" class="person-row">
+        <div class="tile-label" style="font-size:14px;">📜 Maxfiylik va shartlar</div>
+        <div class="person-arrow">→</div>
+      </a>
+      <p class="empty-feed">Til tanlash va boshqa sozlamalar tez orada qo'shiladi.</p>
       <a href="{{ url_for('logout') }}" class="logout-link" style="margin-top:10px;">Chiqish</a>
     </div>
   </div>

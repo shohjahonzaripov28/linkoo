@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Kontakt qo'shish</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card">
+    <div class="chat-header">
+      <a href="{{ url_for('people') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">Kontakt qo'shish</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    {% if target.avatar_file %}
+      <img class="avatar-circle" src="{{ url_for('static', filename='uploads/' + target.avatar_file) }}" alt="" style="margin: 10px auto 16px auto;">
+    {% else %}
+      <div class="avatar-circle" style="margin: 10px auto 16px auto;">{{ target.avatar_letter }}</div>
+    {% endif %}
+
+    <p style="text-align:center; font-size:18px; font-weight:700;">{{ target.nickname if target.nickname else target.username }}</p>
+    <p style="text-align:center; opacity:0.6; margin-bottom:20px;">@{{ target.username }}</p>
+
+    {% if is_me %}
+      <p class="empty-feed">Bu sizning o'z profilingiz 🙂</p>
+    {% elif is_contact %}
+      <p class="empty-feed">Bu foydalanuvchi allaqachon kontaktlaringizda.</p>
+      <a href="{{ url_for('dm', other_username=target.username) }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Suhbatga o'tish</a>
+    {% elif is_pending %}
+      <p class="empty-feed">So'rov allaqachon yuborilgan, javobni kuting.</p>
+    {% else %}
+      <button id="send-request-btn" class="btn-primary">Kontakt so'rovi yuborish</button>
+    {% endif %}
+  </div>
+
+  <script>
+    const btn = document.getElementById("send-request-btn");
+    if (btn) {
+      btn.addEventListener("click", async () => {
+        const res = await fetch(`/api/contacts/request/{{ target.username }}`, { method: "POST" });
+        const data = await res.json();
+        btn.outerHTML = `<p class="empty-feed">${data.status === "accepted" ? "Kontaktlaringizga qo'shildi!" : "So'rov yuborildi!"}</p>`;
+      });
+    }
+  </script>
+
+  {% include 'navbar.html' %}
+</body>
+</html>

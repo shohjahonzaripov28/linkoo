@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Yangi guruh</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('groups_list') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">Yangi guruh</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <form method="POST" class="new-post-form">
+      <input type="text" name="name" class="shop-input" placeholder="Guruh nomi" required style="margin-bottom:14px;">
+
+      <p style="font-size:13px; color:rgba(255,255,255,0.7); margin-bottom:8px;">A'zolarni tanlang:</p>
+      <div class="feed-list" style="max-height:220px; overflow-y:auto;">
+        {% if users|length == 0 %}
+          <p class="empty-feed">Hali boshqa foydalanuvchi yo'q.</p>
+        {% endif %}
+        {% for u in users %}
+        <label class="person-row" style="cursor:pointer;">
+          <input type="checkbox" name="members" value="{{ u.username }}" style="width:18px; height:18px;">
+          <div class="avatar-circle small">{{ u.avatar_letter }}</div>
+          <div class="person-name">{{ u.username }}</div>
+        </label>
+        {% endfor %}
+      </div>
+
+      <button type="submit" class="btn-primary" style="margin-top:16px;">Guruh yaratish</button>
+    </form>
+  </div>
+
+  {% include 'navbar.html' %}
+</body>
+</html>

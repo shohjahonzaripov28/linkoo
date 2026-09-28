@@ -14,7 +14,18 @@
       <div style="width:36px;"></div>
     </div>
 
-    <div class="avatar-circle" style="margin: 10px auto 20px auto;">{{ avatar_letter }}</div>
+    <div class="profile-avatar-wrap">
+      {% if avatar_file %}
+        <img class="avatar-circle" src="{{ url_for('static', filename='uploads/' + avatar_file) }}" alt="" style="margin: 10px auto 8px auto;">
+      {% else %}
+        <div class="avatar-circle" style="margin: 10px auto 8px auto;">{{ avatar_letter }}</div>
+      {% endif %}
+    </div>
+    {% if avatar_file %}
+    <form method="POST" action="{{ url_for('profile_avatar_remove') }}" style="text-align:center; margin-bottom:16px;">
+      <button type="submit" class="remove-avatar-btn">Rasmni o'chirish</button>
+    </form>
+    {% endif %}
 
     {% with messages = get_flashed_messages() %}
       {% if messages %}
@@ -24,7 +35,11 @@
       {% endif %}
     {% endwith %}
 
-    <form method="POST">
+    <form method="POST" enctype="multipart/form-data">
+      <div class="field">
+        <label>Profil rasmi</label>
+        <input type="file" name="avatar_image" accept="image/*" class="shop-input" style="padding:8px 0;">
+      </div>
       <div class="field">
         <label>Nickname (ko'rinadigan ism)</label>
         <input type="text" name="nickname" value="{{ nickname }}" placeholder="masalan: Shoh_UZ" maxlength="30">

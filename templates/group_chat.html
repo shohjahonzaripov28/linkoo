@@ -3,20 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - {{ other_username }}</title>
+  <title>Linko - {{ group.name }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card chat-card">
     <div class="chat-header">
-      <a href="{{ url_for('shaxsiy') }}" class="back-link">←</a>
+      <a href="{{ url_for('groups_list') }}" class="back-link">←</a>
       <div class="dm-title">
-        {% if other_avatar_file %}
-          <img class="avatar-circle small" src="{{ url_for('static', filename='uploads/' + other_avatar_file) }}" alt="">
-        {% else %}
-          <div class="avatar-circle small">{{ other_avatar }}</div>
-        {% endif %}
-        <h1 style="font-size:18px;">{{ other_username }}</h1>
+        <div class="avatar-circle small">{{ group.avatar_letter }}</div>
+        <h1 style="font-size:18px;">{{ group.name }}</h1>
       </div>
       <div style="width:36px;"></div>
     </div>
@@ -39,7 +35,7 @@
 
   <script>
     const me = "{{ username }}";
-    const otherUsername = "{{ other_username }}";
+    const groupId = {{ group.id }};
     const messagesBox = document.getElementById("messages");
     const form = document.getElementById("send-form");
     const input = document.getElementById("message-input");
@@ -68,28 +64,29 @@
     function renderMessages(messages) {
       messagesBox.innerHTML = "";
       messages.forEach((m) => {
-        const isMe = m.sender === me;
-        const bubble = document.createElement("div");
-        bubble.className = "msg-row " + (isMe ? "msg-right" : "msg-left");
+        const isMe = m.username === me;
+        const row = document.createElement("div");
+        row.className = "msg-row " + (isMe ? "msg-right" : "msg-left");
         let imgHtml = "";
         if (m.image_file) {
           imgHtml = `<img class="msg-image" src="/static/uploads/${m.image_file}" alt="">`;
         }
-        bubble.innerHTML = `
+        row.innerHTML = `
           <div class="msg-bubble ${isMe ? "msg-mine" : "msg-other"}">
+            ${!isMe ? `<div class="msg-author">${escapeHtml(m.username)}</div>` : ""}
             ${imgHtml}
             ${m.content ? `<div class="msg-text">${escapeHtml(m.content)}</div>` : ""}
             <div class="msg-time">${m.created_at}</div>
             ${isMe ? `<button class="msg-delete-btn" data-id="${m.id}">O'chirish</button>` : ""}
           </div>
         `;
-        messagesBox.appendChild(bubble);
+        messagesBox.appendChild(row);
       });
       messagesBox.scrollTop = messagesBox.scrollHeight;
 
       document.querySelectorAll(".msg-delete-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
-          await fetch(`/api/dm/delete/${btn.dataset.id}`, { method: "POST" });
+          await fetch(`/api/groups/message/delete/${btn.dataset.id}`, { method: "POST" });
           loadMessages();
         });
       });
@@ -97,12 +94,12 @@
 
     async function loadMessages() {
       try {
-        const res = await fetch(`/api/dm/${otherUsername}`);
+        const res = await fetch(`/api/groups/${groupId}/messages`);
         if (!res.ok) return;
         const data = await res.json();
         renderMessages(data.messages);
       } catch (e) {
-        console.error("Xabarlarni yuklashda xato:", e);
+        console.error(e);
       }
     }
 
@@ -120,12 +117,8 @@
       imageInput.value = "";
       previewRow.style.display = "none";
 
-      try {
-        await fetch(`/api/dm/send/${otherUsername}`, { method: "POST", body: formData });
-        loadMessages();
-      } catch (e) {
-        console.error("Xabar yuborishda xato:", e);
-      }
+      await fetch(`/api/groups/${groupId}/send`, { method: "POST", body: formData });
+      loadMessages();
     });
 
     loadMessages();

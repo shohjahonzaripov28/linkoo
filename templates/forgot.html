@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - Parolni tiklash</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="glass-card">
+    <h1>Parolni tiklash</h1>
+    <p class="subtitle">{{ "Foydalanuvchi nomingizni kiriting" if step == "username" else "Xavfsizlik savoliga javob bering" }}</p>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% if step == "username" %}
+    <form method="POST">
+      <input type="hidden" name="step" value="username">
+      <div class="field">
+        <label>Foydalanuvchi nomi</label>
+        <input type="text" name="username" placeholder="masalan: aziz_dev" required>
+      </div>
+      <button type="submit" class="btn-primary">Davom etish</button>
+    </form>
+    {% else %}
+    <form method="POST">
+      <input type="hidden" name="step" value="answer">
+      <input type="hidden" name="username" value="{{ username }}">
+      <div class="field">
+        <label>Eng yaqin do'stingizning ismi?</label>
+        <input type="text" name="security_answer" placeholder="Javobingiz" required>
+      </div>
+      <div class="field">
+        <label>Yangi parol</label>
+        <input type="password" name="new_password" placeholder="kamida 4 ta belgi" required>
+      </div>
+      <button type="submit" class="btn-primary">Parolni o'zgartirish</button>
+    </form>
+    {% endif %}
+
+    <p class="switch-link">Esladingizmi? <a href="{{ url_for('login') }}">Kirish</a></p>
+  </div>
+</body>
+</html>

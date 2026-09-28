@@ -3,25 +3,29 @@
     <span class="nav-icon">🏠</span>
     <span>Bosh sahifa</span>
   </a>
-  <a href="{{ url_for('people') }}" class="nav-item {% if active == 'people' %}active{% endif %}">
+  <a href="{{ url_for('groups_list') }}" class="nav-item {% if active == 'groups' %}active{% endif %}">
     <span class="nav-icon">👥</span>
-    <span>Odamlar</span>
+    <span>Guruhlar</span>
   </a>
-  <a href="{{ url_for('chat') }}" class="nav-item {% if active == 'chat' %}active{% endif %}">
+  <a href="{{ url_for('shaxsiy') }}" class="nav-item {% if active == 'shaxsiy' %}active{% endif %}">
     <span class="nav-icon">💬</span>
-    <span>Chat</span>
+    <span>Shaxsiy</span>
   </a>
-  <a href="{{ url_for('feed') }}" class="nav-item {% if active == 'feed' %}active{% endif %}">
-    <span class="nav-icon">📷</span>
-    <span>Feed</span>
+  <a href="{{ url_for('people') }}" class="nav-item {% if active == 'people' %}active{% endif %}">
+    <span class="nav-icon">📇</span>
+    <span>Kontaklar</span>
   </a>
   <a href="{{ url_for('shop') }}" class="nav-item {% if active == 'shop' %}active{% endif %}">
     <span class="nav-icon">🛍️</span>
     <span>Do'kon</span>
   </a>
-  <a href="{{ url_for('ai_page') }}" class="nav-item {% if active == 'ai' %}active{% endif %}">
-    <span class="nav-icon">✨</span>
-    <span>AI</span>
+  <a href="{{ url_for('feed') }}" class="nav-item {% if active == 'feed' %}active{% endif %}">
+    <span class="nav-icon">📷</span>
+    <span>Feed</span>
+  </a>
+  <a href="{{ url_for('profile') }}" class="nav-item {% if active == 'profile' %}active{% endif %}">
+    <span class="nav-icon">👤</span>
+    <span>Profil</span>
   </a>
   <a href="{{ url_for('settings_page') }}" class="nav-item {% if active == 'settings' %}active{% endif %}">
     <span class="nav-icon">⚙️</span>

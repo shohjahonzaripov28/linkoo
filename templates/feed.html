@@ -34,14 +34,17 @@
       <div class="post-card">
         <div class="post-header">
           <div class="avatar-circle small">{{ post.avatar_letter }}</div>
-          <div>
+          <div style="flex:1;">
             <div class="post-author">{{ post.username }}</div>
             <div class="post-time">{{ post.created_at }}</div>
           </div>
+          {% if post.username == username %}
+          <button class="post-delete-btn" data-post-id="{{ post.id }}" title="O'chirish">🗑️</button>
+          {% endif %}
         </div>
 
         {% if post.content %}
-        <div class="post-text">{{ post.content }}</div>
+        <div class="post-text" data-post-text="{{ post.id }}">{{ post.content }}</div>
         {% endif %}
 
         {% if post.image_file %}
@@ -76,6 +79,19 @@
         btn.querySelector(".heart").textContent = data.liked ? "❤️" : "🤍";
         btn.querySelector(".like-count").textContent = data.like_count;
         btn.classList.toggle("liked", data.liked);
+      });
+    });
+
+    // Postni o'chirish
+    document.querySelectorAll(".post-delete-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Bu postni o'chirmoqchimisiz?")) return;
+        const postId = btn.dataset.postId;
+        const res = await fetch(`/api/posts/delete/${postId}`, { method: "POST" });
+        const data = await res.json();
+        if (data.ok) {
+          btn.closest(".post-card").remove();
+        }
       });
     });
   </script>
