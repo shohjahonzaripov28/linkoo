@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - QR skanerlash</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+</head>
+<body>
+  <div class="glass-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">QR skanerlash</h1>
+      <a href="{{ url_for('qr_page') }}" class="back-link" title="Mening QR kodim">▦</a>
+    </div>
+
+    <div class="scan-frame">
+      <video id="scan-video" playsinline autoplay muted></video>
+      <div class="scan-box"></div>
+    </div>
+    <canvas id="scan-canvas" style="display:none;"></canvas>
+
+    <p id="scan-status" style="text-align:center; font-size:13px; opacity:0.7; margin-top:14px;">
+      Kamera ochilmoqda...
+    </p>
+  </div>
+
+  {% include 'navbar.html' %}
+
+  <script>
+    const video = document.getElementById("scan-video");
+    const canvas = document.getElementById("scan-canvas");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("scan-status");
+    let scanning = true;
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
+        video.srcObject = stream;
+        statusEl.textContent = "QR kodni ramka ichiga tushiring";
+        requestAnimationFrame(tick);
+      } catch (err) {
+        statusEl.textContent = "Kameraga ruxsat berilmadi yoki topilmadi.";
+      }
+    }
+
+    function tick() {
+      if (!scanning) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code && code.data) {
+          scanning = false;
+          statusEl.textContent = "Topildi! Yo'naltirilmoqda...";
+          handleResult(code.data);
+          return;
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    function handleResult(text) {
+      try {
+        const url = new URL(text);
+        // Faqat shu saytning o'ziga tegishli manzillarga avtomatik o'tamiz
+        if (url.origin === window.location.origin) {
+          window.location.href = text;
+          return;
+        }
+      } catch (e) {
+        // URL emas
+      }
+      statusEl.innerHTML = `Topilgan matn: <b>${text.replace(/</g, "&lt;")}</b>`;
+    }
+
+    startCamera();
+  </script>
+</body>
+</html>

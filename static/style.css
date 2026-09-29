@@ -67,6 +67,36 @@ body::after {
   color: #fff;
 }
 
+/* Telefon ekranida - chegara/chiziqlarsiz, to'liq ekranga yoyilgan dizayn */
+@media (max-width: 480px) {
+  body {
+    padding: 0;
+    padding-bottom: 84px;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+  .glass-card {
+    max-width: 100%;
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    padding: 24px 18px;
+  }
+  .bottom-nav {
+    width: calc(100% - 12px);
+    padding: 8px 2px;
+    border-radius: 20px;
+  }
+  .nav-item {
+    font-size: 8px;
+  }
+  .nav-item .nav-icon {
+    font-size: 16px;
+  }
+}
+
 .glass-card h1 {
   font-size: 28px;
   font-weight: 700;
@@ -961,4 +991,74 @@ img.avatar-circle {
   font-size: 12px;
   cursor: pointer;
   margin-top: 8px;
+}
+
+.terms-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.75);
+  margin-bottom: 18px;
+  cursor: pointer;
+}
+
+.terms-checkbox input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.terms-checkbox a {
+  color: #c4b5fd;
+}
+
+.scan-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  background: #000;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.scan-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scan-box {
+  position: absolute;
+  top: 15%;
+  left: 15%;
+  width: 70%;
+  height: 70%;
+  border: 3px solid rgba(255,255,255,0.8);
+  border-radius: 16px;
+  box-shadow: 0 0 0 999px rgba(0,0,0,0.35);
+}
+
+.lang-switcher {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.lang-btn {
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.65);
+  text-decoration: none;
+}
+
+.lang-btn.active {
+  background: rgba(255,255,255,0.9);
+  color: #4c1d95;
+  font-weight: 700;
+  border-color: transparent;
 }

@@ -31,8 +31,11 @@
         <div class="tile-label" style="font-size:14px;">📜 Maxfiylik va shartlar</div>
         <div class="person-arrow">→</div>
       </a>
-      <p class="empty-feed">Til tanlash va boshqa sozlamalar tez orada qo'shiladi.</p>
-      <a href="{{ url_for('logout') }}" class="logout-link" style="margin-top:10px;">Chiqish</a>
+
+      <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:16px 0 8px 4px;">{{ t.choose_language }}</p>
+      {% include 'lang_switcher.html' %}
+
+      <a href="{{ url_for('logout') }}" class="logout-link" style="margin-top:10px;">{{ t.logout }}</a>
     </div>
   </div>
 

@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Kirish</title>
+  <title>Linko</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card">
+    {% include 'lang_switcher.html' %}
     <h1>Linko</h1>
-    <p class="subtitle">Hisobingizga kiring</p>
+    <p class="subtitle">{{ t.login_title }}</p>
 
     {% with messages = get_flashed_messages() %}
       {% if messages %}
@@ -21,18 +22,18 @@
 
     <form method="POST">
       <div class="field">
-        <label>Foydalanuvchi nomi</label>
+        <label>{{ t.username }}</label>
         <input type="text" name="username" placeholder="masalan: aziz_dev" required>
       </div>
       <div class="field">
-        <label>Parol</label>
+        <label>{{ t.password }}</label>
         <input type="password" name="password" placeholder="••••••••" required>
       </div>
-      <button type="submit" class="btn-primary">Kirish</button>
+      <button type="submit" class="btn-primary">{{ t.login_btn }}</button>
     </form>
 
-    <p class="switch-link">Hisobingiz yo'qmi? <a href="{{ url_for('register') }}">Ro'yxatdan o'tish</a></p>
-    <p class="switch-link" style="margin-top:8px;"><a href="{{ url_for('forgot_password') }}">Parolni unutdingizmi?</a></p>
+    <p class="switch-link">{{ t.no_account }} <a href="{{ url_for('register') }}">{{ t.register_link }}</a></p>
+    <p class="switch-link" style="margin-top:8px;"><a href="{{ url_for('forgot_password') }}">{{ t.forgot_link }}</a></p>
   </div>
 </body>
 </html>

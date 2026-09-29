@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Ro'yxatdan o'tish</title>
+  <title>Linko</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card">
+    {% include 'lang_switcher.html' %}
     <h1>Linko</h1>
-    <p class="subtitle">Yangi hisob yarating</p>
+    <p class="subtitle">{{ t.reg_title }}</p>
 
     {% with messages = get_flashed_messages() %}
       {% if messages %}
@@ -21,28 +22,32 @@
 
     <form method="POST">
       <div class="field">
-        <label>Foydalanuvchi nomi</label>
+        <label>{{ t.username }}</label>
         <input type="text" name="username" placeholder="masalan: aziz_dev" required>
       </div>
       <div class="field">
-        <label>Parol</label>
+        <label>{{ t.password }}</label>
         <input type="password" name="password" placeholder="kamida 4 ta belgi" required>
       </div>
       <div class="field">
-        <label>Parolni tasdiqlang</label>
+        <label>{{ t.confirm_password }}</label>
         <input type="password" name="confirm" placeholder="••••••••" required>
       </div>
       <div class="field">
-        <label>Xavfsizlik savoli: Eng yaqin do'stingizning ismi?</label>
-        <input type="text" name="security_answer" placeholder="Javobingiz" required>
+        <label>{{ t.security_q }}</label>
+        <input type="text" name="security_answer" placeholder="..." required>
       </div>
       <p style="font-size:11px; color:rgba(255,255,255,0.55); margin-bottom:14px;">
-        Parolingizni unutsangiz, shu savol orqali tiklaysiz.
+        {{ t.security_note }}
       </p>
-      <button type="submit" class="btn-primary">Ro'yxatdan o'tish</button>
+      <label class="terms-checkbox">
+        <input type="checkbox" name="terms_accepted" value="1" required>
+        <span>{{ t.terms_prefix }} <a href="{{ url_for('privacy_page') }}" target="_blank">{{ t.terms_link }}</a> {{ t.terms_suffix }}</span>
+      </label>
+      <button type="submit" class="btn-primary">{{ t.reg_btn }}</button>
     </form>
 
-    <p class="switch-link">Hisobingiz bormi? <a href="{{ url_for('login') }}">Kirish</a></p>
+    <p class="switch-link">{{ t.have_account }} <a href="{{ url_for('login') }}">{{ t.login_link }}</a></p>
   </div>
 </body>
 </html>

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Bosh sahifa</title>
+  <title>Linko</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -17,7 +17,7 @@
         {% endif %}
       </a>
       <div class="dash-greeting-mini">
-        <div style="font-size:12px; opacity:0.7;">Salom,</div>
+        <div style="font-size:12px; opacity:0.7;">{{ t.greeting_hello }}</div>
         <div style="font-weight:700;">{{ display_name }}!</div>
       </div>
       <a href="{{ url_for('people') }}" class="settings-icon-inline" style="margin-right:4px; position:relative;" title="Bildirishnomalar">
@@ -25,18 +25,18 @@
         {% if pending_count > 0 %}<span class="notif-badge">{{ pending_count }}</span>{% endif %}
       </a>
       <a href="{{ url_for('qr_page') }}" class="settings-icon-inline" style="margin-right:4px;" title="Mening QR kodim">▦</a>
-      <a href="{{ url_for('settings_page') }}" class="settings-icon-inline">⚙️</a>
+      <a href="{{ url_for('scan_page') }}" class="settings-icon-inline" title="QR skanerlash">📷</a>
     </div>
 
     <div class="greeting-banner">
       <div>
-        <div style="font-size:20px; font-weight:700;">Salom, {{ display_name }}!</div>
-        <div style="opacity:0.75; font-size:13px; margin-top:4px;">Yaxshi kun tilayman ✨</div>
+        <div style="font-size:20px; font-weight:700;">{{ t.greeting_hello }} {{ display_name }}!</div>
+        <div style="opacity:0.75; font-size:13px; margin-top:4px;">{{ t.greeting_wish }} ✨</div>
       </div>
     </div>
 
     <a href="{{ url_for('ai_page') }}" class="quick-pill">
-      <span>✨</span> Tezda kerakli bo'limni tanlang
+      <span>✨</span> {{ t.quick_pick }}
       <span class="chevron">›</span>
     </a>
 
@@ -44,60 +44,60 @@
       <a href="{{ url_for('groups_list') }}" class="feature-tile">
         <div class="icon-badge badge-people">👥</div>
         <div>
-          <div class="tile-label">Guruhlar</div>
-          <div class="tile-sub">Do'stlaringiz bilan chat qiling</div>
+          <div class="tile-label">{{ t.tile_groups }}</div>
+          <div class="tile-sub">{{ t.tile_groups_sub }}</div>
         </div>
         <span class="chevron">›</span>
       </a>
       <a href="{{ url_for('shaxsiy') }}" class="feature-tile">
         <div class="icon-badge badge-chat">💬</div>
         <div>
-          <div class="tile-label">Shaxsiy</div>
-          <div class="tile-sub">Shaxsiy xabarlar va suhbatlar</div>
+          <div class="tile-label">{{ t.tile_personal }}</div>
+          <div class="tile-sub">{{ t.tile_personal_sub }}</div>
         </div>
         <span class="chevron">›</span>
       </a>
       <a href="{{ url_for('people') }}" class="feature-tile">
         <div class="icon-badge badge-contacts">📇</div>
         <div>
-          <div class="tile-label">Kontaklar</div>
-          <div class="tile-sub">Barcha kontaktlaringiz</div>
+          <div class="tile-label">{{ t.tile_contacts }}</div>
+          <div class="tile-sub">{{ t.tile_contacts_sub }}</div>
         </div>
         <span class="chevron">›</span>
       </a>
       <a href="{{ url_for('shop') }}" class="feature-tile">
         <div class="icon-badge badge-shop">🛍️</div>
         <div>
-          <div class="tile-label">Do'kon</div>
-          <div class="tile-sub">Mahsulotlar va xizmatlar</div>
+          <div class="tile-label">{{ t.tile_shop }}</div>
+          <div class="tile-sub">{{ t.tile_shop_sub }}</div>
         </div>
         <span class="chevron">›</span>
       </a>
       <a href="{{ url_for('feed') }}" class="feature-tile">
         <div class="icon-badge badge-feed">📷</div>
         <div>
-          <div class="tile-label">Feed</div>
-          <div class="tile-sub">Yangiliklar va postlar</div>
+          <div class="tile-label">{{ t.tile_feed }}</div>
+          <div class="tile-sub">{{ t.tile_feed_sub }}</div>
         </div>
         <span class="chevron">›</span>
       </a>
       <a href="{{ url_for('ai_page') }}" class="feature-tile">
         <div class="icon-badge badge-ai">✨</div>
         <div>
-          <div class="tile-label">Linko AI</div>
-          <div class="tile-sub">Sun'iy intellekt yordamchisi</div>
+          <div class="tile-label">{{ t.tile_ai }}</div>
+          <div class="tile-sub">{{ t.tile_ai_sub }}</div>
         </div>
         <span class="chevron">›</span>
       </a>
     </div>
 
     <a href="{{ url_for('ai_page') }}" class="ai-promo">
-      <div style="font-weight:700; font-size:15px; margin-bottom:4px;">Linko AI bilan yangi imkoniyatlar</div>
-      <div style="font-size:12px; opacity:0.8; margin-bottom:10px;">Savolga javob, tarjima va boshqa ko'plab imkoniyatlar endi siz bilan.</div>
-      <span class="ai-promo-btn">Boshlash →</span>
+      <div style="font-weight:700; font-size:15px; margin-bottom:4px;">{{ t.ai_promo_title }}</div>
+      <div style="font-size:12px; opacity:0.8; margin-bottom:10px;">{{ t.ai_promo_sub }}</div>
+      <span class="ai-promo-btn">{{ t.ai_promo_btn }} →</span>
     </a>
 
-    <a href="{{ url_for('logout') }}" class="logout-link">Chiqish</a>
+    <a href="{{ url_for('logout') }}" class="logout-link">{{ t.logout }}</a>
   </div>
 
   {% include 'navbar.html' %}

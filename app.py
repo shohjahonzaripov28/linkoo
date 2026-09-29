@@ -38,6 +38,218 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
+# ---------- Tillar (i18n) ----------
+LANG_NAMES = {"uz": "O'zbek", "ru": "Русский", "zh": "中文", "en": "English"}
+
+TRANSLATIONS = {
+    "uz": {
+        "login_title": "Hisobingizga kiring",
+        "username": "Foydalanuvchi nomi",
+        "password": "Parol",
+        "login_btn": "Kirish",
+        "no_account": "Hisobingiz yo'qmi?",
+        "register_link": "Ro'yxatdan o'tish",
+        "forgot_link": "Parolni unutdingizmi?",
+        "reg_title": "Yangi hisob yarating",
+        "confirm_password": "Parolni tasdiqlang",
+        "security_q": "Xavfsizlik savoli: Eng yaqin do'stingizning ismi?",
+        "security_note": "Parolingizni unutsangiz, shu savol orqali tiklaysiz.",
+        "terms_prefix": "Men",
+        "terms_link": "ommaviy oferta va maxfiylik siyosatiga",
+        "terms_suffix": "roziman",
+        "reg_btn": "Ro'yxatdan o'tish",
+        "have_account": "Hisobingiz bormi?",
+        "login_link": "Kirish",
+        "nav_home": "Bosh",
+        "nav_groups": "Guruh",
+        "nav_personal": "Shaxsiy",
+        "nav_contacts": "Kontakt",
+        "nav_shop": "Do'kon",
+        "nav_feed": "Feed",
+        "nav_profile": "Profil",
+        "nav_settings": "Sozlama",
+        "greeting_hello": "Salom,",
+        "greeting_wish": "Yaxshi kun tilayman",
+        "quick_pick": "Tezda kerakli bo'limni tanlang",
+        "tile_groups": "Guruhlar",
+        "tile_groups_sub": "Do'stlar bilan chat",
+        "tile_personal": "Shaxsiy",
+        "tile_personal_sub": "Shaxsiy suhbatlar",
+        "tile_contacts": "Kontaklar",
+        "tile_contacts_sub": "Barcha kontaktlar",
+        "tile_shop": "Do'kon",
+        "tile_shop_sub": "Mahsulot va xizmatlar",
+        "tile_feed": "Feed",
+        "tile_feed_sub": "Yangiliklar va postlar",
+        "tile_ai": "Linko AI",
+        "tile_ai_sub": "Sun'iy intellekt yordamchisi",
+        "ai_promo_title": "Linko AI bilan yangi imkoniyatlar",
+        "ai_promo_sub": "Savolga javob, tarjima va boshqa ko'plab imkoniyatlar endi siz bilan.",
+        "ai_promo_btn": "Boshlash",
+        "logout": "Chiqish",
+        "choose_language": "Tilni tanlang",
+    },
+    "ru": {
+        "login_title": "Войдите в аккаунт",
+        "username": "Имя пользователя",
+        "password": "Пароль",
+        "login_btn": "Войти",
+        "no_account": "Нет аккаунта?",
+        "register_link": "Зарегистрироваться",
+        "forgot_link": "Забыли пароль?",
+        "reg_title": "Создайте новый аккаунт",
+        "confirm_password": "Подтвердите пароль",
+        "security_q": "Контрольный вопрос: Имя вашего лучшего друга?",
+        "security_note": "Если забудете пароль, восстановите его через этот вопрос.",
+        "terms_prefix": "Я согласен с",
+        "terms_link": "публичной офертой и политикой конфиденциальности",
+        "terms_suffix": "",
+        "reg_btn": "Зарегистрироваться",
+        "have_account": "Уже есть аккаунт?",
+        "login_link": "Войти",
+        "nav_home": "Главная",
+        "nav_groups": "Группы",
+        "nav_personal": "Личные",
+        "nav_contacts": "Контакты",
+        "nav_shop": "Магазин",
+        "nav_feed": "Лента",
+        "nav_profile": "Профиль",
+        "nav_settings": "Настройки",
+        "greeting_hello": "Привет,",
+        "greeting_wish": "Хорошего дня",
+        "quick_pick": "Выберите нужный раздел",
+        "tile_groups": "Группы",
+        "tile_groups_sub": "Чат с друзьями",
+        "tile_personal": "Личные",
+        "tile_personal_sub": "Личные переписки",
+        "tile_contacts": "Контакты",
+        "tile_contacts_sub": "Все контакты",
+        "tile_shop": "Магазин",
+        "tile_shop_sub": "Товары и услуги",
+        "tile_feed": "Лента",
+        "tile_feed_sub": "Новости и посты",
+        "tile_ai": "Linko AI",
+        "tile_ai_sub": "Помощник с ИИ",
+        "ai_promo_title": "Новые возможности с Linko AI",
+        "ai_promo_sub": "Ответы на вопросы, перевод и многое другое теперь с вами.",
+        "ai_promo_btn": "Начать",
+        "logout": "Выйти",
+        "choose_language": "Выберите язык",
+    },
+    "zh": {
+        "login_title": "登录您的账户",
+        "username": "用户名",
+        "password": "密码",
+        "login_btn": "登录",
+        "no_account": "还没有账户？",
+        "register_link": "注册",
+        "forgot_link": "忘记密码？",
+        "reg_title": "创建新账户",
+        "confirm_password": "确认密码",
+        "security_q": "安全问题：您最好朋友的名字？",
+        "security_note": "如果忘记密码，可通过此问题重置。",
+        "terms_prefix": "我同意",
+        "terms_link": "公开要约和隐私政策",
+        "terms_suffix": "",
+        "reg_btn": "注册",
+        "have_account": "已有账户？",
+        "login_link": "登录",
+        "nav_home": "首页",
+        "nav_groups": "群组",
+        "nav_personal": "私信",
+        "nav_contacts": "联系人",
+        "nav_shop": "商店",
+        "nav_feed": "动态",
+        "nav_profile": "我的",
+        "nav_settings": "设置",
+        "greeting_hello": "你好，",
+        "greeting_wish": "祝你今天愉快",
+        "quick_pick": "快速选择所需板块",
+        "tile_groups": "群组",
+        "tile_groups_sub": "与朋友聊天",
+        "tile_personal": "私信",
+        "tile_personal_sub": "私人对话",
+        "tile_contacts": "联系人",
+        "tile_contacts_sub": "所有联系人",
+        "tile_shop": "商店",
+        "tile_shop_sub": "商品与服务",
+        "tile_feed": "动态",
+        "tile_feed_sub": "新闻与帖子",
+        "tile_ai": "Linko AI",
+        "tile_ai_sub": "人工智能助手",
+        "ai_promo_title": "Linko AI 带来新功能",
+        "ai_promo_sub": "问答、翻译等更多功能，现已为您开放。",
+        "ai_promo_btn": "开始使用",
+        "logout": "退出登录",
+        "choose_language": "选择语言",
+    },
+    "en": {
+        "login_title": "Sign in to your account",
+        "username": "Username",
+        "password": "Password",
+        "login_btn": "Sign in",
+        "no_account": "Don't have an account?",
+        "register_link": "Sign up",
+        "forgot_link": "Forgot password?",
+        "reg_title": "Create a new account",
+        "confirm_password": "Confirm password",
+        "security_q": "Security question: Your best friend's name?",
+        "security_note": "If you forget your password, you'll reset it using this answer.",
+        "terms_prefix": "I agree to the",
+        "terms_link": "public offer and privacy policy",
+        "terms_suffix": "",
+        "reg_btn": "Sign up",
+        "have_account": "Already have an account?",
+        "login_link": "Sign in",
+        "nav_home": "Home",
+        "nav_groups": "Groups",
+        "nav_personal": "Personal",
+        "nav_contacts": "Contacts",
+        "nav_shop": "Shop",
+        "nav_feed": "Feed",
+        "nav_profile": "Profile",
+        "nav_settings": "Settings",
+        "greeting_hello": "Hi,",
+        "greeting_wish": "Have a great day",
+        "quick_pick": "Quickly pick what you need",
+        "tile_groups": "Groups",
+        "tile_groups_sub": "Chat with friends",
+        "tile_personal": "Personal",
+        "tile_personal_sub": "Private chats",
+        "tile_contacts": "Contacts",
+        "tile_contacts_sub": "All your contacts",
+        "tile_shop": "Shop",
+        "tile_shop_sub": "Products and services",
+        "tile_feed": "Feed",
+        "tile_feed_sub": "News and posts",
+        "tile_ai": "Linko AI",
+        "tile_ai_sub": "AI assistant",
+        "ai_promo_title": "New possibilities with Linko AI",
+        "ai_promo_sub": "Answers, translation, and much more, now with you.",
+        "ai_promo_btn": "Get started",
+        "logout": "Log out",
+        "choose_language": "Choose language",
+    },
+}
+
+
+def current_lang():
+    lang = session.get("lang", "uz")
+    return lang if lang in TRANSLATIONS else "uz"
+
+
+@app.context_processor
+def inject_translations():
+    lang = current_lang()
+    return dict(t=TRANSLATIONS[lang], lang=lang, langs=LANG_NAMES)
+
+
+@app.route("/set-language/<lang_code>")
+def set_language(lang_code):
+    if lang_code in TRANSLATIONS:
+        session["lang"] = lang_code
+    return redirect(request.referrer or url_for("login"))
+
 
 def get_db():
     """Bazaga ulanish yaratadi"""
@@ -66,6 +278,8 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN avatar_file TEXT")
     if "security_answer_hash" not in existing_cols:
         conn.execute("ALTER TABLE users ADD COLUMN security_answer_hash TEXT")
+    if "terms_accepted_at" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN terms_accepted_at TEXT")
 
     # private_messages va group_messages jadvallari mavjud bo'lsa, image_file ustunini qo'shamiz
     conn.execute("""
@@ -198,9 +412,14 @@ def register():
         password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
         security_answer = request.form.get("security_answer", "").strip()
+        terms_accepted = request.form.get("terms_accepted")
 
         if not username or not password or not security_answer:
             flash("Iltimos, hamma maydonlarni to'ldiring")
+            return render_template("register.html")
+
+        if not terms_accepted:
+            flash("Davom etish uchun ommaviy oferta va maxfiylik siyosatiga rozilik bildiring")
             return render_template("register.html")
 
         if password != confirm:
@@ -222,8 +441,14 @@ def register():
             return render_template("register.html")
 
         conn.execute(
-            "INSERT INTO users (username, password_hash, avatar_letter, security_answer_hash) VALUES (?, ?, ?, ?)",
-            (username, hash_password(password), username[0].upper(), hash_password(security_answer.lower())),
+            "INSERT INTO users (username, password_hash, avatar_letter, security_answer_hash, terms_accepted_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                username,
+                hash_password(password),
+                username[0].upper(),
+                hash_password(security_answer.lower()),
+                datetime.now().strftime("%d.%m.%Y %H:%M"),
+            ),
         )
         conn.commit()
         conn.close()
@@ -860,6 +1085,18 @@ def qr_page():
         qr_b64=qr_b64,
         add_url=add_url,
         active="people",
+    )
+
+
+@app.route("/scan")
+def scan_page():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    return render_template(
+        "scan.html",
+        username=session["username"],
+        avatar_letter=session["avatar_letter"],
+        active="home",
     )
 
 
