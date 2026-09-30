@@ -1,34 +1,35 @@
+{% from '_icons.html' import icon %}
 <div class="bottom-nav">
   <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'home' %}active{% endif %}">
-    <span class="nav-icon">🏠</span>
+    <span class="nav-icon">{{ icon('home', 20) }}</span>
     <span>{{ t.nav_home }}</span>
   </a>
   <a href="{{ url_for('groups_list') }}" class="nav-item {% if active == 'groups' %}active{% endif %}">
-    <span class="nav-icon">👥</span>
+    <span class="nav-icon">{{ icon('groups', 20) }}</span>
     <span>{{ t.nav_groups }}</span>
   </a>
   <a href="{{ url_for('shaxsiy') }}" class="nav-item {% if active == 'shaxsiy' %}active{% endif %}">
-    <span class="nav-icon">💬</span>
+    <span class="nav-icon">{{ icon('chat', 20) }}</span>
     <span>{{ t.nav_personal }}</span>
   </a>
   <a href="{{ url_for('people') }}" class="nav-item {% if active == 'people' %}active{% endif %}">
-    <span class="nav-icon">📇</span>
+    <span class="nav-icon">{{ icon('contacts', 20) }}</span>
     <span>{{ t.nav_contacts }}</span>
   </a>
   <a href="{{ url_for('shop') }}" class="nav-item {% if active == 'shop' %}active{% endif %}">
-    <span class="nav-icon">🛍️</span>
+    <span class="nav-icon">{{ icon('shop', 20) }}</span>
     <span>{{ t.nav_shop }}</span>
   </a>
   <a href="{{ url_for('feed') }}" class="nav-item {% if active == 'feed' %}active{% endif %}">
-    <span class="nav-icon">📷</span>
+    <span class="nav-icon">{{ icon('feed', 20) }}</span>
     <span>{{ t.nav_feed }}</span>
   </a>
   <a href="{{ url_for('profile') }}" class="nav-item {% if active == 'profile' %}active{% endif %}">
-    <span class="nav-icon">👤</span>
+    <span class="nav-icon">{{ icon('profile', 20) }}</span>
     <span>{{ t.nav_profile }}</span>
   </a>
   <a href="{{ url_for('settings_page') }}" class="nav-item {% if active == 'settings' %}active{% endif %}">
-    <span class="nav-icon">⚙️</span>
+    <span class="nav-icon">{{ icon('settings', 20) }}</span>
     <span>{{ t.nav_settings }}</span>
   </a>
 </div>

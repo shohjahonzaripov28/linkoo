@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% from '_icons.html' import icon %}
   <div class="glass-card dashboard-card">
     <div class="dash-topbar">
       <a href="{{ url_for('profile') }}" class="avatar-link">
@@ -20,82 +21,62 @@
         <div style="font-size:12px; opacity:0.7;">{{ t.greeting_hello }}</div>
         <div style="font-weight:700;">{{ display_name }}!</div>
       </div>
-      <a href="{{ url_for('people') }}" class="settings-icon-inline" style="margin-right:4px; position:relative;" title="Bildirishnomalar">
-        🔔
+      <a href="{{ url_for('people') }}" class="settings-icon-inline" style="position:relative;" title="Notifications">
+        {{ icon('bell', 20) }}
         {% if pending_count > 0 %}<span class="notif-badge">{{ pending_count }}</span>{% endif %}
       </a>
-      <a href="{{ url_for('qr_page') }}" class="settings-icon-inline" style="margin-right:4px;" title="Mening QR kodim">▦</a>
-      <a href="{{ url_for('scan_page') }}" class="settings-icon-inline" title="QR skanerlash">📷</a>
+      <a href="{{ url_for('qr_page') }}" class="settings-icon-inline" title="QR">
+        {{ icon('qr', 20) }}
+      </a>
+      <a href="{{ url_for('settings_page') }}" class="settings-icon-inline" title="Settings">
+        {{ icon('settings', 20) }}
+      </a>
     </div>
 
-    <div class="greeting-banner">
-      <div>
-        <div style="font-size:20px; font-weight:700;">{{ t.greeting_hello }} {{ display_name }}!</div>
-        <div style="opacity:0.75; font-size:13px; margin-top:4px;">{{ t.greeting_wish }} ✨</div>
-      </div>
-    </div>
+    <form action="{{ url_for('people') }}" method="GET" class="home-search">
+      {{ icon('search', 18) }}
+      <input type="text" name="q" placeholder="{{ t.search_placeholder }}">
+    </form>
 
-    <a href="{{ url_for('ai_page') }}" class="quick-pill">
-      <span>✨</span> {{ t.quick_pick }}
-      <span class="chevron">›</span>
-    </a>
-
-    <div class="feature-grid">
-      <a href="{{ url_for('groups_list') }}" class="feature-tile">
-        <div class="icon-badge badge-people">👥</div>
-        <div>
-          <div class="tile-label">{{ t.tile_groups }}</div>
-          <div class="tile-sub">{{ t.tile_groups_sub }}</div>
-        </div>
-        <span class="chevron">›</span>
+    <p class="section-title">{{ t.main_sections }}</p>
+    <div class="compact-grid">
+      <a href="{{ url_for('shaxsiy') }}" class="compact-card">
+        <div class="icon-badge badge-chat">{{ icon('chat', 22) }}</div>
+        <div class="tile-label">{{ t.tile_personal }}</div>
       </a>
-      <a href="{{ url_for('shaxsiy') }}" class="feature-tile">
-        <div class="icon-badge badge-chat">💬</div>
-        <div>
-          <div class="tile-label">{{ t.tile_personal }}</div>
-          <div class="tile-sub">{{ t.tile_personal_sub }}</div>
-        </div>
-        <span class="chevron">›</span>
+      <a href="{{ url_for('groups_list') }}" class="compact-card">
+        <div class="icon-badge badge-people">{{ icon('groups', 22) }}</div>
+        <div class="tile-label">{{ t.tile_groups }}</div>
       </a>
-      <a href="{{ url_for('people') }}" class="feature-tile">
-        <div class="icon-badge badge-contacts">📇</div>
-        <div>
-          <div class="tile-label">{{ t.tile_contacts }}</div>
-          <div class="tile-sub">{{ t.tile_contacts_sub }}</div>
-        </div>
-        <span class="chevron">›</span>
-      </a>
-      <a href="{{ url_for('shop') }}" class="feature-tile">
-        <div class="icon-badge badge-shop">🛍️</div>
-        <div>
-          <div class="tile-label">{{ t.tile_shop }}</div>
-          <div class="tile-sub">{{ t.tile_shop_sub }}</div>
-        </div>
-        <span class="chevron">›</span>
-      </a>
-      <a href="{{ url_for('feed') }}" class="feature-tile">
-        <div class="icon-badge badge-feed">📷</div>
-        <div>
-          <div class="tile-label">{{ t.tile_feed }}</div>
-          <div class="tile-sub">{{ t.tile_feed_sub }}</div>
-        </div>
-        <span class="chevron">›</span>
-      </a>
-      <a href="{{ url_for('ai_page') }}" class="feature-tile">
-        <div class="icon-badge badge-ai">✨</div>
-        <div>
-          <div class="tile-label">{{ t.tile_ai }}</div>
-          <div class="tile-sub">{{ t.tile_ai_sub }}</div>
-        </div>
-        <span class="chevron">›</span>
+      <a href="{{ url_for('ai_page') }}" class="compact-card">
+        <div class="icon-badge badge-ai">{{ icon('sparkles', 22) }}</div>
+        <div class="tile-label">{{ t.tile_ai }}</div>
       </a>
     </div>
 
     <a href="{{ url_for('ai_page') }}" class="ai-promo">
       <div style="font-weight:700; font-size:15px; margin-bottom:4px;">{{ t.ai_promo_title }}</div>
       <div style="font-size:12px; opacity:0.8; margin-bottom:10px;">{{ t.ai_promo_sub }}</div>
-      <span class="ai-promo-btn">{{ t.ai_promo_btn }} →</span>
+      <span class="ai-promo-btn">{{ t.ai_promo_btn }} <span style="display:inline-flex; vertical-align:middle;">{{ icon('chevron', 14) }}</span></span>
     </a>
+
+    <p class="section-title">{{ t.recent_chats }}</p>
+    <div class="feed-list">
+      {% if recent_chats|length == 0 %}
+        <p class="empty-feed">{{ t.no_recent_chats }}</p>
+      {% endif %}
+      {% for u in recent_chats %}
+      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
+        {% if u.avatar_file %}
+          <img class="avatar-circle small" src="{{ url_for('static', filename='uploads/' + u.avatar_file) }}" alt="">
+        {% else %}
+          <div class="avatar-circle small">{{ u.avatar_letter }}</div>
+        {% endif %}
+        <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
+        <span class="chevron">{{ icon('chevron', 16) }}</span>
+      </a>
+      {% endfor %}
+    </div>
 
     <a href="{{ url_for('logout') }}" class="logout-link">{{ t.logout }}</a>
   </div>

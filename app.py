@@ -88,6 +88,23 @@ TRANSLATIONS = {
         "ai_promo_btn": "Boshlash",
         "logout": "Chiqish",
         "choose_language": "Tilni tanlang",
+        "search_placeholder": "Qidirish...",
+        "main_sections": "Asosiy bo'limlar",
+        "recent_chats": "So'nggi suhbatlar",
+        "no_recent_chats": "Hali suhbat yo'q",
+        "settings_title": "Sozlamalar",
+        "manage_account": "Hisob sozlamalarini boshqaring",
+        "menu_account": "Hisob",
+        "menu_privacy": "Maxfiylik",
+        "menu_security": "Xavfsizlik",
+        "menu_notifications": "Bildirishnomalar",
+        "menu_interface": "Interfeys",
+        "menu_language": "Til",
+        "menu_chat": "Chat sozlamalari",
+        "menu_storage": "Saqlash va ma'lumotlar",
+        "menu_devices": "Qurilmalar",
+        "menu_about": "Ilova haqida",
+        "coming_soon": "Tez orada qo'shiladi",
     },
     "ru": {
         "login_title": "Войдите в аккаунт",
@@ -135,6 +152,23 @@ TRANSLATIONS = {
         "ai_promo_btn": "Начать",
         "logout": "Выйти",
         "choose_language": "Выберите язык",
+        "search_placeholder": "Поиск...",
+        "main_sections": "Основные разделы",
+        "recent_chats": "Недавние чаты",
+        "no_recent_chats": "Пока нет чатов",
+        "settings_title": "Настройки",
+        "manage_account": "Управление аккаунтом",
+        "menu_account": "Аккаунт",
+        "menu_privacy": "Конфиденциальность",
+        "menu_security": "Безопасность",
+        "menu_notifications": "Уведомления",
+        "menu_interface": "Интерфейс",
+        "menu_language": "Язык",
+        "menu_chat": "Настройки чата",
+        "menu_storage": "Хранилище и данные",
+        "menu_devices": "Устройства",
+        "menu_about": "О приложении",
+        "coming_soon": "Скоро будет добавлено",
     },
     "zh": {
         "login_title": "登录您的账户",
@@ -182,6 +216,23 @@ TRANSLATIONS = {
         "ai_promo_btn": "开始使用",
         "logout": "退出登录",
         "choose_language": "选择语言",
+        "search_placeholder": "搜索...",
+        "main_sections": "主要功能",
+        "recent_chats": "最近的对话",
+        "no_recent_chats": "暂无对话",
+        "settings_title": "设置",
+        "manage_account": "管理账户设置",
+        "menu_account": "账户",
+        "menu_privacy": "隐私",
+        "menu_security": "安全",
+        "menu_notifications": "通知",
+        "menu_interface": "界面",
+        "menu_language": "语言",
+        "menu_chat": "聊天设置",
+        "menu_storage": "存储与数据",
+        "menu_devices": "设备",
+        "menu_about": "关于应用",
+        "coming_soon": "即将推出",
     },
     "en": {
         "login_title": "Sign in to your account",
@@ -229,6 +280,23 @@ TRANSLATIONS = {
         "ai_promo_btn": "Get started",
         "logout": "Log out",
         "choose_language": "Choose language",
+        "search_placeholder": "Search...",
+        "main_sections": "Main sections",
+        "recent_chats": "Recent chats",
+        "no_recent_chats": "No conversations yet",
+        "settings_title": "Settings",
+        "manage_account": "Manage your account settings",
+        "menu_account": "Account",
+        "menu_privacy": "Privacy",
+        "menu_security": "Security",
+        "menu_notifications": "Notifications",
+        "menu_interface": "Interface",
+        "menu_language": "Language",
+        "menu_chat": "Chat settings",
+        "menu_storage": "Storage and data",
+        "menu_devices": "Devices",
+        "menu_about": "About the app",
+        "coming_soon": "Coming soon",
     },
 }
 
@@ -537,20 +605,39 @@ def dashboard():
     if "user_id" not in session:
         return redirect(url_for("login"))
 
+    me = session["username"]
     conn = get_db()
     pending_count = conn.execute(
         "SELECT COUNT(*) as c FROM contact_requests WHERE to_username = ?",
-        (session["username"],),
+        (me,),
     ).fetchone()["c"]
+
+    recent_rows = conn.execute(
+        """SELECT partner, MAX(mid) as last_id FROM (
+             SELECT id as mid, CASE WHEN sender = ? THEN receiver ELSE sender END as partner
+             FROM private_messages WHERE sender = ? OR receiver = ?
+           ) GROUP BY partner ORDER BY last_id DESC LIMIT 4""",
+        (me, me, me),
+    ).fetchall()
+
+    recent_chats = []
+    for r in recent_rows:
+        user_row = conn.execute(
+            "SELECT username, avatar_letter, avatar_file, nickname FROM users WHERE username = ?",
+            (r["partner"],),
+        ).fetchone()
+        if user_row:
+            recent_chats.append(user_row)
     conn.close()
 
     return render_template(
         "dashboard.html",
-        username=session["username"],
+        username=me,
         avatar_letter=session["avatar_letter"],
         avatar_file=session.get("avatar_file"),
-        display_name=session.get("nickname") or session["username"],
+        display_name=session.get("nickname") or me,
         pending_count=pending_count,
+        recent_chats=recent_chats,
         active="home",
     )
 
@@ -1647,8 +1734,80 @@ def privacy_page():
 def settings_page():
     if "user_id" not in session:
         return redirect(url_for("login"))
+
+    conn = get_db()
+    user_row = conn.execute(
+        "SELECT nickname FROM users WHERE username = ?", (session["username"],)
+    ).fetchone()
+    conn.close()
+
     return render_template(
         "settings.html",
+        username=session["username"],
+        avatar_letter=session["avatar_letter"],
+        avatar_file=session.get("avatar_file"),
+        nickname=user_row["nickname"] if user_row else None,
+        active="settings",
+    )
+
+
+SETTINGS_STUBS = {
+    "privacy-settings": {
+        "uz": "Maxfiylik", "ru": "Конфиденциальность", "zh": "隐私", "en": "Privacy",
+    },
+    "security": {
+        "uz": "Xavfsizlik", "ru": "Безопасность", "zh": "安全", "en": "Security",
+    },
+    "notifications": {
+        "uz": "Bildirishnomalar", "ru": "Уведомления", "zh": "通知", "en": "Notifications",
+    },
+    "interface": {
+        "uz": "Interfeys", "ru": "Интерфейс", "zh": "界面", "en": "Interface",
+    },
+    "chat-settings": {
+        "uz": "Chat sozlamalari", "ru": "Настройки чата", "zh": "聊天设置", "en": "Chat settings",
+    },
+    "devices": {
+        "uz": "Qurilmalar", "ru": "Устройства", "zh": "设备", "en": "Devices",
+    },
+}
+
+
+@app.route("/settings/<section>")
+def settings_stub(section):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    if section not in SETTINGS_STUBS:
+        return redirect(url_for("settings_page"))
+
+    title = SETTINGS_STUBS[section].get(current_lang(), SETTINGS_STUBS[section]["uz"])
+    return render_template(
+        "settings_stub.html",
+        username=session["username"],
+        avatar_letter=session["avatar_letter"],
+        title=title,
+        active="settings",
+    )
+
+
+@app.route("/settings/language")
+def settings_language():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    return render_template(
+        "settings_language.html",
+        username=session["username"],
+        avatar_letter=session["avatar_letter"],
+        active="settings",
+    )
+
+
+@app.route("/settings/about")
+def settings_about():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    return render_template(
+        "settings_about.html",
         username=session["username"],
         avatar_letter=session["avatar_letter"],
         active="settings",

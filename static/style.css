@@ -1062,3 +1062,143 @@ img.avatar-circle {
   font-weight: 700;
   border-color: transparent;
 }
+
+/* SVG ikonkalar uchun umumiy moslama */
+.nav-icon, .settings-icon-inline, .icon-badge, .back-link, .chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.nav-icon svg, .settings-icon-inline svg, .icon-badge svg, .chevron svg {
+  display: block;
+}
+.icon-badge svg {
+  color: #fff;
+}
+
+/* Qidiruv paneli (Home) */
+.home-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  color: rgba(255,255,255,0.5);
+}
+
+.home-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-size: 14px;
+}
+
+.home-search input::placeholder {
+  color: rgba(255,255,255,0.4);
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: rgba(255,255,255,0.8);
+  margin: 4px 0 10px 2px;
+}
+
+/* Ixcham 3-ustunli kartalar (Shaxsiy / Guruhlar / Linko AI) */
+.compact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.compact-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+  padding: 16px 8px;
+  text-decoration: none;
+  color: #fff;
+  text-align: center;
+}
+
+.compact-card .tile-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Sozlamalar sahifasi */
+.settings-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  text-decoration: none;
+  color: #fff;
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  text-decoration: none;
+  color: #fff;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.settings-row-value {
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.settings-icon-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lang-check {
+  color: #34d399;
+  font-weight: 700;
+}

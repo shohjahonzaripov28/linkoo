@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  <div class="glass-card">
+    <div class="chat-header">
+      <a href="{{ url_for('settings_page') }}" class="back-link" style="transform:scaleX(-1); display:inline-flex;">{{ icon('chevron', 20) }}</a>
+      <h1 style="font-size:20px;">{{ title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+    <div style="text-align:center; padding:40px 10px;">
+      <div class="settings-icon-badge" style="width:56px; height:56px; margin:0 auto 16px auto;">{{ icon('sliders', 26) }}</div>
+      <p style="opacity:0.6; font-size:13px;">{{ t.coming_soon }}</p>
+    </div>
+  </div>
+
+  {% include 'navbar.html' %}
+</body>
+</html>
