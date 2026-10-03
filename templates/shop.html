@@ -38,7 +38,7 @@
       {% for p in products %}
       <div class="product-card">
         {% if p.image_file %}
-        <img class="product-image" src="{{ url_for('static', filename='uploads/' + p.image_file) }}" alt="{{ p.title }}">
+        <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">
         {% endif %}
         <div class="product-info">
           <div class="product-title">{{ p.title }}</div>

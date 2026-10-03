@@ -48,7 +48,7 @@
         {% endif %}
 
         {% if post.image_file %}
-        <img class="post-image" src="{{ url_for('static', filename='uploads/' + post.image_file) }}" alt="post rasmi">
+        <img class="post-image" src="{{ url_for('media', filename=post.image_file) }}" alt="post rasmi">
         {% endif %}
 
         <button class="like-btn {% if post.liked_by_me %}liked{% endif %}" data-post-id="{{ post.id }}">

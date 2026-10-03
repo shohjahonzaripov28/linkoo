@@ -12,7 +12,7 @@
     <div class="dash-topbar">
       <a href="{{ url_for('profile') }}" class="avatar-link">
         {% if avatar_file %}
-          <img class="avatar-circle small" src="{{ url_for('static', filename='uploads/' + avatar_file) }}" alt="">
+          <img class="avatar-circle small" src="{{ url_for('media', filename=avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ avatar_letter }}</div>
         {% endif %}
@@ -68,7 +68,7 @@
       {% for u in recent_chats %}
       <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
         {% if u.avatar_file %}
-          <img class="avatar-circle small" src="{{ url_for('static', filename='uploads/' + u.avatar_file) }}" alt="">
+          <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ u.avatar_letter }}</div>
         {% endif %}

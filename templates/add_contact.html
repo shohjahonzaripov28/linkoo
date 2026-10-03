@@ -15,7 +15,7 @@
     </div>
 
     {% if target.avatar_file %}
-      <img class="avatar-circle" src="{{ url_for('static', filename='uploads/' + target.avatar_file) }}" alt="" style="margin: 10px auto 16px auto;">
+      <img class="avatar-circle" src="{{ url_for('media', filename=target.avatar_file) }}" alt="" style="margin: 10px auto 16px auto;">
     {% else %}
       <div class="avatar-circle" style="margin: 10px auto 16px auto;">{{ target.avatar_letter }}</div>
     {% endif %}

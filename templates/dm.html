@@ -12,7 +12,7 @@
       <a href="{{ url_for('shaxsiy') }}" class="back-link">←</a>
       <div class="dm-title">
         {% if other_avatar_file %}
-          <img class="avatar-circle small" src="{{ url_for('static', filename='uploads/' + other_avatar_file) }}" alt="">
+          <img class="avatar-circle small" src="{{ url_for('media', filename=other_avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ other_avatar }}</div>
         {% endif %}
@@ -73,7 +73,7 @@
         bubble.className = "msg-row " + (isMe ? "msg-right" : "msg-left");
         let imgHtml = "";
         if (m.image_file) {
-          imgHtml = `<img class="msg-image" src="/static/uploads/${m.image_file}" alt="">`;
+          imgHtml = `<img class="msg-image" src="/media/${m.image_file}" alt="">`;
         }
         bubble.innerHTML = `
           <div class="msg-bubble ${isMe ? "msg-mine" : "msg-other"}">

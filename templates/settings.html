@@ -13,7 +13,7 @@
 
     <a href="{{ url_for('profile_edit') }}" class="settings-profile-card">
       {% if avatar_file %}
-        <img class="avatar-circle" src="{{ url_for('static', filename='uploads/' + avatar_file) }}" alt="">
+        <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="">
       {% else %}
         <div class="avatar-circle">{{ avatar_letter }}</div>
       {% endif %}

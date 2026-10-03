@@ -22,7 +22,7 @@
       {% for u in conversations %}
       <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
         {% if u.avatar_file %}
-          <img class="avatar-circle small" src="{{ url_for('static', filename='uploads/' + u.avatar_file) }}" alt="">
+          <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ u.avatar_letter }}</div>
         {% endif %}

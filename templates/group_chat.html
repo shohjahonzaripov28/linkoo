@@ -69,7 +69,7 @@
         row.className = "msg-row " + (isMe ? "msg-right" : "msg-left");
         let imgHtml = "";
         if (m.image_file) {
-          imgHtml = `<img class="msg-image" src="/static/uploads/${m.image_file}" alt="">`;
+          imgHtml = `<img class="msg-image" src="/media/${m.image_file}" alt="">`;
         }
         row.innerHTML = `
           <div class="msg-bubble ${isMe ? "msg-mine" : "msg-other"}">

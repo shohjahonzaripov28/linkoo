@@ -1,10 +1,10 @@
 # Linko - Login/Register tizimi
 # Bu Linko ilovasining 1-bosqichi: foydalanuvchi ro'yxatdan o'tishi va tizimga kirishi
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
-import sqlite3
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 import hashlib
 import os
+import re
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
@@ -29,6 +29,73 @@ except ImportError:
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", CONFIG_API_KEY)
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+
+# ---------- Baza: Render'da PostgreSQL (DATABASE_URL), lokalda SQLite ----------
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+USE_POSTGRES = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import sqlite3
+
+
+class PGCursorWrapper:
+    """psycopg2 kursorini sqlite3 kursoriga o'xshatib ko'rsatadi (.lastrowid bilan)"""
+
+    def __init__(self, cur, is_insert):
+        self._cur = cur
+        self._lastrowid = None
+        if is_insert:
+            try:
+                row = cur.fetchone()
+                self._lastrowid = row["id"] if row else None
+            except Exception:
+                self._lastrowid = None
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    @property
+    def lastrowid(self):
+        return self._lastrowid
+
+
+class PGConnWrapper:
+    """psycopg2 ulanishini sqlite3.Connection'ga o'xshatib ko'rsatadi,
+    shunda qolgan butun kod (conn.execute(...), row["ustun"]) o'zgarmasdan ishlayveradi."""
+
+    def __init__(self, pg_conn):
+        self._conn = pg_conn
+
+    def execute(self, sql, params=()):
+        sql_pg = sql.replace("?", "%s")
+
+        # SQLite'ning "INSERT OR IGNORE" sintaksisini PostgreSQL'ga moslashtirish
+        if "INSERT OR IGNORE INTO" in sql_pg.upper():
+            sql_pg = re.sub(r"(?i)INSERT OR IGNORE INTO", "INSERT INTO", sql_pg)
+            sql_pg = sql_pg.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+
+        is_insert = sql_pg.strip().upper().startswith("INSERT")
+        if is_insert and "RETURNING" not in sql_pg.upper():
+            sql_pg = sql_pg.rstrip().rstrip(";") + " RETURNING id"
+
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql_pg, params)
+        return PGCursorWrapper(cur, is_insert)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "linko-maxfiy-kalit-2026")
@@ -320,14 +387,162 @@ def set_language(lang_code):
 
 
 def get_db():
-    """Bazaga ulanish yaratadi"""
+    """Bazaga ulanish yaratadi - DATABASE_URL bo'lsa PostgreSQL, bo'lmasa lokal SQLite"""
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL)
+        return PGConnWrapper(conn)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
-    """Baza va jadvalni birinchi marta yaratadi"""
+    """Baza va jadvallarni birinchi ishga tushganda avtomatik yaratadi"""
+    if USE_POSTGRES:
+        init_db_postgres()
+    else:
+        init_db_sqlite()
+
+
+def init_db_postgres():
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            avatar_letter TEXT NOT NULL,
+            nickname TEXT,
+            avatar_file TEXT,
+            security_answer_hash TEXT,
+            terms_accepted_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS private_messages (
+            id SERIAL PRIMARY KEY,
+            sender TEXT NOT NULL,
+            receiver TEXT NOT NULL,
+            content TEXT NOT NULL,
+            image_file TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id SERIAL PRIMARY KEY,
+            username TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS posts (
+            id SERIAL PRIMARY KEY,
+            username TEXT NOT NULL,
+            avatar_letter TEXT NOT NULL,
+            content TEXT,
+            image_file TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS likes (
+            id SERIAL PRIMARY KEY,
+            post_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            UNIQUE(post_id, username)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id SERIAL PRIMARY KEY,
+            seller_username TEXT NOT NULL,
+            seller_avatar TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            price INTEGER NOT NULL,
+            image_file TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cart_items (
+            id SERIAL PRIMARY KEY,
+            username TEXT NOT NULL,
+            product_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(username, product_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            avatar_letter TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            UNIQUE(group_id, username)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_messages (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            content TEXT NOT NULL,
+            image_file TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_requests (
+            id SERIAL PRIMARY KEY,
+            from_username TEXT NOT NULL,
+            to_username TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(from_username, to_username)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id SERIAL PRIMARY KEY,
+            username TEXT NOT NULL,
+            contact_username TEXT NOT NULL,
+            UNIQUE(username, contact_username)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS uploaded_images (
+            id SERIAL PRIMARY KEY,
+            filename TEXT UNIQUE NOT NULL,
+            mimetype TEXT NOT NULL,
+            data BYTEA NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS blocked_users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            blocked_at TEXT NOT NULL
+        )
+    """)
+    # Eski bazalarda bo'lmagan ustunlarni qo'shamiz (PostgreSQL'da xavfsiz, allaqachon bo'lsa o'tkazib yuboradi)
+    conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin INTEGER DEFAULT 0")
+    conn.commit()
+    conn.close()
+
+
+def init_db_sqlite():
+    """Baza va jadvalni birinchi marta yaratadi (lokal sinov uchun)"""
     conn = get_db()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -348,6 +563,8 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN security_answer_hash TEXT")
     if "terms_accepted_at" not in existing_cols:
         conn.execute("ALTER TABLE users ADD COLUMN terms_accepted_at TEXT")
+    if "is_admin" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
 
     # private_messages va group_messages jadvallari mavjud bo'lsa, image_file ustunini qo'shamiz
     conn.execute("""
@@ -457,8 +674,45 @@ def init_db():
             UNIQUE(username, contact_username)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS uploaded_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT UNIQUE NOT NULL,
+            mimetype TEXT NOT NULL,
+            data BLOB NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS blocked_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            blocked_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
+
+
+def save_image_to_db(conn, file_storage, prefix=""):
+    """Rasm faylini bazaga saqlaydi va generatsiya qilingan nomini qaytaradi"""
+    safe_name = secure_filename(file_storage.filename)
+    unique_name = f"{prefix}{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe_name}"
+    data = file_storage.read()
+    mimetype = file_storage.mimetype or "image/jpeg"
+    db_data = psycopg2.Binary(data) if USE_POSTGRES else data
+    conn.execute(
+        "INSERT INTO uploaded_images (filename, mimetype, data, created_at) VALUES (?, ?, ?, ?)",
+        (unique_name, mimetype, db_data, datetime.now().strftime("%d.%m.%Y %H:%M")),
+    )
+    return unique_name
+
+
+def delete_image_from_db(conn, filename):
+    """Bazadagi rasmni o'chiradi (agar mavjud bo'lsa)"""
+    if not filename:
+        return
+    conn.execute("DELETE FROM uploaded_images WHERE filename = ?", (filename,))
 
 
 def hash_password(password):
@@ -703,6 +957,26 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+@app.route("/media/<filename>")
+def media(filename):
+    """Bazaga saqlangan rasmlarni ko'rsatadi (static/uploads o'rniga)"""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT mimetype, data FROM uploaded_images WHERE filename = ?", (filename,)
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return "", 404
+
+    data = row["data"]
+    if isinstance(data, memoryview):
+        data = bytes(data)
+    response = Response(data, mimetype=row["mimetype"])
+    response.headers["Cache-Control"] = "public, max-age=31536000"
+    return response
+
+
 @app.route("/feed", methods=["GET", "POST"])
 def feed():
     if "user_id" not in session:
@@ -713,14 +987,12 @@ def feed():
         image_file = request.files.get("image")
         image_filename = None
 
+        conn = get_db()
+
         if image_file and image_file.filename and allowed_file(image_file.filename):
-            safe_name = secure_filename(image_file.filename)
-            unique_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-            image_file.save(os.path.join(app.config["UPLOAD_FOLDER"], unique_name))
-            image_filename = unique_name
+            image_filename = save_image_to_db(conn, image_file)
 
         if content or image_filename:
-            conn = get_db()
             conn.execute(
                 "INSERT INTO posts (username, avatar_letter, content, image_file, created_at) VALUES (?, ?, ?, ?, ?)",
                 (
@@ -784,10 +1056,7 @@ def api_post_delete(post_id):
         return jsonify({"error": "ruxsat yo'q"}), 403
 
     if post["image_file"]:
-        try:
-            os.remove(os.path.join(app.config["UPLOAD_FOLDER"], post["image_file"]))
-        except OSError:
-            pass
+        delete_image_from_db(conn, post["image_file"])
 
     conn.execute("DELETE FROM posts WHERE id = ?", (post_id,))
     conn.execute("DELETE FROM likes WHERE post_id = ?", (post_id,))
@@ -864,14 +1133,12 @@ def shop():
         except ValueError:
             price = 0
 
+        conn = get_db()
+
         if image_file and image_file.filename and allowed_file(image_file.filename):
-            safe_name = secure_filename(image_file.filename)
-            unique_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-            image_file.save(os.path.join(app.config["UPLOAD_FOLDER"], unique_name))
-            image_filename = unique_name
+            image_filename = save_image_to_db(conn, image_file)
 
         if title and price > 0:
-            conn = get_db()
             conn.execute(
                 """INSERT INTO products
                    (seller_username, seller_avatar, title, description, price, image_file, created_at)
@@ -1288,10 +1555,7 @@ def api_dm_delete(message_id):
         return jsonify({"error": "ruxsat yo'q"}), 403
 
     if msg["image_file"]:
-        try:
-            os.remove(os.path.join(app.config["UPLOAD_FOLDER"], msg["image_file"]))
-        except OSError:
-            pass
+        delete_image_from_db(conn, msg["image_file"])
 
     conn.execute("DELETE FROM private_messages WHERE id = ?", (message_id,))
     conn.commit()
@@ -1308,16 +1572,15 @@ def api_dm_send(other_username):
     image_file = request.files.get("image")
     image_filename = None
 
+    conn = get_db()
+
     if image_file and image_file.filename and allowed_file(image_file.filename):
-        safe_name = secure_filename(image_file.filename)
-        unique_name = f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe_name}"
-        image_file.save(os.path.join(app.config["UPLOAD_FOLDER"], unique_name))
-        image_filename = unique_name
+        image_filename = save_image_to_db(conn, image_file)
 
     if not content and not image_filename:
+        conn.close()
         return jsonify({"error": "bo'sh xabar"}), 400
 
-    conn = get_db()
     conn.execute(
         "INSERT INTO private_messages (sender, receiver, content, image_file, created_at) VALUES (?, ?, ?, ?, ?)",
         (session["username"], other_username, content[:1000], image_filename, datetime.now().strftime("%H:%M")),
@@ -1500,10 +1763,7 @@ def api_group_message_delete(message_id):
         return jsonify({"error": "ruxsat yo'q"}), 403
 
     if msg["image_file"]:
-        try:
-            os.remove(os.path.join(app.config["UPLOAD_FOLDER"], msg["image_file"]))
-        except OSError:
-            pass
+        delete_image_from_db(conn, msg["image_file"])
 
     conn.execute("DELETE FROM group_messages WHERE id = ?", (message_id,))
     conn.commit()
@@ -1530,10 +1790,7 @@ def api_group_send(group_id):
     image_filename = None
 
     if image_file and image_file.filename and allowed_file(image_file.filename):
-        safe_name = secure_filename(image_file.filename)
-        unique_name = f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe_name}"
-        image_file.save(os.path.join(app.config["UPLOAD_FOLDER"], unique_name))
-        image_filename = unique_name
+        image_filename = save_image_to_db(conn, image_file)
 
     if not content and not image_filename:
         conn.close()
@@ -1592,9 +1849,7 @@ def profile_edit():
         conn = get_db()
 
         if avatar_image and avatar_image.filename and allowed_file(avatar_image.filename):
-            safe_name = secure_filename(avatar_image.filename)
-            unique_name = f"avatar_{session['username']}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-            avatar_image.save(os.path.join(app.config["UPLOAD_FOLDER"], unique_name))
+            unique_name = save_image_to_db(conn, avatar_image, prefix=f"avatar_{session['username']}_")
             conn.execute(
                 "UPDATE users SET avatar_file = ? WHERE username = ?",
                 (unique_name, session["username"]),
@@ -1655,10 +1910,7 @@ def profile_avatar_remove():
     ).fetchone()
 
     if old and old["avatar_file"]:
-        try:
-            os.remove(os.path.join(app.config["UPLOAD_FOLDER"], old["avatar_file"]))
-        except OSError:
-            pass
+        delete_image_from_db(conn, old["avatar_file"])
 
     conn.execute("UPDATE users SET avatar_file = NULL WHERE username = ?", (session["username"],))
     conn.commit()
@@ -1693,15 +1945,17 @@ def storage_page():
     for row in conn.execute("SELECT image_file FROM group_messages WHERE username = ? AND image_file IS NOT NULL", (me,)).fetchall():
         files.append(("Guruh xabari", row["image_file"]))
 
-    conn.close()
-
     total_bytes = 0
     file_count = 0
     for label, filename in files:
-        path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        if os.path.exists(path):
-            total_bytes += os.path.getsize(path)
+        size_row = conn.execute(
+            "SELECT LENGTH(data) as sz FROM uploaded_images WHERE filename = ?", (filename,)
+        ).fetchone()
+        if size_row and size_row["sz"]:
+            total_bytes += size_row["sz"]
             file_count += 1
+
+    conn.close()
 
     if total_bytes >= 1024 * 1024:
         size_display = f"{total_bytes / (1024 * 1024):.1f} MB"

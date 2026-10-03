@@ -30,7 +30,7 @@
       {% for item in items %}
       <div class="cart-item">
         {% if item.image_file %}
-        <img class="cart-item-image" src="{{ url_for('static', filename='uploads/' + item.image_file) }}" alt="{{ item.title }}">
+        <img class="cart-item-image" src="{{ url_for('media', filename=item.image_file) }}" alt="{{ item.title }}">
         {% endif %}
         <div class="cart-item-info">
           <div class="product-title">{{ item.title }}</div>
