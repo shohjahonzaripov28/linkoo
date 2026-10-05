@@ -20,6 +20,12 @@
       {% endif %}
     {% endwith %}
 
+    {% if step == "username" and google_client_id %}
+    <p class="g-note" style="margin-bottom:12px;">{{ t.forgot_google_hint }}</p>
+    {% include '_google.html' %}
+    <div class="or-divider"><span>{{ t.forgot_old_title }}</span></div>
+    {% endif %}
+
     {% if step == "username" %}
     <form method="POST">
       <input type="hidden" name="step" value="username">

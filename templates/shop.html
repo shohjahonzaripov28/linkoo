@@ -18,20 +18,7 @@
       </a>
     </div>
 
-    <form method="POST" enctype="multipart/form-data" class="new-post-form">
-      <input type="text" name="title" placeholder="{{ t.product_name_placeholder }}" class="shop-input" required>
-      <textarea name="description" placeholder="{{ t.description_placeholder }}" rows="2"></textarea>
-      <input type="number" name="price" placeholder="{{ t.price_placeholder }}" class="shop-input" min="1" required>
-      <div class="new-post-actions">
-        <label class="file-label">
-          📷 {{ t.add_photo_label }}
-          <input type="file" name="image" accept="image/*" style="display:none;">
-        </label>
-        <button type="submit" class="btn-primary post-btn">{{ t.sell_btn }}</button>
-      </div>
-    </form>
-
-    <div class="feed-list">
+    <div class="shop-grid">
       {% if products|length == 0 %}
         {{ empty_state('shop', t.no_products_empty) }}
       {% endif %}
@@ -40,6 +27,8 @@
       <div class="product-card">
         {% if p.image_file %}
         <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">
+        {% else %}
+        <div class="product-image product-noimg">{{ icon('shop', 30) }}</div>
         {% endif %}
         <div class="product-info">
           <div class="product-title">{{ p.title }}</div>
@@ -64,6 +53,30 @@
       {% if page > 1 %}
       <a href="{{ url_for('shop') }}" class="load-more secondary">← {{ t.shop_title }}</a>
       {% endif %}
+    </div>
+  </div>
+
+  <button type="button" class="fab" id="shop-fab" aria-label="{{ t.shop_add_title }}">{{ icon('plus', 28) }}</button>
+
+  <div class="modal-overlay sheet-overlay" id="shop-modal" hidden>
+    <div class="modal-card sheet-card">
+      <div class="modal-head">
+        <h3>{{ t.shop_add_title }}</h3>
+        <button type="button" class="modal-close" id="shop-modal-close">{{ icon('close', 20) }}</button>
+      </div>
+    <form method="POST" enctype="multipart/form-data" class="new-post-form">
+        <input type="text" name="title" placeholder="{{ t.product_name_placeholder }}" class="shop-input" required>
+        <textarea name="description" placeholder="{{ t.description_placeholder }}" rows="2"></textarea>
+        <input type="number" name="price" placeholder="{{ t.price_placeholder }}" class="shop-input" min="1" required>
+        <div class="new-post-actions">
+          <label class="file-label">
+            📷 {{ t.add_photo_label }}
+            <input type="file" name="image" accept="image/*" style="display:none;">
+          </label>
+          <button type="submit" class="btn-primary post-btn">{{ t.sell_btn }}</button>
+        </div>
+      </form>
+
     </div>
   </div>
 
@@ -119,6 +132,10 @@
         a.innerHTML = '<span class="spinner"></span> ' + a.dataset.loading;
       });
     });
+    const shopModal = document.getElementById("shop-modal");
+    document.getElementById("shop-fab").addEventListener("click", () => { shopModal.hidden = false; });
+    document.getElementById("shop-modal-close").addEventListener("click", () => { shopModal.hidden = true; });
+    shopModal.addEventListener("click", (e) => { if (e.target === shopModal) shopModal.hidden = true; });
     document.querySelector(".new-post-form").addEventListener("submit", () => {
       const b = document.querySelector(".post-btn");
       b.disabled = true;

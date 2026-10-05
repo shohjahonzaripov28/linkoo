@@ -33,19 +33,18 @@
         <label>{{ t.confirm_password }}</label>
         <input type="password" name="confirm" placeholder="••••••••" required>
       </div>
-      <div class="field">
-        <label>{{ t.security_q }}</label>
-        <input type="text" name="security_answer" placeholder="..." required>
-      </div>
-      <p style="font-size:11px; color:rgba(255,255,255,0.55); margin-bottom:14px;">
-        {{ t.security_note }}
-      </p>
       <label class="terms-checkbox">
         <input type="checkbox" name="terms_accepted" value="1" required>
         <span>{{ t.terms_prefix }} <a href="{{ url_for('privacy_page') }}" target="_blank">{{ t.terms_link }}</a> {{ t.terms_suffix }}</span>
       </label>
       <button type="submit" class="btn-primary">{{ t.reg_btn }}</button>
     </form>
+
+    {% if google_client_id %}
+    <div class="or-divider"><span>{{ t.or_divider }}</span></div>
+    {% include '_google.html' %}
+    <p class="g-note">{{ t.google_terms_note }}</p>
+    {% endif %}
 
     <p class="switch-link">{{ t.have_account }} <a href="{{ url_for('login') }}">{{ t.login_link }}</a></p>
   </div>

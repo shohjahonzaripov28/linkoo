@@ -3,6 +3,10 @@
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response, g
 import hashlib
+import secrets
+import json
+import urllib.request
+import urllib.parse
 import time
 import os
 import re
@@ -120,6 +124,7 @@ PAGE_SIZE = 10
 MAX_MEDIA_PER_POST = 10
 MAX_VIDEO_BYTES = 25 * 1024 * 1024
 VIDEO_MIMES = {"mp4": "video/mp4", "m4v": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
 NICK_RE = re.compile(r"^[A-Za-z0-9_.]{3,24}$")
 app.secret_key = os.environ.get("SECRET_KEY", "linko-maxfiy-kalit-2026")
 
@@ -156,7 +161,7 @@ def too_large(e):
 
 OPEN_ENDPOINTS = {
     "static", "media", "login", "register", "forgot_password",
-    "set_language", "privacy_page", "home", "version",
+    "set_language", "privacy_page", "home", "version", "google_auth",
 }
 
 
@@ -303,7 +308,8 @@ def inject_translations():
         except Exception:
             unread_total = 0
     return dict(t=TRANSLATIONS[lang], lang=lang, langs=LANG_NAMES, unread_total=unread_total,
-                is_admin=getattr(g, "is_admin", False))
+                is_admin=getattr(g, "is_admin", False),
+                google_client_id=GOOGLE_CLIENT_ID)
 
 
 @app.route("/set-language/<lang_code>")
@@ -371,6 +377,20 @@ def ensure_feed_tables(conn):
         "CREATE INDEX IF NOT EXISTS idx_post_shares_post ON post_shares (post_id)",
     ):
         conn.execute(stmt)
+
+
+def ensure_google_columns(conn):
+    """Google bilan kirish uchun users jadvaliga email va google_sub ustunlari."""
+    if USE_POSTGRES:
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT")
+    else:
+        cols = [row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "email" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        if "google_sub" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN google_sub TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub)")
 
 
 def init_db():
@@ -520,6 +540,7 @@ def init_db_postgres():
     for idx_sql in INDEX_STATEMENTS:
         conn.execute(idx_sql)
     ensure_feed_tables(conn)
+    ensure_google_columns(conn)
 
     conn.commit()
     conn.close()
@@ -680,6 +701,7 @@ def init_db_sqlite():
     for idx_sql in INDEX_STATEMENTS:
         conn.execute(idx_sql)
     ensure_feed_tables(conn)
+    ensure_google_columns(conn)
 
     conn.commit()
     conn.close()
@@ -732,7 +754,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-APP_VERSION = "linko-2026-10-05-v6"
+APP_VERSION = "linko-2026-10-06-v7"
 
 
 @app.route("/version")
@@ -754,10 +776,9 @@ def register():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
-        security_answer = request.form.get("security_answer", "").strip()
         terms_accepted = request.form.get("terms_accepted")
 
-        if not username or not password or not security_answer:
+        if not username or not password:
             flash("Iltimos, hamma maydonlarni to'ldiring")
             return render_template("register.html")
 
@@ -789,7 +810,7 @@ def register():
                 username,
                 hash_password(password),
                 username[0].upper(),
-                hash_password(security_answer.lower()),
+                None,
                 datetime.now().strftime("%d.%m.%Y %H:%M"),
             ),
         )
@@ -800,6 +821,177 @@ def register():
         return redirect(url_for("login"))
 
     return render_template("register.html")
+
+
+def login_user(user):
+    """Foydalanuvchini sessiyaga kiritadi."""
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["avatar_letter"] = user["avatar_letter"]
+    session["nickname"] = user["nickname"]
+    session["avatar_file"] = user["avatar_file"]
+
+
+def verify_google_token(credential):
+    """Google ID tokenini Google serveri orqali tekshiradi. Muvaffaqiyatda {sub, email, name} qaytaradi, aks holda None."""
+    if not credential or not GOOGLE_CLIENT_ID:
+        return None
+    try:
+        url = "https://oauth2.googleapis.com/tokeninfo?" + urllib.parse.urlencode({"id_token": credential})
+        with urllib.request.urlopen(url, timeout=8) as resp:
+            info = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    if info.get("aud") != GOOGLE_CLIENT_ID:
+        return None
+    if str(info.get("email_verified")).lower() != "true":
+        return None
+    try:
+        if int(info.get("exp", 0)) < time.time():
+            return None
+    except (TypeError, ValueError):
+        return None
+    if not info.get("sub") or not info.get("email"):
+        return None
+    return {"sub": info["sub"], "email": info["email"].lower(), "name": info.get("name") or ""}
+
+
+def make_username_from_email(conn, email):
+    base = re.sub(r"[^a-z0-9_]", "", email.split("@")[0].lower()) or "user"
+    base = base[:18]
+    if len(base) < 3:
+        base = (base + "user")[:6]
+    candidate = base
+    n = 1
+    while conn.execute("SELECT 1 FROM users WHERE LOWER(username) = ? OR LOWER(COALESCE(nickname, '')) = ?",
+                       (candidate, candidate)).fetchone():
+        n += 1
+        candidate = f"{base}{n}" if n < 100 else f"{base}{secrets.randbelow(100000)}"
+    return candidate
+
+
+@app.route("/auth/google", methods=["POST"])
+def google_auth():
+    """Google bilan kirish / ro'yxatdan o'tish (yoki mavjud hisobga Google'ni ulash)."""
+    data = request.get_json(silent=True) or {}
+    info = verify_google_token(data.get("credential", ""))
+    if not info:
+        return jsonify({"ok": False, "error": tr("google_failed")}), 400
+
+    conn = get_db()
+    try:
+        # 1) Allaqachon tizimga kirgan foydalanuvchi: Google'ni hisobiga ulaymiz
+        if "user_id" in session:
+            me = conn.execute("SELECT * FROM users WHERE id = ?", (session["user_id"],)).fetchone()
+            if me:
+                other = conn.execute("SELECT username FROM users WHERE google_sub = ?", (info["sub"],)).fetchone()
+                if other and other["username"] != me["username"]:
+                    return jsonify({"ok": False, "error": tr("google_already_linked")}), 409
+                conn.execute("UPDATE users SET google_sub = ?, email = ? WHERE id = ?",
+                             (info["sub"], info["email"], me["id"]))
+                conn.commit()
+                return jsonify({"ok": True, "redirect": url_for("settings_page")})
+
+        # 2) Mavjud Google hisobi
+        user = conn.execute("SELECT * FROM users WHERE google_sub = ?", (info["sub"],)).fetchone()
+        if not user:
+            # 3) Yangi hisob
+            username = make_username_from_email(conn, info["email"])
+            conn.execute(
+                "INSERT INTO users (username, password_hash, avatar_letter, security_answer_hash, terms_accepted_at, email, google_sub) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (username, hash_password(secrets.token_hex(24)), username[0].upper(), None,
+                 datetime.now().strftime("%d.%m.%Y %H:%M"), info["email"], info["sub"]),
+            )
+            conn.commit()
+            user = conn.execute("SELECT * FROM users WHERE google_sub = ?", (info["sub"],)).fetchone()
+
+        blocked = conn.execute("SELECT 1 FROM blocked_users WHERE username = ?", (user["username"],)).fetchone()
+        if blocked:
+            return jsonify({"ok": False, "error": tr("blocked_msg")}), 403
+        login_user(user)
+        nxt = request.args.get("next", "") or data.get("next", "")
+        return jsonify({"ok": True, "redirect": nxt if is_safe_next(nxt) else url_for("dashboard")})
+    finally:
+        conn.close()
+
+
+def delete_user_everything(conn, username):
+    """Foydalanuvchining barcha ma'lumotlarini butunlay o'chiradi."""
+    for post in conn.execute("SELECT * FROM posts WHERE username = ?", (username,)).fetchall():
+        delete_post_everything(conn, post)
+    for table in ("post_comments", "post_views", "post_shares", "likes", "cart_items", "group_members"):
+        conn.execute(f"DELETE FROM {table} WHERE username = ?", (username,))
+    # postlardagi boshqa izohlar o'chmaydi, faqat foydalanuvchining o'zinikilari
+    for row in conn.execute(
+        "SELECT image_file FROM private_messages WHERE (sender = ? OR receiver = ?) AND image_file IS NOT NULL",
+        (username, username),
+    ).fetchall():
+        delete_image_from_db(conn, row["image_file"])
+    conn.execute("DELETE FROM private_messages WHERE sender = ? OR receiver = ?", (username, username))
+    for row in conn.execute(
+        "SELECT image_file FROM group_messages WHERE username = ? AND image_file IS NOT NULL", (username,)
+    ).fetchall():
+        delete_image_from_db(conn, row["image_file"])
+    conn.execute("DELETE FROM group_messages WHERE username = ?", (username,))
+    conn.execute("DELETE FROM messages WHERE username = ?", (username,))
+    for prod in conn.execute("SELECT id, image_file FROM products WHERE seller_username = ?", (username,)).fetchall():
+        conn.execute("DELETE FROM cart_items WHERE product_id = ?", (prod["id"],))
+        delete_image_from_db(conn, prod["image_file"])
+    conn.execute("DELETE FROM products WHERE seller_username = ?", (username,))
+    conn.execute("DELETE FROM contact_requests WHERE from_username = ? OR to_username = ?", (username, username))
+    conn.execute("DELETE FROM contacts WHERE username = ? OR contact_username = ?", (username, username))
+    conn.execute("DELETE FROM blocked_users WHERE username = ?", (username,))
+    row = conn.execute("SELECT avatar_file FROM users WHERE username = ?", (username,)).fetchone()
+    if row and row["avatar_file"]:
+        delete_image_from_db(conn, row["avatar_file"])
+    conn.execute("DELETE FROM users WHERE username = ?", (username,))
+
+
+@app.route("/api/account/delete", methods=["POST"])
+def api_account_delete():
+    if "user_id" not in session:
+        return jsonify({"ok": False, "error": "auth"}), 401
+    data = request.get_json(silent=True) or {}
+    me = session["username"]
+    if (data.get("confirm") or "").strip().lower() != me.lower():
+        return jsonify({"ok": False, "error": tr("delete_account_mismatch")}), 400
+    conn = get_db()
+    try:
+        delete_user_everything(conn, me)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        return jsonify({"ok": False, "error": tr("err_network")}), 500
+    finally:
+        conn.close()
+    session.clear()
+    return jsonify({"ok": True, "redirect": url_for("login")})
+
+
+@app.after_request
+def mobile_no_zoom(resp):
+    """Telefonda sahifa qo'l bilan yaqinlashib/siljib ketmasligi uchun viewport'ni qat'iylashtiradi."""
+    try:
+        if resp.mimetype == "text/html" and not resp.direct_passthrough:
+            body = resp.get_data(as_text=True)
+            body = body.replace(
+                'width=device-width, initial-scale=1">',
+                'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">',
+            )
+            if "</body>" in body:
+                body = body.replace("</body>", NO_ZOOM_JS + "</body>", 1)
+            resp.set_data(body)
+    except Exception:
+        pass
+    return resp
+
+
+NO_ZOOM_JS = """<script>
+document.addEventListener('gesturestart',function(e){e.preventDefault();});
+document.addEventListener('gesturechange',function(e){e.preventDefault();});
+document.addEventListener('touchmove',function(e){if(e.touches&&e.touches.length>1){e.preventDefault();}},{passive:false});
+</script>"""
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -823,11 +1015,7 @@ def login():
             if is_blocked:
                 flash(tr("blocked_msg"))
                 return render_template("login.html")
-            session["user_id"] = user["id"]
-            session["username"] = user["username"]
-            session["avatar_letter"] = user["avatar_letter"]
-            session["nickname"] = user["nickname"]
-            session["avatar_file"] = user["avatar_file"]
+            login_user(user)
             nxt = request.args.get("next", "")
             return redirect(nxt if is_safe_next(nxt) else url_for("dashboard"))
         else:
@@ -853,7 +1041,7 @@ def forgot_password():
         if step == "username":
             if not user["security_answer_hash"]:
                 conn.close()
-                flash("Bu hisobda xavfsizlik savoli o'rnatilmagan. Yordam uchun bog'laning.")
+                flash(tr("forgot_no_question"))
                 return render_template("forgot.html", step="username")
             conn.close()
             return render_template("forgot.html", step="answer", username=username)
@@ -2766,12 +2954,13 @@ def settings_page():
 
     conn = get_db()
     user_row = conn.execute(
-        "SELECT nickname FROM users WHERE username = ?", (session["username"],)
+        "SELECT nickname, email, google_sub FROM users WHERE username = ?", (session["username"],)
     ).fetchone()
     conn.close()
 
     return render_template(
         "settings.html",
+        google_email=(user_row["email"] if user_row and user_row["google_sub"] else None),
         username=session["username"],
         avatar_letter=session["avatar_letter"],
         avatar_file=session.get("avatar_file"),

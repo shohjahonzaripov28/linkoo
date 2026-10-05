@@ -18,18 +18,28 @@
     <div style="text-align:center; padding:20px 10px 30px 10px;">
       <div class="avatar-circle" style="margin:0 auto 14px auto; font-size:22px;">L</div>
       <div style="font-weight:700; font-size:18px;">Linko</div>
-      <div style="opacity:0.5; font-size:12px; margin-top:2px;">Version 0.1 (beta)</div>
+      <div style="opacity:0.5; font-size:12px; margin-top:2px;">{{ t.about_version_label }} 0.7 (beta)</div>
+      <p style="font-size:14px; line-height:1.5; opacity:0.8; margin:14px auto 0; max-width:320px;">{{ t.about_desc }}</p>
+    </div>
+
+    <p class="section-title">{{ t.about_features }}</p>
+    <div class="about-features">
+      <div>{{ t.about_f1 }}</div>
+      <div>{{ t.about_f2 }}</div>
+      <div>{{ t.about_f3 }}</div>
+      <div>{{ t.about_f4 }}</div>
+      <div>{{ t.about_f5 }}</div>
     </div>
 
     <div class="settings-list">
       <a href="{{ url_for('privacy_page') }}" class="settings-row">
         <div class="settings-icon-badge">{{ icon('lock', 18) }}</div>
-        <div class="settings-row-label">Maxfiylik va shartlar</div>
+        <div class="settings-row-label">{{ t.privacy_and_terms }}</div>
         <span class="chevron">{{ icon('chevron', 16) }}</span>
       </a>
     </div>
 
-    <p style="text-align:center; font-size:11px; opacity:0.4; margin-top:20px;">Claude bilan birga qurilgan</p>
+    <p style="text-align:center; font-size:11px; opacity:0.4; margin-top:20px;">{{ t.built_with_claude }}</p>
   </div>
 
   {% include 'navbar.html' %}

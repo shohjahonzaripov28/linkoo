@@ -1,0 +1,28 @@
+{# Google bilan kirish tugmasi. GOOGLE_CLIENT_ID sozlanmagan bo'lsa ko'rinmaydi. #}
+{% if google_client_id %}
+<div class="g-wrap">
+  <div id="g-btn" class="g-btn-wrap"></div>
+  <div class="flash" id="g-err" hidden></div>
+</div>
+<script>
+  function linkoGoogleCallback(resp) {
+    var err = document.getElementById("g-err");
+    fetch("/auth/google" + location.search, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: resp.credential })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) { location.href = d.redirect; }
+      else { err.textContent = d.error || "{{ t.google_failed }}"; err.hidden = false; }
+    }).catch(function () { err.textContent = "{{ t.err_network }}"; err.hidden = false; });
+  }
+  function linkoGoogleInit() {
+    if (!window.google || !google.accounts) return;
+    google.accounts.id.initialize({ client_id: "{{ google_client_id }}", callback: linkoGoogleCallback });
+    var el = document.getElementById("g-btn");
+    var w = Math.min(340, Math.max(220, el.parentElement.clientWidth));
+    google.accounts.id.renderButton(el, { theme: "filled_black", size: "large", text: "continue_with", shape: "pill", width: w, locale: "{{ lang }}" });
+  }
+</script>
+<script src="https://accounts.google.com/gsi/client" async defer onload="linkoGoogleInit()"></script>
+{% endif %}

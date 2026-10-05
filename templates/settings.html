@@ -83,6 +83,22 @@
       </a>
     </div>
 
+    {% if google_client_id %}
+    <div class="settings-list" style="margin-top:16px;">
+      <div class="settings-row" style="cursor:default;">
+        <div class="settings-icon-badge">{{ icon('globe', 18) }}</div>
+        <div class="settings-row-label">{{ t.google_account_row }}</div>
+        {% if google_email %}<span class="settings-row-value">✓ {{ google_email }}</span>{% endif %}
+      </div>
+      {% if not google_email %}
+      <div style="padding:6px 6px 10px;">
+        <p class="g-note" style="margin:0 0 10px;">{{ t.google_link_hint }}</p>
+        {% include '_google.html' %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if is_admin %}
     <div class="settings-list" style="margin-top:16px;">
       <a href="{{ url_for('admin_page') }}" class="settings-row">
@@ -98,8 +114,55 @@
         <div class="settings-icon-badge danger-badge">{{ icon('logout', 18) }}</div>
         <div class="settings-row-label">{{ t.logout }}</div>
       </a>
+      <a href="#" class="settings-row danger-row" id="delete-account-open">
+        <div class="settings-icon-badge danger-badge">{{ icon('close', 18) }}</div>
+        <div class="settings-row-label">{{ t.delete_account_title }}</div>
+      </a>
     </div>
   </div>
+
+  <div class="modal-overlay" id="delete-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>{{ t.delete_account_title }}</h3>
+        <button type="button" class="modal-close" id="delete-cancel-x">{{ icon('close', 20) }}</button>
+      </div>
+      <p style="font-size:14px; line-height:1.5; color:#fca5a5; margin-bottom:12px;">{{ t.delete_account_warn }}</p>
+      <p style="font-size:13px; opacity:.8; margin-bottom:8px;">{{ t.delete_account_prompt }} <b>{{ username }}</b></p>
+      <input type="text" id="delete-confirm-input" class="shop-input" autocomplete="off" autocapitalize="off" placeholder="{{ username }}">
+      <div class="flash" id="delete-err" hidden></div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button type="button" class="btn-primary" id="delete-cancel" style="flex:1; background:rgba(255,255,255,.12); box-shadow:none;">{{ t.cancel }}</button>
+        <button type="button" class="btn-primary btn-danger" id="delete-go" style="flex:1;">{{ t.delete }}</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var modal = document.getElementById("delete-modal");
+      var errBox = document.getElementById("delete-err");
+      function show() { modal.hidden = false; document.getElementById("delete-confirm-input").focus(); }
+      function hide() { modal.hidden = true; errBox.hidden = true; }
+      document.getElementById("delete-account-open").addEventListener("click", function (e) { e.preventDefault(); show(); });
+      document.getElementById("delete-cancel").addEventListener("click", hide);
+      document.getElementById("delete-cancel-x").addEventListener("click", hide);
+      modal.addEventListener("click", function (e) { if (e.target === modal) hide(); });
+      document.getElementById("delete-go").addEventListener("click", async function () {
+        var btn = this; btn.disabled = true;
+        try {
+          var res = await fetch("/api/account/delete", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirm: document.getElementById("delete-confirm-input").value })
+          });
+          var d = await res.json();
+          if (d.ok) { location.href = d.redirect; return; }
+          errBox.textContent = d.error || "{{ t.err_network }}"; errBox.hidden = false;
+        } catch (e) { errBox.textContent = "{{ t.err_network }}"; errBox.hidden = false; }
+        btn.disabled = false;
+      });
+    })();
+  </script>
 
   {% include 'navbar.html' %}
 </body>

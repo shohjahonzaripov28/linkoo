@@ -25,21 +25,6 @@
       <a href="{{ url_for('feed', f='friends') }}" class="chip {% if f == 'friends' %}active{% endif %}">{{ t.chip_friends }}</a>
     </div>
 
-    <div class="composer" id="composer">
-      <textarea id="composer-text" placeholder="{{ t.post_placeholder }}" rows="2" maxlength="2000"></textarea>
-      <div id="composer-previews" class="composer-previews"></div>
-      <div class="composer-bar">
-        <button type="button" class="tool-btn" id="btn-gallery" title="{{ t.gallery_btn }}">{{ icon('image', 20) }}<span>{{ t.gallery_btn }}</span></button>
-        <button type="button" class="tool-btn" id="btn-cam-photo" title="{{ t.camera_photo_btn }}">{{ icon('camera', 20) }}<span>{{ t.camera_photo_btn }}</span></button>
-        <button type="button" class="tool-btn" id="btn-cam-video" title="{{ t.camera_video_btn }}">{{ icon('video', 20) }}<span>{{ t.camera_video_btn }}</span></button>
-        <span class="composer-spacer"></span>
-        <button type="button" id="btn-post" class="btn-primary post-btn">{{ t.post_btn }}</button>
-      </div>
-      <div class="upload-progress" id="upload-progress" hidden>
-        <div class="upload-bar"><div id="upload-bar-fill"></div></div>
-        <span id="upload-text"></span>
-      </div>
-    </div>
     <input type="file" id="input-gallery" accept="image/*,video/*" multiple hidden>
     <input type="file" id="input-cam-photo" accept="image/*" capture="environment" hidden>
     <input type="file" id="input-cam-video" accept="video/*" capture="environment" hidden>
@@ -120,6 +105,32 @@
 
   {% if not single %}
   <button type="button" class="fab" id="fab" aria-label="{{ t.new_post_title }}">{{ icon('plus', 28) }}</button>
+  {% endif %}
+
+  {% if not single %}
+  <div class="modal-overlay sheet-overlay" id="composer-overlay" hidden>
+    <div class="modal-card sheet-card">
+      <div class="modal-head">
+        <h3>{{ t.new_post_title }}</h3>
+        <button type="button" class="modal-close" id="composer-close">{{ icon('close', 20) }}</button>
+      </div>
+    <div class="composer" id="composer">
+      <textarea id="composer-text" placeholder="{{ t.post_placeholder }}" rows="2" maxlength="2000"></textarea>
+      <div id="composer-previews" class="composer-previews"></div>
+      <div class="composer-bar">
+        <button type="button" class="tool-btn" id="btn-gallery" title="{{ t.gallery_btn }}">{{ icon('image', 20) }}<span>{{ t.gallery_btn }}</span></button>
+        <button type="button" class="tool-btn" id="btn-cam-photo" title="{{ t.camera_photo_btn }}">{{ icon('camera', 20) }}<span>{{ t.camera_photo_btn }}</span></button>
+        <button type="button" class="tool-btn" id="btn-cam-video" title="{{ t.camera_video_btn }}">{{ icon('video', 20) }}<span>{{ t.camera_video_btn }}</span></button>
+        <span class="composer-spacer"></span>
+        <button type="button" id="btn-post" class="btn-primary post-btn">{{ t.post_btn }}</button>
+      </div>
+      <div class="upload-progress" id="upload-progress" hidden>
+        <div class="upload-bar"><div id="upload-bar-fill"></div></div>
+        <span id="upload-text"></span>
+      </div>
+    </div>
+    </div>
+  </div>
   {% endif %}
 
   <div class="modal-overlay" id="stats-modal" hidden>
@@ -260,12 +271,19 @@
       document.getElementById("btn-cam-photo").addEventListener("click", () => inputs.photo.click());
       document.getElementById("btn-cam-video").addEventListener("click", () => inputs.video.click());
       // "+" tugmasi: to'g'ridan-to'g'ri galereyani ochadi
+      const overlay = document.getElementById("composer-overlay");
+      function openComposer() { overlay.hidden = false; }
+      function closeComposer() { overlay.hidden = true; }
+      document.getElementById("composer-close").addEventListener("click", closeComposer);
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) closeComposer(); });
       document.getElementById("fab").addEventListener("click", () => inputs.gallery.click());
+      // Galereya yopilsa (fayl tanlanmasa) - faqat matnli post yozish oynasi ochiladi
+      inputs.gallery.addEventListener("cancel", openComposer);
       Object.values(inputs).forEach((input) => {
         input.addEventListener("change", async () => {
           await addFiles(input.files);
           input.value = "";
-          composer.scrollIntoView({ behavior: "smooth", block: "start" });
+          openComposer();
         });
       });
 
