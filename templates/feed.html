@@ -7,24 +7,43 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon, empty_state %}
-  <div class="glass-card feed-card">
+  {% from '_icons.html' import icon, empty_state, render_media %}
+  <div class="glass-card feed-card feed-v2">
     <div class="chat-header">
-      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <a href="{{ url_for('feed') if single else url_for('dashboard') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ t.feed_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
-    <form method="POST" enctype="multipart/form-data" class="new-post-form">
-      <textarea name="content" placeholder="{{ t.post_placeholder }}" rows="2"></textarea>
-      <div class="new-post-actions">
-        <label class="file-label">
-          📷 {{ t.add_photo_label }}
-          <input type="file" name="image" accept="image/*" style="display:none;">
-        </label>
-        <button type="submit" class="btn-primary post-btn">{{ t.post_btn }}</button>
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    {% if not single %}
+    <div class="feed-chips">
+      <a href="{{ url_for('feed') }}" class="chip {% if f == 'all' %}active{% endif %}">{{ t.chip_all }}</a>
+      <a href="{{ url_for('feed', f='friends') }}" class="chip {% if f == 'friends' %}active{% endif %}">{{ t.chip_friends }}</a>
+    </div>
+
+    <div class="composer" id="composer">
+      <textarea id="composer-text" placeholder="{{ t.post_placeholder }}" rows="2" maxlength="2000"></textarea>
+      <div id="composer-previews" class="composer-previews"></div>
+      <div class="composer-bar">
+        <button type="button" class="tool-btn" id="btn-gallery" title="{{ t.gallery_btn }}">{{ icon('image', 20) }}<span>{{ t.gallery_btn }}</span></button>
+        <button type="button" class="tool-btn" id="btn-cam-photo" title="{{ t.camera_photo_btn }}">{{ icon('camera', 20) }}<span>{{ t.camera_photo_btn }}</span></button>
+        <button type="button" class="tool-btn" id="btn-cam-video" title="{{ t.camera_video_btn }}">{{ icon('video', 20) }}<span>{{ t.camera_video_btn }}</span></button>
+        <span class="composer-spacer"></span>
+        <button type="button" id="btn-post" class="btn-primary post-btn">{{ t.post_btn }}</button>
       </div>
-    </form>
+      <div class="upload-progress" id="upload-progress" hidden>
+        <div class="upload-bar"><div id="upload-bar-fill"></div></div>
+        <span id="upload-text"></span>
+      </div>
+    </div>
+    <input type="file" id="input-gallery" accept="image/*,video/*" multiple hidden>
+    <input type="file" id="input-cam-photo" accept="image/*" capture="environment" hidden>
+    <input type="file" id="input-cam-video" accept="video/*" capture="environment" hidden>
+    {% endif %}
 
     <div class="feed-list">
       {% if posts|length == 0 %}
@@ -32,92 +51,486 @@
       {% endif %}
 
       {% for post in posts %}
-      <div class="post-card">
+      <article class="post-card" data-post-id="{{ post.id }}" data-owner="{{ 1 if post.is_owner else 0 }}">
         <div class="post-header">
-          <div class="avatar-circle small">{{ post.avatar_letter }}</div>
-          <div style="flex:1;">
-            <div class="post-author">{{ post.username }}</div>
-            <div class="post-time">{{ post.created_at }}</div>
+          <a href="{{ url_for('profile') if post.is_owner else url_for('user_profile', target_username=post.username) }}" class="post-avatar-link">
+            {% if post.avatar_file %}
+              <img class="avatar-circle small" src="{{ url_for('media', filename=post.avatar_file) }}" alt="">
+            {% else %}
+              <div class="avatar-circle small">{{ post.avatar_letter }}</div>
+            {% endif %}
+          </a>
+          <div style="flex:1; min-width:0;">
+            <a href="{{ url_for('profile') if post.is_owner else url_for('user_profile', target_username=post.username) }}" class="post-author">@{{ post.display }}</a>
+            <div class="post-time">{{ post.ago }}</div>
           </div>
-          {% if post.username == username or is_admin %}
-          <button class="post-delete-btn" data-post-id="{{ post.id }}" title="{{ t.delete }}">🗑️</button>
-          {% endif %}
+          <div class="post-menu-wrap">
+            <button type="button" class="post-menu-btn" aria-label="menu">{{ icon('more', 22) }}</button>
+            <div class="post-menu" hidden>
+              <button type="button" class="menu-item menu-copy">{{ t.menu_copy_link }}</button>
+              {% if post.is_owner or is_admin %}
+              <button type="button" class="menu-item menu-stats">{{ t.stats_btn }}</button>
+              <button type="button" class="menu-item menu-delete danger">{{ t.delete }}</button>
+              {% endif %}
+            </div>
+          </div>
         </div>
 
         {% if post.content %}
-        <div class="post-text" data-post-text="{{ post.id }}">{{ post.content }}</div>
+        <div class="post-text">{{ post.content }}</div>
         {% endif %}
 
-        {% if post.image_file %}
-        <img class="post-image" src="{{ url_for('media', filename=post.image_file) }}" alt="post rasmi">
-        {% endif %}
+        {{ render_media(post.media) }}
 
-        <button class="like-btn {% if post.liked_by_me %}liked{% endif %}" data-post-id="{{ post.id }}">
-          <span class="heart">{% if post.liked_by_me %}❤️{% else %}🤍{% endif %}</span>
-          <span class="like-count">{{ post.like_count }}</span>
-        </button>
-      </div>
+        <div class="post-actions">
+          <button type="button" class="act-btn like-btn {% if post.liked_by_me %}liked{% endif %}">
+            {{ icon('heart', 22) }}<span class="like-count">{{ post.like_count }}</span>
+          </button>
+          <button type="button" class="act-btn comment-btn">
+            {{ icon('comment', 22) }}<span class="comment-count">{{ post.comment_count }}</span>
+          </button>
+          <button type="button" class="act-btn share-btn">
+            {{ icon('share', 22) }}<span class="share-count">{{ post.share_count }}</span>
+          </button>
+          <span class="act-spacer"></span>
+          <span class="act-views" title="{{ t.stat_views }}">{{ icon('eye', 18) }}<span class="views-count">{{ post.view_count }}</span></span>
+          {% if post.is_owner or is_admin %}
+          <button type="button" class="stats-btn menu-stats">{{ icon('chart', 16) }} {{ t.stats_btn }}</button>
+          {% endif %}
+        </div>
+
+        <div class="comments-panel" hidden>
+          <div class="comments-list"></div>
+          <form class="comment-form">
+            <input type="text" name="content" placeholder="{{ t.comment_placeholder }}" maxlength="500" autocomplete="off">
+            <button type="submit" class="comment-send">{{ icon('send', 18) }}</button>
+          </form>
+        </div>
+      </article>
       {% endfor %}
 
       {% if has_more %}
-      <a href="{{ url_for('feed', page=page+1) }}" class="load-more" data-loading="{{ t.loading }}">{{ t.load_more }}</a>
+      <a href="{{ url_for('feed', page=page+1, f=f) }}" class="load-more" data-loading="{{ t.loading }}">{{ t.load_more }}</a>
       {% endif %}
       {% if page > 1 %}
-      <a href="{{ url_for('feed') }}" class="load-more secondary">← {{ t.feed_title }}</a>
+      <a href="{{ url_for('feed', f=f) }}" class="load-more secondary">← {{ t.feed_title }}</a>
       {% endif %}
     </div>
   </div>
 
-  <script>
-    const netErrorText = "{{ t.err_network }}";
-    const confirmDeleteText = "{{ t.confirm_delete_post }}";
+  {% if not single %}
+  <button type="button" class="fab" id="fab" aria-label="{{ t.new_post_title }}">{{ icon('plus', 28) }}</button>
+  {% endif %}
 
-    const fileInput = document.querySelector('input[name="image"]');
-    const fileLabel = document.querySelector('.file-label');
-    fileInput.addEventListener("change", () => {
-      if (fileInput.files.length > 0) {
-        fileLabel.innerHTML = "✅ " + fileInput.files[0].name;
+  <div class="modal-overlay" id="stats-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>{{ t.stats_btn }}</h3>
+        <button type="button" class="modal-close" id="stats-close">{{ icon('close', 20) }}</button>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-box"><div class="stat-num" id="st-views">0</div><div class="stat-label">{{ t.stat_views }}</div></div>
+        <div class="stat-box"><div class="stat-num" id="st-likes">0</div><div class="stat-label">{{ t.stat_likes }}</div></div>
+        <div class="stat-box"><div class="stat-num" id="st-comments">0</div><div class="stat-label">{{ t.stat_comments }}</div></div>
+        <div class="stat-box"><div class="stat-num" id="st-shares">0</div><div class="stat-label">{{ t.stat_shares }}</div></div>
+      </div>
+      <div class="viewers-title">{{ t.stat_viewers }}</div>
+      <div id="st-viewers" class="viewers-list"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script>
+    const L = {
+      netError: "{{ t.err_network }}",
+      tooMany: "{{ t.media_too_many }}",
+      videoTooBig: "{{ t.video_too_big }}",
+      uploadFailed: "{{ t.upload_failed }}",
+      emptyPost: "{{ t.empty_post }}",
+      uploading: "{{ t.uploading }}",
+      confirmDelete: "{{ t.confirm_delete_post }}",
+      confirmDeleteComment: "{{ t.confirm_delete_comment }}",
+      copied: "{{ t.link_copied }}",
+      noComments: "{{ t.no_comments }}",
+      nobody: "{{ t.stat_nobody }}",
+    };
+    const ME = "{{ username }}";
+    const SINGLE = {{ 'true' if single else 'false' }};
+    const MAX_MEDIA = 10;
+    const MAX_VIDEO = 25 * 1024 * 1024;
+    const FEED_URL = "{{ url_for('feed', f=f) }}";
+
+    function toast(text) {
+      const el = document.getElementById("toast");
+      el.textContent = text;
+      el.hidden = false;
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => { el.hidden = true; }, 1800);
+    }
+    async function postJSON(url, body) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: body ? { "Content-Type": "application/json" } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) throw new Error("bad");
+      return res.json();
+    }
+    function profileUrl(username) { return username === ME ? "/profile" : "/u/" + encodeURIComponent(username); }
+
+    /* ---------------- Yangi post (composer) ---------------- */
+    const composer = document.getElementById("composer");
+    if (composer) {
+      const selected = [];
+      const textEl = document.getElementById("composer-text");
+      const previews = document.getElementById("composer-previews");
+      const progress = document.getElementById("upload-progress");
+      const fill = document.getElementById("upload-bar-fill");
+      const progressText = document.getElementById("upload-text");
+      const btnPost = document.getElementById("btn-post");
+      const inputs = {
+        gallery: document.getElementById("input-gallery"),
+        photo: document.getElementById("input-cam-photo"),
+        video: document.getElementById("input-cam-video"),
+      };
+
+      async function shrinkImage(file) {
+        if (file.type === "image/gif" || file.size < 400 * 1024) return file;
+        try {
+          const bmp = await createImageBitmap(file);
+          const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+          const c = document.createElement("canvas");
+          c.width = Math.round(bmp.width * scale);
+          c.height = Math.round(bmp.height * scale);
+          c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+          const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+          if (!blob || blob.size >= file.size) return file;
+          return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+        } catch (e) { return file; }
+      }
+      function ensureName(file, kind) {
+        if (/\.(png|jpe?g|gif|webp|mp4|mov|m4v|webm)$/i.test(file.name)) return file;
+        let ext = "jpg";
+        if (kind === "video") ext = file.type.includes("quicktime") ? "mov" : file.type.includes("webm") ? "webm" : "mp4";
+        else if (file.type) ext = file.type.split("/")[1].replace("jpeg", "jpg");
+        return new File([file], "upload_" + Date.now() + "." + ext, { type: file.type });
+      }
+      async function addFiles(list) {
+        for (const original of Array.from(list)) {
+          if (selected.length >= MAX_MEDIA) { alert(L.tooMany); break; }
+          const isVideo = original.type.startsWith("video/") || /\.(mp4|mov|m4v|webm)$/i.test(original.name);
+          const isImage = original.type.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(original.name);
+          if (!isVideo && !isImage) continue;
+          if (isVideo && original.size > MAX_VIDEO) { alert(L.videoTooBig); continue; }
+          let f = isImage ? await shrinkImage(original) : original;
+          f = ensureName(f, isVideo ? "video" : "image");
+          selected.push({ file: f, url: URL.createObjectURL(f), kind: isVideo ? "video" : "image" });
+        }
+        renderPreviews();
+      }
+      function renderPreviews() {
+        previews.innerHTML = "";
+        selected.forEach((item, i) => {
+          const box = document.createElement("div");
+          box.className = "preview-item";
+          if (item.kind === "video") {
+            const v = document.createElement("video");
+            v.src = item.url + "#t=0.1"; v.muted = true; v.playsInline = true; v.preload = "metadata";
+            box.appendChild(v);
+            const badge = document.createElement("span");
+            badge.className = "preview-badge"; badge.textContent = "▶";
+            box.appendChild(badge);
+          } else {
+            const img = document.createElement("img");
+            img.src = item.url;
+            box.appendChild(img);
+          }
+          const rm = document.createElement("button");
+          rm.type = "button"; rm.className = "preview-remove"; rm.textContent = "✕";
+          rm.addEventListener("click", () => { selected.splice(i, 1); renderPreviews(); });
+          box.appendChild(rm);
+          previews.appendChild(box);
+        });
+        previews.style.display = selected.length ? "flex" : "none";
+      }
+      renderPreviews();
+
+      document.getElementById("btn-gallery").addEventListener("click", () => inputs.gallery.click());
+      document.getElementById("btn-cam-photo").addEventListener("click", () => inputs.photo.click());
+      document.getElementById("btn-cam-video").addEventListener("click", () => inputs.video.click());
+      // "+" tugmasi: to'g'ridan-to'g'ri galereyani ochadi
+      document.getElementById("fab").addEventListener("click", () => inputs.gallery.click());
+      Object.values(inputs).forEach((input) => {
+        input.addEventListener("change", async () => {
+          await addFiles(input.files);
+          input.value = "";
+          composer.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      });
+
+      function resetPosting() {
+        btnPost.disabled = false;
+        progress.hidden = true;
+        fill.style.width = "0%";
+      }
+      btnPost.addEventListener("click", () => {
+        const text = textEl.value.trim();
+        if (!text && selected.length === 0) { alert(L.emptyPost); return; }
+        const fd = new FormData();
+        fd.append("content", text);
+        selected.forEach((s) => fd.append("media", s.file, s.file.name));
+
+        btnPost.disabled = true;
+        progress.hidden = false;
+        progressText.textContent = L.uploading + " 0%";
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/posts/create");
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          fill.style.width = pct + "%";
+          progressText.textContent = L.uploading + " " + pct + "%";
+        };
+        xhr.onload = () => {
+          let data = {};
+          try { data = JSON.parse(xhr.responseText); } catch (e) { /* JSON emas */ }
+          if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+            window.location.href = FEED_URL;
+            return;
+          }
+          resetPosting();
+          if (data.error === "video_too_big" || xhr.status === 413) alert(L.videoTooBig);
+          else if (data.error === "too_many") alert(L.tooMany);
+          else if (data.error === "empty") alert(L.emptyPost);
+          else alert(L.uploadFailed);
+        };
+        xhr.onerror = () => { resetPosting(); alert(L.uploadFailed); };
+        xhr.send(fd);
+      });
+    }
+
+    /* ---------------- Postlar bilan ishlash ---------------- */
+    function commentNode(c) {
+      const row = document.createElement("div");
+      row.className = "comment-item";
+      row.dataset.id = c.id;
+      let av;
+      if (c.avatar_file) { av = document.createElement("img"); av.src = "/media/" + encodeURIComponent(c.avatar_file); av.className = "avatar-circle tiny"; }
+      else { av = document.createElement("div"); av.className = "avatar-circle tiny"; av.textContent = c.avatar_letter || "?"; }
+      row.appendChild(av);
+      const body = document.createElement("div");
+      body.className = "comment-body";
+      const head = document.createElement("div");
+      const a = document.createElement("a");
+      a.href = profileUrl(c.username); a.className = "comment-author"; a.textContent = "@" + c.display;
+      const ago = document.createElement("span");
+      ago.className = "comment-ago"; ago.textContent = " " + c.ago;
+      head.appendChild(a); head.appendChild(ago);
+      const text = document.createElement("div");
+      text.className = "comment-text"; text.textContent = c.content;
+      body.appendChild(head); body.appendChild(text);
+      row.appendChild(body);
+      if (c.can_delete) {
+        const del = document.createElement("button");
+        del.type = "button"; del.className = "comment-del"; del.textContent = "✕";
+        row.appendChild(del);
+      }
+      return row;
+    }
+    function setCommentCount(card, n) { card.querySelector(".comment-count").textContent = n; }
+    function renderComments(card, comments) {
+      const list = card.querySelector(".comments-list");
+      list.innerHTML = "";
+      if (!comments.length) {
+        const empty = document.createElement("div");
+        empty.className = "comments-empty"; empty.textContent = L.noComments;
+        list.appendChild(empty);
+        return;
+      }
+      comments.forEach((c) => list.appendChild(commentNode(c)));
+    }
+    async function loadComments(card) {
+      const id = card.dataset.postId;
+      try {
+        const res = await fetch(`/api/posts/${id}/comments`);
+        if (!res.ok) throw new Error("bad");
+        const data = await res.json();
+        renderComments(card, data.comments);
+        setCommentCount(card, data.count);
+        card.dataset.loaded = "1";
+      } catch (e) { toast(L.netError); }
+    }
+    async function sharePost(card) {
+      const id = card.dataset.postId;
+      const url = location.origin + "/post/" + id;
+      let done = false;
+      if (navigator.share) {
+        try { await navigator.share({ url: url, title: "Linko" }); done = true; }
+        catch (e) { if (e && e.name === "AbortError") return; }
+      }
+      if (!done) {
+        try { await navigator.clipboard.writeText(url); }
+        catch (e) {
+          const tmp = document.createElement("input"); tmp.value = url; document.body.appendChild(tmp);
+          tmp.select(); document.execCommand("copy"); tmp.remove();
+        }
+        toast(L.copied);
+      }
+      try {
+        const data = await postJSON(`/api/posts/${id}/share`);
+        card.querySelector(".share-count").textContent = data.shares;
+      } catch (e) { /* hisob yangilanmadi - muhim emas */ }
+    }
+    async function openStats(card) {
+      const modal = document.getElementById("stats-modal");
+      ["views", "likes", "comments", "shares"].forEach((k) => { document.getElementById("st-" + k).textContent = "…"; });
+      document.getElementById("st-viewers").innerHTML = "";
+      modal.hidden = false;
+      try {
+        const res = await fetch(`/api/posts/${card.dataset.postId}/stats`);
+        if (!res.ok) throw new Error("bad");
+        const d = await res.json();
+        ["views", "likes", "comments", "shares"].forEach((k) => { document.getElementById("st-" + k).textContent = d[k]; });
+        const box = document.getElementById("st-viewers");
+        if (!d.viewers.length) { box.textContent = L.nobody; }
+        d.viewers.forEach((v) => {
+          const a = document.createElement("a");
+          a.href = profileUrl(v.username); a.className = "viewer-chip"; a.textContent = "@" + v.display;
+          box.appendChild(a);
+        });
+      } catch (e) { modal.hidden = true; toast(L.netError); }
+    }
+
+    document.addEventListener("click", async (e) => {
+      const card = e.target.closest(".post-card");
+
+      if (!e.target.closest(".post-menu-wrap")) {
+        document.querySelectorAll(".post-menu").forEach((m) => { m.hidden = true; });
+      }
+      if (!card) return;
+
+      if (e.target.closest(".post-menu-btn")) {
+        const menu = card.querySelector(".post-menu");
+        const willOpen = menu.hidden;
+        document.querySelectorAll(".post-menu").forEach((m) => { m.hidden = true; });
+        menu.hidden = !willOpen;
+        return;
+      }
+      if (e.target.closest(".menu-copy")) {
+        card.querySelector(".post-menu").hidden = true;
+        const url = location.origin + "/post/" + card.dataset.postId;
+        try { await navigator.clipboard.writeText(url); toast(L.copied); }
+        catch (err) { prompt("", url); }
+        return;
+      }
+      if (e.target.closest(".menu-stats")) {
+        card.querySelector(".post-menu").hidden = true;
+        openStats(card);
+        return;
+      }
+      if (e.target.closest(".menu-delete")) {
+        card.querySelector(".post-menu").hidden = true;
+        if (!confirm(L.confirmDelete)) return;
+        try {
+          const data = await postJSON(`/api/posts/delete/${card.dataset.postId}`);
+          if (data.ok) card.remove();
+        } catch (err) { toast(L.netError); }
+        return;
+      }
+      const likeBtn = e.target.closest(".like-btn");
+      if (likeBtn) {
+        try {
+          const data = await postJSON(`/api/like/${card.dataset.postId}`);
+          likeBtn.querySelector(".like-count").textContent = data.like_count;
+          likeBtn.classList.toggle("liked", data.liked);
+        } catch (err) { toast(L.netError); }
+        return;
+      }
+      if (e.target.closest(".comment-btn")) {
+        const panel = card.querySelector(".comments-panel");
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) {
+          if (!card.dataset.loaded) loadComments(card);
+          const input = panel.querySelector("input");
+          if (input && !SINGLE) input.focus({ preventScroll: true });
+        }
+        return;
+      }
+      if (e.target.closest(".share-btn")) { sharePost(card); return; }
+      const del = e.target.closest(".comment-del");
+      if (del) {
+        if (!confirm(L.confirmDeleteComment)) return;
+        const item = del.closest(".comment-item");
+        try {
+          const data = await postJSON(`/api/comments/delete/${item.dataset.id}`);
+          if (data.ok) {
+            item.remove();
+            setCommentCount(card, data.count);
+            if (!card.querySelector(".comment-item")) renderComments(card, []);
+          }
+        } catch (err) { toast(L.netError); }
       }
     });
 
-    document.querySelectorAll(".like-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const postId = btn.dataset.postId;
-        try {
-          const res = await fetch(`/api/like/${postId}`, { method: "POST" });
-          if (!res.ok) throw new Error("bad");
-          const data = await res.json();
-          btn.querySelector(".heart").textContent = data.liked ? "❤️" : "🤍";
-          btn.querySelector(".like-count").textContent = data.like_count;
-          btn.classList.toggle("liked", data.liked);
-        } catch (e) { alert(netErrorText); }
-      });
+    document.addEventListener("submit", async (e) => {
+      const form = e.target.closest(".comment-form");
+      if (!form) return;
+      e.preventDefault();
+      const card = form.closest(".post-card");
+      const input = form.querySelector("input");
+      const content = input.value.trim();
+      if (!content) return;
+      input.disabled = true;
+      try {
+        const data = await postJSON(`/api/posts/${card.dataset.postId}/comments`, { content: content });
+        const list = card.querySelector(".comments-list");
+        const empty = list.querySelector(".comments-empty");
+        if (empty) empty.remove();
+        list.appendChild(commentNode(data.comment));
+        setCommentCount(card, data.count);
+        input.value = "";
+      } catch (err) { toast(L.netError); }
+      input.disabled = false;
+      input.focus({ preventScroll: true });
     });
 
-    document.querySelectorAll(".post-delete-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm(confirmDeleteText)) return;
-        const postId = btn.dataset.postId;
-        try {
-          const res = await fetch(`/api/posts/delete/${postId}`, { method: "POST" });
-          const data = await res.json();
-          if (data.ok) {
-            btn.closest(".post-card").remove();
+    const statsModal = document.getElementById("stats-modal");
+    document.getElementById("stats-close").addEventListener("click", () => { statsModal.hidden = true; });
+    statsModal.addEventListener("click", (e) => { if (e.target === statsModal) statsModal.hidden = true; });
+
+    /* Ko'rishlar: post ekranda 60% ko'ringanda va 1 soniya turganda hisoblanadi */
+    const viewed = new Set();
+    if ("IntersectionObserver" in window) {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((en) => {
+          const card = en.target;
+          if (en.isIntersecting) {
+            card._viewTimer = setTimeout(async () => {
+              const id = card.dataset.postId;
+              if (viewed.has(id)) return;
+              viewed.add(id);
+              try {
+                const data = await postJSON(`/api/posts/${id}/view`);
+                card.querySelector(".views-count").textContent = data.views;
+              } catch (err) { viewed.delete(id); }
+            }, 1000);
+          } else {
+            clearTimeout(card._viewTimer);
           }
-        } catch (e) { alert(netErrorText); }
-      });
-    });
+        });
+      }, { threshold: 0.6 });
+      document.querySelectorAll('.post-card[data-owner="0"]').forEach((c) => io.observe(c));
+    }
 
     document.querySelectorAll(".load-more:not(.secondary)").forEach((a) => {
-      a.addEventListener("click", () => {
-        a.innerHTML = '<span class="spinner"></span> ' + a.dataset.loading;
-      });
+      a.addEventListener("click", () => { a.innerHTML = '<span class="spinner"></span> ' + a.dataset.loading; });
     });
-    document.querySelector(".new-post-form").addEventListener("submit", () => {
-      const b = document.querySelector(".post-btn");
-      b.disabled = true;
-      b.innerHTML = '<span class="spinner"></span>';
-    });
+
+    if (SINGLE) {
+      const first = document.querySelector(".comment-btn");
+      if (first) first.click();
+    }
   </script>
 
   {% include 'navbar.html' %}

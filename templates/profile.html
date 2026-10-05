@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon, empty_state %}
+  {% from '_icons.html' import icon, empty_state, render_media %}
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
@@ -40,11 +40,9 @@
       {% endif %}
       {% for post in posts %}
       <div class="post-card">
-        <div class="post-time">{{ post.created_at }}</div>
+        <div class="post-time">{{ post.ago }}</div>
         {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
-        {% if post.image_file %}
-        <img class="post-image" src="{{ url_for('media', filename=post.image_file) }}" alt="post">
-        {% endif %}
+        {{ render_media(post.media) }}
       </div>
       {% endfor %}
     </div>

@@ -3,6 +3,7 @@
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response, g
 import hashlib
+import time
 import os
 import re
 from datetime import datetime
@@ -116,6 +117,9 @@ app = Flask(__name__)
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 PAGE_SIZE = 10
+MAX_MEDIA_PER_POST = 10
+MAX_VIDEO_BYTES = 25 * 1024 * 1024
+VIDEO_MIMES = {"mp4": "video/mp4", "m4v": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
 NICK_RE = re.compile(r"^[A-Za-z0-9_.]{3,24}$")
 app.secret_key = os.environ.get("SECRET_KEY", "linko-maxfiy-kalit-2026")
 
@@ -123,6 +127,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "linko.db")
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 120 * 1024 * 1024  # bitta so'rov (post) uchun umumiy chegara
 
 # ---------- Tillar (i18n) - barcha matnlar translations.py faylida ----------
 from translations import LANG_NAMES, TRANSLATIONS
@@ -140,6 +145,13 @@ def close_leftover_connections(exc):
             conn.close()
         except Exception:
             pass
+
+
+@app.errorhandler(413)
+def too_large(e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "video_too_big"}), 413
+    return "File too large", 413
 
 
 OPEN_ENDPOINTS = {
@@ -334,6 +346,33 @@ def get_db():
     return conn
 
 
+def ensure_feed_tables(conn):
+    """Feed uchun jadvallar: ko'p media, izohlar, ko'rishlar, ulashishlar (ikkala baza turi uchun)."""
+    pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS post_media (
+        id {pk}, post_id INTEGER NOT NULL, filename TEXT NOT NULL, kind TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS post_comments (
+        id {pk}, post_id INTEGER NOT NULL, username TEXT NOT NULL, content TEXT NOT NULL,
+        created_at TEXT NOT NULL, created_ts BIGINT)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS post_views (
+        id {pk}, post_id INTEGER NOT NULL, username TEXT NOT NULL, UNIQUE(post_id, username))""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS post_shares (
+        id {pk}, post_id INTEGER NOT NULL, username TEXT NOT NULL, created_ts BIGINT)""")
+    if USE_POSTGRES:
+        conn.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS created_ts BIGINT")
+    else:
+        cols = [row["name"] for row in conn.execute("PRAGMA table_info(posts)").fetchall()]
+        if "created_ts" not in cols:
+            conn.execute("ALTER TABLE posts ADD COLUMN created_ts BIGINT")
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media (post_id)",
+        "CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments (post_id)",
+        "CREATE INDEX IF NOT EXISTS idx_post_views_post ON post_views (post_id)",
+        "CREATE INDEX IF NOT EXISTS idx_post_shares_post ON post_shares (post_id)",
+    ):
+        conn.execute(stmt)
+
+
 def init_db():
     """Baza va jadvallarni birinchi ishga tushganda avtomatik yaratadi"""
     if USE_POSTGRES:
@@ -480,6 +519,7 @@ def init_db_postgres():
 
     for idx_sql in INDEX_STATEMENTS:
         conn.execute(idx_sql)
+    ensure_feed_tables(conn)
 
     conn.commit()
     conn.close()
@@ -639,6 +679,7 @@ def init_db_sqlite():
 
     for idx_sql in INDEX_STATEMENTS:
         conn.execute(idx_sql)
+    ensure_feed_tables(conn)
 
     conn.commit()
     conn.close()
@@ -933,103 +974,439 @@ def allowed_file(filename):
 
 @app.route("/media/<filename>")
 def media(filename):
-    """Bazaga saqlangan rasmlarni ko'rsatadi (static/uploads o'rniga)"""
+    """Bazaga saqlangan rasm va videolarni ko'rsatadi (video uchun Range - bo'lak-bo'lak yuklash - qo'llab-quvvatlanadi)."""
     conn = get_db()
-    row = conn.execute(
-        "SELECT mimetype, data FROM uploaded_images WHERE filename = ?", (filename,)
+    meta = conn.execute(
+        "SELECT mimetype, LENGTH(data) AS size FROM uploaded_images WHERE filename = ?", (filename,)
     ).fetchone()
-    conn.close()
 
-    if not row:
+    if not meta:
+        conn.close()
         return "", 404
 
+    mimetype, size = meta["mimetype"], int(meta["size"] or 0)
+
+    if mimetype.startswith("video/"):
+        start, end = 0, size - 1
+        status = 200
+        range_header = request.headers.get("Range", "")
+        m = re.match(r"bytes=(\d*)-(\d*)", range_header)
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else size - 1
+            else:  # oxirgi N bayt
+                start = max(0, size - int(m.group(2)))
+            if start >= size:
+                conn.close()
+                return Response(status=416, headers={"Content-Range": f"bytes */{size}"})
+            end = min(end, size - 1, start + 3 * 1024 * 1024 - 1)  # bir marta ko'pi bilan 3 MB
+            status = 206
+        length = end - start + 1
+        if USE_POSTGRES:
+            row = conn.execute(
+                "SELECT SUBSTRING(data FROM ? FOR ?) AS chunk FROM uploaded_images WHERE filename = ?",
+                (start + 1, length, filename),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT SUBSTR(data, ?, ?) AS chunk FROM uploaded_images WHERE filename = ?",
+                (start + 1, length, filename),
+            ).fetchone()
+        conn.close()
+        chunk = row["chunk"] if row else b""
+        if isinstance(chunk, memoryview):
+            chunk = bytes(chunk)
+        response = Response(chunk, status=status, mimetype=mimetype)
+        response.headers["Accept-Ranges"] = "bytes"
+        response.headers["Content-Length"] = str(len(chunk))
+        if status == 206:
+            response.headers["Content-Range"] = f"bytes {start}-{start + len(chunk) - 1}/{size}"
+        response.headers["Cache-Control"] = "public, max-age=31536000"
+        return response
+
+    row = conn.execute("SELECT data FROM uploaded_images WHERE filename = ?", (filename,)).fetchone()
+    conn.close()
     data = row["data"]
     if isinstance(data, memoryview):
         data = bytes(data)
-    response = Response(data, mimetype=row["mimetype"])
+    response = Response(data, mimetype=mimetype)
     response.headers["Cache-Control"] = "public, max-age=31536000"
     return response
+
+
+def save_video_to_db(conn, file_storage):
+    """Videoni bazaga saqlaydi (hajm chegarasi bilan). Hajm katta bo'lsa ValueError('video_too_big')."""
+    ext = file_storage.filename.rsplit(".", 1)[-1].lower() if "." in file_storage.filename else ""
+    if ext not in VIDEO_MIMES:
+        raise ValueError("bad_type")
+    data = file_storage.read()
+    if len(data) > MAX_VIDEO_BYTES:
+        raise ValueError("video_too_big")
+    unique_name = f"v{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{secure_filename(file_storage.filename) or 'video.' + ext}"
+    db_data = psycopg2.Binary(data) if USE_POSTGRES else data
+    conn.execute(
+        "INSERT INTO uploaded_images (filename, mimetype, data, created_at) VALUES (?, ?, ?, ?)",
+        (unique_name, VIDEO_MIMES[ext], db_data, datetime.now().strftime("%d.%m.%Y %H:%M")),
+    )
+    return unique_name
+
+
+def time_ago(ts, fallback=""):
+    """'2 soat oldin' ko'rinishidagi vaqt (joriy til bo'yicha)."""
+    if not ts:
+        return fallback
+    diff = max(0, int(time.time()) - int(ts))
+    t = TRANSLATIONS[current_lang()]
+    if diff < 60:
+        return t["ago_now"]
+    if diff < 3600:
+        return t["ago_min"].replace("{n}", str(diff // 60))
+    if diff < 86400:
+        return t["ago_hour"].replace("{n}", str(diff // 3600))
+    if diff < 86400 * 7:
+        return t["ago_day"].replace("{n}", str(diff // 86400))
+    return fallback
+
+
+def build_post_cards(conn, rows, me):
+    """Postlar ro'yxatiga media, layk, izoh, ko'rish va ulashish sonlarini qo'shadi (bir nechta guruhlangan so'rovda)."""
+    rows = list(rows)
+    if not rows:
+        return []
+    ids = [r["id"] for r in rows]
+    marks = ",".join("?" for _ in ids)
+    ids_t = tuple(ids)
+
+    media_map = {}
+    for r in conn.execute(
+        f"SELECT post_id, filename, kind FROM post_media WHERE post_id IN ({marks}) ORDER BY position, id", ids_t
+    ).fetchall():
+        media_map.setdefault(r["post_id"], []).append({"filename": r["filename"], "kind": r["kind"]})
+
+    def grouped(sql):
+        return {r["post_id"]: r["c"] for r in conn.execute(sql, ids_t).fetchall()}
+
+    likes = grouped(f"SELECT post_id, COUNT(*) AS c FROM likes WHERE post_id IN ({marks}) GROUP BY post_id")
+    comments = grouped(f"SELECT post_id, COUNT(*) AS c FROM post_comments WHERE post_id IN ({marks}) GROUP BY post_id")
+    views = grouped(f"SELECT post_id, COUNT(*) AS c FROM post_views WHERE post_id IN ({marks}) GROUP BY post_id")
+    shares = grouped(f"SELECT post_id, COUNT(DISTINCT username) AS c FROM post_shares WHERE post_id IN ({marks}) GROUP BY post_id")
+    mine = {
+        r["post_id"]
+        for r in conn.execute(
+            f"SELECT post_id FROM likes WHERE username = ? AND post_id IN ({marks})", (me, *ids)
+        ).fetchall()
+    }
+    names = list({r["username"] for r in rows})
+    nmarks = ",".join("?" for _ in names)
+    users = {
+        r["username"]: r
+        for r in conn.execute(
+            f"SELECT username, avatar_letter, avatar_file, nickname FROM users WHERE username IN ({nmarks})", tuple(names)
+        ).fetchall()
+    }
+
+    cards = []
+    for p in rows:
+        u = users.get(p["username"])
+        media = media_map.get(p["id"], [])
+        if not media and p["image_file"]:
+            media = [{"filename": p["image_file"], "kind": "image"}]
+        cards.append({
+            "id": p["id"],
+            "username": p["username"],
+            "display": (u["nickname"] if u and u["nickname"] else p["username"]),
+            "avatar_letter": (u["avatar_letter"] if u else p["avatar_letter"]),
+            "avatar_file": (u["avatar_file"] if u else None),
+            "content": p["content"],
+            "media": media,
+            "image_file": p["image_file"],
+            "created_at": p["created_at"],
+            "ago": time_ago(p["created_ts"], p["created_at"]),
+            "like_count": likes.get(p["id"], 0),
+            "liked_by_me": p["id"] in mine,
+            "comment_count": comments.get(p["id"], 0),
+            "view_count": views.get(p["id"], 0),
+            "share_count": shares.get(p["id"], 0),
+            "is_owner": p["username"] == me,
+        })
+    return cards
+
+
+def delete_post_everything(conn, post):
+    """Postni va unga bog'liq barcha narsani (media, layk, izoh, ko'rish, ulashish) o'chiradi."""
+    pid = post["id"]
+    for m in conn.execute("SELECT filename FROM post_media WHERE post_id = ?", (pid,)).fetchall():
+        delete_image_from_db(conn, m["filename"])
+    if post["image_file"]:
+        delete_image_from_db(conn, post["image_file"])
+    for table in ("post_media", "post_comments", "post_views", "post_shares", "likes"):
+        conn.execute(f"DELETE FROM {table} WHERE post_id = ?", (pid,))
+    conn.execute("DELETE FROM posts WHERE id = ?", (pid,))
 
 
 @app.route("/feed", methods=["GET", "POST"])
 def feed():
     if "user_id" not in session:
         return redirect(url_for("login"))
+    me = session["username"]
 
-    if request.method == "POST":
+    if request.method == "POST":  # eski oddiy forma (zaxira): faqat matn
         content = request.form.get("content", "").strip()
-        image_file = request.files.get("image")
-        image_filename = None
-
-        conn = get_db()
-
-        if image_file and image_file.filename and allowed_file(image_file.filename):
-            image_filename = save_image_to_db(conn, image_file)
-
-        if content or image_filename:
+        if content:
+            conn = get_db()
             conn.execute(
-                "INSERT INTO posts (username, avatar_letter, content, image_file, created_at) VALUES (?, ?, ?, ?, ?)",
-                (
-                    session["username"],
-                    session["avatar_letter"],
-                    content,
-                    image_filename,
-                    datetime.now().strftime("%d.%m %H:%M"),
-                ),
+                "INSERT INTO posts (username, avatar_letter, content, image_file, created_at, created_ts) VALUES (?, ?, ?, ?, ?, ?)",
+                (me, session["avatar_letter"], content, None, datetime.now().strftime("%d.%m %H:%M"), int(time.time())),
             )
             conn.commit()
-        conn.close()
-
+            conn.close()
         return redirect(url_for("feed"))
 
     page = max(request.args.get("page", 1, type=int) or 1, 1)
+    f = "friends" if request.args.get("f") == "friends" else "all"
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM posts ORDER BY id DESC LIMIT ? OFFSET ?",
-        (PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
-    ).fetchall()
+    if f == "friends":
+        rows = conn.execute(
+            """SELECT * FROM posts
+               WHERE username = ? OR username IN (SELECT contact_username FROM contacts WHERE username = ?)
+               ORDER BY id DESC LIMIT ? OFFSET ?""",
+            (me, me, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM posts ORDER BY id DESC LIMIT ? OFFSET ?",
+            (PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
+        ).fetchall()
     has_more = len(rows) > PAGE_SIZE
-    posts = rows[:PAGE_SIZE]
-
-    counts, mine = {}, set()
-    if posts:
-        ids = [p["id"] for p in posts]
-        marks = ",".join("?" for _ in ids)
-        for r in conn.execute(
-            f"SELECT post_id, COUNT(*) AS c FROM likes WHERE post_id IN ({marks}) GROUP BY post_id",
-            tuple(ids),
-        ).fetchall():
-            counts[r["post_id"]] = r["c"]
-        for r in conn.execute(
-            f"SELECT post_id FROM likes WHERE username = ? AND post_id IN ({marks})",
-            (session["username"], *ids),
-        ).fetchall():
-            mine.add(r["post_id"])
-
-    result = [
-        {
-            "id": p["id"],
-            "username": p["username"],
-            "avatar_letter": p["avatar_letter"],
-            "content": p["content"],
-            "image_file": p["image_file"],
-            "created_at": p["created_at"],
-            "like_count": counts.get(p["id"], 0),
-            "liked_by_me": p["id"] in mine,
-        }
-        for p in posts
-    ]
+    cards = build_post_cards(conn, rows[:PAGE_SIZE], me)
     conn.close()
 
     return render_template(
         "feed.html",
-        username=session["username"],
+        username=me,
         avatar_letter=session["avatar_letter"],
-        posts=result,
+        posts=cards,
         page=page,
         has_more=has_more,
+        f=f,
+        single=False,
         active="feed",
     )
+
+
+@app.route("/post/<int:post_id>")
+def post_page(post_id):
+    """Bitta post sahifasi (ulashilgan havola shu yerga olib keladi)."""
+    me = session["username"]
+    conn = get_db()
+    row = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    if not row:
+        conn.close()
+        flash(tr("profile_not_found"))
+        return redirect(url_for("feed"))
+    cards = build_post_cards(conn, [row], me)
+    conn.close()
+    return render_template(
+        "feed.html",
+        username=me,
+        avatar_letter=session["avatar_letter"],
+        posts=cards,
+        page=1,
+        has_more=False,
+        f="all",
+        single=True,
+        active="feed",
+    )
+
+
+@app.route("/api/posts/create", methods=["POST"])
+def api_post_create():
+    """Yangi post: matn + 10 tagacha rasm/video (bir nechta fayl)."""
+    if "user_id" not in session:
+        return jsonify({"error": "login"}), 401
+
+    content = (request.form.get("content") or "").strip()[:2000]
+    files = [f for f in request.files.getlist("media") if f and f.filename]
+    if not content and not files:
+        return jsonify({"error": "empty"}), 400
+    if len(files) > MAX_MEDIA_PER_POST:
+        return jsonify({"error": "too_many"}), 400
+
+    conn = get_db()
+    saved = []  # (filename, kind)
+    try:
+        for fs in files:
+            ext = fs.filename.rsplit(".", 1)[-1].lower() if "." in fs.filename else ""
+            if ext in VIDEO_MIMES:
+                saved.append((save_video_to_db(conn, fs), "video"))
+            elif allowed_file(fs.filename):
+                saved.append((save_image_to_db(conn, fs), "image"))
+        if not content and not saved:
+            conn.rollback()
+            return jsonify({"error": "bad_type"}), 400
+
+        first_image = next((name for name, kind in saved if kind == "image"), None)
+        cur = conn.execute(
+            "INSERT INTO posts (username, avatar_letter, content, image_file, created_at, created_ts) VALUES (?, ?, ?, ?, ?, ?)",
+            (session["username"], session["avatar_letter"], content, first_image,
+             datetime.now().strftime("%d.%m %H:%M"), int(time.time())),
+        )
+        post_id = cur.lastrowid
+        for pos, (name, kind) in enumerate(saved):
+            conn.execute(
+                "INSERT INTO post_media (post_id, filename, kind, position) VALUES (?, ?, ?, ?)",
+                (post_id, name, kind, pos),
+            )
+        conn.commit()
+    except ValueError as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), (413 if str(e) == "video_too_big" else 400)
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "id": post_id})
+
+
+@app.route("/api/posts/<int:post_id>/view", methods=["POST"])
+def api_post_view(post_id):
+    """Postni ko'rilgan deb belgilaydi (har bir odam uchun 1 marta, egasi hisobga olinmaydi)."""
+    if "user_id" not in session:
+        return jsonify({"error": "login"}), 401
+    conn = get_db()
+    post = conn.execute("SELECT username FROM posts WHERE id = ?", (post_id,)).fetchone()
+    if post and post["username"] != session["username"]:
+        conn.execute(
+            "INSERT OR IGNORE INTO post_views (post_id, username) VALUES (?, ?)", (post_id, session["username"])
+        )
+        conn.commit()
+    count = conn.execute("SELECT COUNT(*) AS c FROM post_views WHERE post_id = ?", (post_id,)).fetchone()["c"]
+    conn.close()
+    return jsonify({"views": count})
+
+
+@app.route("/api/posts/<int:post_id>/share", methods=["POST"])
+def api_post_share(post_id):
+    if "user_id" not in session:
+        return jsonify({"error": "login"}), 401
+    conn = get_db()
+    if conn.execute("SELECT 1 FROM posts WHERE id = ?", (post_id,)).fetchone():
+        conn.execute(
+            "INSERT INTO post_shares (post_id, username, created_ts) VALUES (?, ?, ?)",
+            (post_id, session["username"], int(time.time())),
+        )
+        conn.commit()
+    count = conn.execute(
+        "SELECT COUNT(DISTINCT username) AS c FROM post_shares WHERE post_id = ?", (post_id,)
+    ).fetchone()["c"]
+    conn.close()
+    return jsonify({"shares": count})
+
+
+def comment_to_dict(r, post_owner, me):
+    return {
+        "id": r["id"],
+        "username": r["username"],
+        "display": r["nickname"] or r["username"],
+        "avatar_letter": r["avatar_letter"],
+        "avatar_file": r["avatar_file"],
+        "content": r["content"],
+        "ago": time_ago(r["created_ts"], r["created_at"]),
+        "can_delete": r["username"] == me or post_owner == me or bool(getattr(g, "is_admin", False)),
+    }
+
+
+COMMENT_SELECT = """SELECT c.id, c.username, c.content, c.created_at, c.created_ts,
+                           u.nickname, u.avatar_letter, u.avatar_file
+                    FROM post_comments c LEFT JOIN users u ON u.username = c.username"""
+
+
+@app.route("/api/posts/<int:post_id>/comments", methods=["GET", "POST"])
+def api_post_comments(post_id):
+    if "user_id" not in session:
+        return jsonify({"error": "login"}), 401
+    me = session["username"]
+    conn = get_db()
+    post = conn.execute("SELECT username FROM posts WHERE id = ?", (post_id,)).fetchone()
+    if not post:
+        conn.close()
+        return jsonify({"error": "not_found"}), 404
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        content = (data.get("content") or "").strip()[:500]
+        if not content:
+            conn.close()
+            return jsonify({"error": "empty"}), 400
+        cur = conn.execute(
+            "INSERT INTO post_comments (post_id, username, content, created_at, created_ts) VALUES (?, ?, ?, ?, ?)",
+            (post_id, me, content, datetime.now().strftime("%d.%m %H:%M"), int(time.time())),
+        )
+        conn.commit()
+        row = conn.execute(COMMENT_SELECT + " WHERE c.id = ?", (cur.lastrowid,)).fetchone()
+        count = conn.execute("SELECT COUNT(*) AS c FROM post_comments WHERE post_id = ?", (post_id,)).fetchone()["c"]
+        conn.close()
+        return jsonify({"comment": comment_to_dict(row, post["username"], me), "count": count})
+
+    rows = conn.execute(
+        COMMENT_SELECT + " WHERE c.post_id = ? ORDER BY c.id DESC LIMIT 50", (post_id,)
+    ).fetchall()
+    count = conn.execute("SELECT COUNT(*) AS c FROM post_comments WHERE post_id = ?", (post_id,)).fetchone()["c"]
+    conn.close()
+    return jsonify({
+        "comments": [comment_to_dict(r, post["username"], me) for r in reversed(rows)],
+        "count": count,
+    })
+
+
+@app.route("/api/comments/delete/<int:comment_id>", methods=["POST"])
+def api_comment_delete(comment_id):
+    if "user_id" not in session:
+        return jsonify({"error": "login"}), 401
+    me = session["username"]
+    conn = get_db()
+    c = conn.execute(
+        """SELECT c.id, c.post_id, c.username, p.username AS post_owner
+           FROM post_comments c LEFT JOIN posts p ON p.id = c.post_id WHERE c.id = ?""",
+        (comment_id,),
+    ).fetchone()
+    if not c or not (c["username"] == me or c["post_owner"] == me or g.is_admin):
+        conn.close()
+        return jsonify({"error": "forbidden"}), 403
+    conn.execute("DELETE FROM post_comments WHERE id = ?", (comment_id,))
+    conn.commit()
+    count = conn.execute("SELECT COUNT(*) AS c FROM post_comments WHERE post_id = ?", (c["post_id"],)).fetchone()["c"]
+    conn.close()
+    return jsonify({"ok": True, "count": count})
+
+
+@app.route("/api/posts/<int:post_id>/stats")
+def api_post_stats(post_id):
+    """Post statistikasi: faqat post egasi va admin uchun."""
+    if "user_id" not in session:
+        return jsonify({"error": "login"}), 401
+    conn = get_db()
+    post = conn.execute("SELECT username FROM posts WHERE id = ?", (post_id,)).fetchone()
+    if not post or (post["username"] != session["username"] and not g.is_admin):
+        conn.close()
+        return jsonify({"error": "forbidden"}), 403
+
+    def count(sql):
+        return conn.execute(sql, (post_id,)).fetchone()["c"]
+
+    viewers = conn.execute(
+        """SELECT v.username, u.nickname FROM post_views v LEFT JOIN users u ON u.username = v.username
+           WHERE v.post_id = ? ORDER BY v.id DESC LIMIT 20""",
+        (post_id,),
+    ).fetchall()
+    result = {
+        "views": count("SELECT COUNT(*) AS c FROM post_views WHERE post_id = ?"),
+        "likes": count("SELECT COUNT(*) AS c FROM likes WHERE post_id = ?"),
+        "comments": count("SELECT COUNT(*) AS c FROM post_comments WHERE post_id = ?"),
+        "shares": count("SELECT COUNT(DISTINCT username) AS c FROM post_shares WHERE post_id = ?"),
+        "viewers": [{"username": v["username"], "display": v["nickname"] or v["username"]} for v in viewers],
+    }
+    conn.close()
+    return jsonify(result)
 
 
 @app.route("/api/posts/delete/<int:post_id>", methods=["POST"])
@@ -1044,11 +1421,7 @@ def api_post_delete(post_id):
         conn.close()
         return jsonify({"error": "ruxsat yo'q"}), 403
 
-    if post["image_file"]:
-        delete_image_from_db(conn, post["image_file"])
-
-    conn.execute("DELETE FROM posts WHERE id = ?", (post_id,))
-    conn.execute("DELETE FROM likes WHERE post_id = ?", (post_id,))
+    delete_post_everything(conn, post)
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
@@ -1864,9 +2237,11 @@ def user_profile(target_username):
     is_pending = conn.execute(
         "SELECT 1 FROM contact_requests WHERE from_username = ? AND to_username = ?", (me, target_username)
     ).fetchone()
-    posts = conn.execute(
-        "SELECT * FROM posts WHERE username = ? ORDER BY id DESC LIMIT 20", (target_username,)
-    ).fetchall()
+    posts = build_post_cards(
+        conn,
+        conn.execute("SELECT * FROM posts WHERE username = ? ORDER BY id DESC LIMIT 20", (target_username,)).fetchall(),
+        me,
+    )
     products = conn.execute(
         "SELECT * FROM products WHERE seller_username = ? ORDER BY id DESC LIMIT 20", (target_username,)
     ).fetchall()
@@ -2205,9 +2580,9 @@ def profile():
     username = session["username"]
     conn = get_db()
 
-    posts = conn.execute(
-        "SELECT * FROM posts WHERE username = ? ORDER BY id DESC", (username,)
-    ).fetchall()
+    posts = build_post_cards(
+        conn, conn.execute("SELECT * FROM posts WHERE username = ? ORDER BY id DESC LIMIT 50", (username,)).fetchall(), username
+    )
     products = conn.execute(
         "SELECT * FROM products WHERE seller_username = ? ORDER BY id DESC", (username,)
     ).fetchall()

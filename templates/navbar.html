@@ -24,6 +24,17 @@
   </a>
 </nav>
 <script>
+  // Ko'p mediali postlarda "2/5" hisoblagichi
+  document.addEventListener("scroll", function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains("media-track")) return;
+    var counter = t.parentElement.querySelector(".media-counter");
+    if (!counter) return;
+    var idx = Math.round(t.scrollLeft / t.clientWidth) + 1;
+    counter.textContent = idx + "/" + counter.dataset.total;
+  }, true);
+</script>
+<script>
   (function () {
     var badge = document.getElementById("nav-unread");
     if (!badge) return;
