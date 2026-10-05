@@ -7,11 +7,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% from '_icons.html' import icon, empty_state %}
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ t.profile_title }}</h1>
-      <div style="width:36px;"></div>
+      <a href="{{ url_for('settings_page') }}" class="back-link" title="{{ t.open_settings }}">{{ icon('settings', 22) }}</a>
     </div>
 
     <div class="profile-avatar-wrap">
@@ -35,7 +36,7 @@
 
     <div id="posts-tab" class="feed-list tab-panel">
       {% if posts|length == 0 %}
-        <p class="empty-feed">{{ t.no_posts_yet }}</p>
+        {{ empty_state('feed', t.no_posts_yet) }}
       {% endif %}
       {% for post in posts %}
       <div class="post-card">
@@ -50,7 +51,7 @@
 
     <div id="products-tab" class="feed-list tab-panel" style="display:none;">
       {% if products|length == 0 %}
-        <p class="empty-feed">{{ t.no_products_yet }}</p>
+        {{ empty_state('shop', t.no_products_yet) }}
       {% endif %}
       {% for p in products %}
       <div class="product-card">

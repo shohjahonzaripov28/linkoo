@@ -7,9 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon %}
+  {% from '_icons.html' import icon, empty_state %}
   <div class="glass-card dashboard-card">
-    <div class="dash-topbar">
+    <div class="dash-topbar top-icons">
       <a href="{{ url_for('profile') }}" class="avatar-link">
         {% if avatar_file %}
           <img class="avatar-circle small" src="{{ url_for('media', filename=avatar_file) }}" alt="">
@@ -28,8 +28,8 @@
       <a href="{{ url_for('qr_page') }}" class="settings-icon-inline" title="QR">
         {{ icon('qr', 20) }}
       </a>
-      <a href="{{ url_for('settings_page') }}" class="settings-icon-inline" title="Settings">
-        {{ icon('settings', 20) }}
+      <a href="{{ url_for('scan_page') }}" class="settings-icon-inline" title="Scan">
+        {{ icon('scan', 20) }}
       </a>
     </div>
 
@@ -63,7 +63,7 @@
     <p class="section-title">{{ t.recent_chats }}</p>
     <div class="feed-list">
       {% if recent_chats|length == 0 %}
-        <p class="empty-feed">{{ t.no_recent_chats }}</p>
+        {{ empty_state('chat', t.no_recent_chats) }}
       {% endif %}
       {% for u in recent_chats %}
       <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
@@ -78,7 +78,6 @@
       {% endfor %}
     </div>
 
-    <a href="{{ url_for('logout') }}" class="logout-link">{{ t.logout }}</a>
   </div>
 
   {% include 'navbar.html' %}

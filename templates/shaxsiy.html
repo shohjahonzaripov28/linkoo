@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon %}
+  {% from '_icons.html' import icon, empty_state %}
   <div class="glass-card feed-card">
+    {% include '_chat_tabs.html' %}
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ t.shaxsiy_title }}</h1>
@@ -17,7 +18,7 @@
 
     <div class="feed-list">
       {% if conversations|length == 0 %}
-        <p class="empty-feed">{{ t.no_conversations_empty }}</p>
+        {{ empty_state('chat', t.no_conversations_empty) }}
         <a href="{{ url_for('people') }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">{{ t.go_to_contacts }}</a>
       {% endif %}
 

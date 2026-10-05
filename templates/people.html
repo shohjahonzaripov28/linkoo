@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon %}
+  {% from '_icons.html' import icon, empty_state %}
   <div class="glass-card feed-card">
+    {% include '_chat_tabs.html' %}
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ t.contacts_title }}</h1>
@@ -23,7 +24,7 @@
       <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">{{ t.search_results_label }}</p>
       <div class="feed-list" style="margin-bottom:16px;">
         {% if search_results|length == 0 %}
-          <p class="empty-feed">{{ t.no_results }}</p>
+          {{ empty_state('search', t.no_results) }}
         {% endif %}
         {% for u in search_results %}
         <div class="person-row" style="cursor:default;">
@@ -66,7 +67,7 @@
     <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">{{ t.my_contacts_label }}</p>
     <div class="feed-list">
       {% if my_contacts|length == 0 %}
-        <p class="empty-feed">{{ t.no_contacts_empty }}</p>
+        {{ empty_state('contacts', t.no_contacts_empty) }}
       {% endif %}
       {% for u in my_contacts %}
       <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">

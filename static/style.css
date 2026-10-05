@@ -1230,3 +1230,164 @@ img.avatar-circle {
 }
 .load-more.secondary { background: transparent; opacity: 0.7; font-weight: 500; }
 button:disabled { opacity: 0.6; cursor: wait; }
+
+
+/* =====================================================================
+   4-vazifa: yagona menyu, to'liq scroll, telefon / planshet / kompyuter maketi
+   ===================================================================== */
+
+/* Sahifa tabiiy ravishda scroll bo'ladi (sozlamalar ro'yxati endi kesilmaydi) */
+.feed-card { max-height: none; }
+.feed-list { flex: none; overflow: visible; }
+
+/* Menyu */
+.nav-brand { display: none; }
+.nav-item { font-size: 11px; gap: 4px; }
+.nav-item .nav-label { line-height: 1.1; }
+.nav-item:hover { color: #fff; }
+
+/* Bosh sahifa tepasidagi ikonlar orasida bo'shliq */
+.top-icons { gap: 12px; }
+.top-icons .settings-icon-inline {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  flex-shrink: 0;
+}
+.top-icons .dash-greeting-mini { margin-left: 4px; margin-right: 4px; min-width: 0; }
+
+/* Chatlar ichidagi bo'limlar: Guruh | Shaxsiy | Kontakt */
+.chat-tabs {
+  display: flex;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 4px;
+  border-radius: 14px;
+  margin-bottom: 14px;
+}
+.chat-tab {
+  flex: 1;
+  text-align: center;
+  padding: 9px 6px;
+  border-radius: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+.chat-tab.active { background: rgba(129, 140, 248, 0.35); color: #fff; }
+
+/* Bo'sh holat */
+.empty-state { text-align: center; padding: 28px 12px; color: rgba(255, 255, 255, 0.65); }
+.empty-ico {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.07);
+  color: #c4b5fd;
+}
+.empty-state p { font-size: 14px; line-height: 1.5; max-width: 320px; margin: 0 auto; }
+
+/* Chiqish qatori */
+.danger-row .settings-row-label { color: #fca5a5; }
+.danger-badge { background: rgba(239, 68, 68, 0.18) !important; color: #fca5a5 !important; }
+
+/* Telefon */
+@media (max-width: 480px) {
+  .nav-item { font-size: 11px; }
+  .nav-item .nav-icon { font-size: inherit; }
+  .bottom-nav { padding: 8px 4px; }
+  .chat-card { height: calc(100vh - 96px); height: calc(100dvh - 96px); min-height: 0; max-height: none; }
+}
+
+/* Planshet */
+@media (min-width: 481px) and (max-width: 899px) {
+  body:has(.bottom-nav) .glass-card { max-width: 600px; }
+  .bottom-nav { max-width: 600px; }
+}
+
+/* Kompyuter / noutbuk: chap tomonda yon menyu, o'ngda keng kontent */
+@media (min-width: 900px) {
+  body:has(.bottom-nav) {
+    padding: 28px 32px 28px 268px;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .bottom-nav {
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: none;
+    width: 236px;
+    max-width: none;
+    border-radius: 0;
+    border-width: 0 1px 0 0;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 6px;
+    padding: 24px 14px;
+    background: rgba(10, 10, 26, 0.88);
+    box-shadow: none;
+  }
+  .nav-brand {
+    display: block;
+    font-size: 28px;
+    font-weight: 800;
+    padding: 4px 16px 24px;
+    background: linear-gradient(135deg, #818cf8, #f0abfc);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .nav-item {
+    flex: none;
+    flex-direction: row;
+    gap: 14px;
+    font-size: 16px;
+    padding: 13px 16px;
+    border-radius: 14px;
+  }
+  .nav-item:hover { background: rgba(255, 255, 255, 0.07); }
+  .nav-item.active { background: rgba(129, 140, 248, 0.22); color: #e0e7ff; }
+
+  body:has(.bottom-nav) .glass-card { max-width: 680px; padding: 32px 36px; }
+  body:has(.bottom-nav) .glass-card:has(.feed-list),
+  body:has(.bottom-nav) .dashboard-card { max-width: 1040px; }
+  body:has(.bottom-nav) .glass-card:has(.settings-list) { max-width: 760px; }
+  body:has(.bottom-nav) .chat-card {
+    max-width: 920px;
+    height: calc(100vh - 56px);
+    max-height: none;
+  }
+
+  body:has(.bottom-nav) .feed-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  .feed-list > .load-more,
+  .feed-list > .empty-state,
+  .feed-list > .empty-feed,
+  .feed-list > .btn-primary { grid-column: 1 / -1; }
+  .post-image { max-height: 480px; object-fit: cover; }
+}
+
+/* Juda keng ekranlar */
+@media (min-width: 1500px) {
+  body:has(.bottom-nav) .glass-card:has(.feed-list),
+  body:has(.bottom-nav) .dashboard-card { max-width: 1200px; }
+}
+
+.section-title { margin-top: 18px; }
+.ai-promo { margin-bottom: 4px; }

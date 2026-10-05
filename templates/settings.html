@@ -9,7 +9,11 @@
 <body>
   {% from '_icons.html' import icon %}
   <div class="glass-card feed-card">
-    <h1 style="font-size:26px; margin-bottom:16px;">{{ t.settings_title }}</h1>
+    <div class="chat-header">
+      <a href="{{ url_for('profile') }}" class="back-link">←</a>
+      <h1 style="font-size:24px;">{{ t.settings_title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
 
     <a href="{{ url_for('profile_edit') }}" class="settings-profile-card">
       {% if avatar_file %}
@@ -79,7 +83,12 @@
       </a>
     </div>
 
-    <a href="{{ url_for('logout') }}" class="logout-link" style="margin-top:18px;">{{ t.logout }}</a>
+    <div class="settings-list" style="margin-top:16px;">
+      <a href="{{ url_for('logout') }}" class="settings-row danger-row" onclick="return confirm('{{ t.confirm_logout }}');">
+        <div class="settings-icon-badge danger-badge">{{ icon('logout', 18) }}</div>
+        <div class="settings-row-label">{{ t.logout }}</div>
+      </a>
+    </div>
   </div>
 
   {% include 'navbar.html' %}

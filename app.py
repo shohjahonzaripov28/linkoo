@@ -1,7 +1,7 @@
 # Linko - Login/Register tizimi
 # Bu Linko ilovasining 1-bosqichi: foydalanuvchi ro'yxatdan o'tishi va tizimga kirishi
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response, g
 import hashlib
 import os
 import re
@@ -100,7 +100,16 @@ class PGConnWrapper:
         self._conn.commit()
 
     def close(self):
-        self._conn.close()
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def rollback(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
 
 app = Flask(__name__)
 PAGE_SIZE = 10
@@ -117,6 +126,43 @@ from translations import LANG_NAMES, TRANSLATIONS
 def current_lang():
     lang = session.get("lang", "uz")
     return lang if lang in TRANSLATIONS else "uz"
+
+
+@app.teardown_appcontext
+def close_leftover_connections(exc):
+    """Xatolik yuz bergan so'rovda ham baza ulanishlari yopiladi."""
+    for conn in g.pop("_open_conns", []):
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+OPEN_ENDPOINTS = {
+    "static", "media", "login", "register", "forgot_password",
+    "set_language", "privacy_page",
+}
+
+
+@app.before_request
+def validate_session_user():
+    """Sessiyadagi foydalanuvchi bazada bor-yo'qligini tekshiradi va profil ma'lumotlarini yangilab turadi.
+    (Baza almashgandan keyin eski sessiya qolib ketib, sahifalar xato bermasligi uchun.)"""
+    if request.endpoint in OPEN_ENDPOINTS or "user_id" not in session:
+        return
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, username, avatar_letter, nickname, avatar_file FROM users WHERE username = ?",
+        (session.get("username", ""),),
+    ).fetchone()
+    conn.close()
+    if not row:
+        session.clear()
+        return
+    session["user_id"] = row["id"]
+    session["avatar_letter"] = row["avatar_letter"]
+    session["nickname"] = row["nickname"]
+    session["avatar_file"] = row["avatar_file"]
 
 
 @app.context_processor
@@ -153,10 +199,15 @@ INDEX_STATEMENTS = [
 def get_db():
     """Bazaga ulanish yaratadi - DATABASE_URL bo'lsa PostgreSQL, bo'lmasa lokal SQLite"""
     if USE_POSTGRES:
-        conn = psycopg2.connect(DATABASE_URL)
-        return PGConnWrapper(conn)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+        conn = PGConnWrapper(psycopg2.connect(DATABASE_URL))
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+    # So'rov tugaganda yopilmay qolgan ulanishlarni teardown'da yopamiz (server qotib qolmasligi uchun)
+    try:
+        g.setdefault("_open_conns", []).append(conn)
+    except RuntimeError:
+        pass  # Flask konteksti tashqarisida (init_db) - o'zimiz yopamiz
     return conn
 
 
@@ -663,7 +714,7 @@ def dashboard():
         """SELECT partner, MAX(mid) as last_id FROM (
              SELECT id as mid, CASE WHEN sender = ? THEN receiver ELSE sender END as partner
              FROM private_messages WHERE sender = ? OR receiver = ?
-           ) GROUP BY partner ORDER BY last_id DESC LIMIT 4""",
+           ) AS chat_pairs GROUP BY partner ORDER BY last_id DESC LIMIT 4""",
         (me, me, me),
     ).fetchall()
 
@@ -1107,7 +1158,7 @@ def people():
     if query:
         rows = conn.execute(
             """SELECT username, avatar_letter, avatar_file, nickname FROM users
-               WHERE username != ? AND (username LIKE ? OR nickname LIKE ?)
+               WHERE username != ? AND (LOWER(username) LIKE LOWER(?) OR LOWER(COALESCE(nickname, '')) LIKE LOWER(?))
                ORDER BY username LIMIT 20""",
             (me, f"%{query}%", f"%{query}%"),
         ).fetchall()
@@ -1648,7 +1699,7 @@ def profile():
         avatar_file=session.get("avatar_file"),
         posts=posts,
         products=products,
-        nickname=user_row["nickname"],
+        nickname=user_row["nickname"] if user_row else None,
         active="profile",
     )
 
@@ -1784,7 +1835,7 @@ def storage_page():
         avatar_letter=session["avatar_letter"],
         total_size=size_display,
         file_count=file_count,
-        active="settings",
+        active="profile",
     )
 
 
@@ -1796,7 +1847,7 @@ def privacy_page():
         username=session.get("username"),
         avatar_letter=session.get("avatar_letter"),
         logged_in=logged_in,
-        active="settings",
+        active="profile",
     )
 
 
@@ -1817,7 +1868,7 @@ def settings_page():
         avatar_letter=session["avatar_letter"],
         avatar_file=session.get("avatar_file"),
         nickname=user_row["nickname"] if user_row else None,
-        active="settings",
+        active="profile",
     )
 
 
@@ -1856,7 +1907,7 @@ def settings_stub(section):
         username=session["username"],
         avatar_letter=session["avatar_letter"],
         title=title,
-        active="settings",
+        active="profile",
     )
 
 
@@ -1868,7 +1919,7 @@ def settings_language():
         "settings_language.html",
         username=session["username"],
         avatar_letter=session["avatar_letter"],
-        active="settings",
+        active="profile",
     )
 
 
@@ -1880,7 +1931,7 @@ def settings_about():
         "settings_about.html",
         username=session["username"],
         avatar_letter=session["avatar_letter"],
-        active="settings",
+        active="profile",
     )
 
 
