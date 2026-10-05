@@ -144,7 +144,7 @@ def close_leftover_connections(exc):
 
 OPEN_ENDPOINTS = {
     "static", "media", "login", "register", "forgot_password",
-    "set_language", "privacy_page", "home",
+    "set_language", "privacy_page", "home", "version",
 }
 
 
@@ -689,6 +689,15 @@ def delete_image_from_db(conn, filename):
 def hash_password(password):
     """Parolni oddiy hash qilish (xavfsizlik uchun)"""
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+APP_VERSION = "linko-2026-10-05-v6"
+
+
+@app.route("/version")
+def version():
+    """Render'da qaysi kod versiyasi ishlayotganini ko'rish uchun."""
+    return jsonify({"version": APP_VERSION, "database": "postgresql" if USE_POSTGRES else "sqlite"})
 
 
 @app.route("/")
@@ -1511,6 +1520,277 @@ def api_contact_decline(request_id):
     return jsonify({"ok": True})
 
 
+
+# ---------------- QR kod (tashqi kutubxonasiz, sof Python) ----------------
+_QR_ECC_PER_BLOCK = {  # [daraja][versiya 1..10]
+    "L": (-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18),
+    "M": (-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26),
+}
+_QR_NUM_BLOCKS = {
+    "L": (-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4),
+    "M": (-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5),
+}
+_QR_FORMAT_BITS = {"L": 1, "M": 0}
+
+
+def _qr_raw_modules(ver):
+    result = (16 * ver + 128) * ver + 64
+    if ver >= 2:
+        numalign = ver // 7 + 2
+        result -= (25 * numalign - 10) * numalign - 55
+        if ver >= 7:
+            result -= 36
+    return result
+
+
+def _qr_align_positions(ver):
+    if ver == 1:
+        return []
+    numalign = ver // 7 + 2
+    size = ver * 4 + 17
+    step = (ver * 4 + numalign * 2 + 1) // (numalign * 2 - 2) * 2
+    result = [size - 7 - i * step for i in range(numalign - 1)] + [6]
+    return list(reversed(result))
+
+
+def _gf_mul(x, y):
+    z = 0
+    for i in range(7, -1, -1):
+        z = (z << 1) ^ ((z >> 7) * 0x11D)
+        z ^= ((y >> i) & 1) * x
+    return z
+
+
+def _rs_divisor(degree):
+    result = [0] * (degree - 1) + [1]
+    root = 1
+    for _ in range(degree):
+        for j in range(degree):
+            result[j] = _gf_mul(result[j], root)
+            if j + 1 < degree:
+                result[j] ^= result[j + 1]
+        root = _gf_mul(root, 0x02)
+    return result
+
+
+def _rs_remainder(data, divisor):
+    result = [0] * len(divisor)
+    for b in data:
+        factor = b ^ result.pop(0)
+        result.append(0)
+        for i, coef in enumerate(divisor):
+            result[i] ^= _gf_mul(coef, factor)
+    return result
+
+
+def qr_matrix(text, ecc="M"):
+    """Matnni QR kod matritsasiga aylantiradi (True = qora modul). Byte rejimi, 1..8 versiya."""
+    data = text.encode("utf-8")
+    for ecc_level in (ecc, "L"):
+        for ver in range(1, 9):
+            capacity = _qr_raw_modules(ver) // 8 - _QR_ECC_PER_BLOCK[ecc_level][ver] * _QR_NUM_BLOCKS[ecc_level][ver]
+            cc_bits = 8 if ver < 10 else 16
+            if 4 + cc_bits + len(data) * 8 <= capacity * 8:
+                break
+        else:
+            continue
+        break
+    else:
+        raise ValueError("matn juda uzun")
+
+    # --- ma'lumot bitlari
+    bits = []
+    def put(val, n):
+        bits.extend((val >> i) & 1 for i in range(n - 1, -1, -1))
+    put(0b0100, 4)
+    put(len(data), cc_bits)
+    for b in data:
+        put(b, 8)
+    cap_bits = capacity * 8
+    put(0, min(4, cap_bits - len(bits)))
+    put(0, -len(bits) % 8)
+    pad = 0xEC
+    while len(bits) < cap_bits:
+        put(pad, 8)
+        pad ^= 0xEC ^ 0x11
+    codewords = [int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, len(bits), 8)]
+
+    # --- Reed-Solomon va bloklarni aralashtirish
+    numblocks = _QR_NUM_BLOCKS[ecc_level][ver]
+    blockecc = _QR_ECC_PER_BLOCK[ecc_level][ver]
+    rawcw = _qr_raw_modules(ver) // 8
+    numshort = numblocks - rawcw % numblocks
+    shortlen = rawcw // numblocks
+    divisor = _rs_divisor(blockecc)
+    blocks, k = [], 0
+    for i in range(numblocks):
+        datlen = shortlen - blockecc + (0 if i < numshort else 1)
+        dat = codewords[k:k + datlen]
+        k += datlen
+        ecc_bytes = _rs_remainder(dat, divisor)
+        if i < numshort:
+            dat = dat + [0]
+        blocks.append(dat + ecc_bytes)
+    final = []
+    for i in range(len(blocks[0])):
+        for j, blk in enumerate(blocks):
+            if i != shortlen - blockecc or j >= numshort:
+                final.append(blk[i])
+
+    # --- matritsa va funksional modullar
+    size = ver * 4 + 17
+    modules = [[False] * size for _ in range(size)]
+    isfunc = [[False] * size for _ in range(size)]
+
+    def setf(x, y, dark):
+        modules[y][x] = dark
+        isfunc[y][x] = True
+
+    for i in range(size):
+        setf(6, i, i % 2 == 0)
+        setf(i, 6, i % 2 == 0)
+    for cx, cy in ((3, 3), (size - 4, 3), (3, size - 4)):
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                xx, yy = cx + dx, cy + dy
+                if 0 <= xx < size and 0 <= yy < size:
+                    setf(xx, yy, max(abs(dx), abs(dy)) not in (2, 4))
+    pos = _qr_align_positions(ver)
+    for i, ax in enumerate(pos):
+        for j, ay in enumerate(pos):
+            if (i == 0 and j == 0) or (i == 0 and j == len(pos) - 1) or (i == len(pos) - 1 and j == 0):
+                continue
+            for dy in range(-2, 3):
+                for dx in range(-2, 3):
+                    setf(ax + dx, ay + dy, max(abs(dx), abs(dy)) != 1)
+
+    def draw_format(mask):
+        fdata = (_QR_FORMAT_BITS[ecc_level] << 3) | mask
+        rem = fdata
+        for _ in range(10):
+            rem = (rem << 1) ^ ((rem >> 9) * 0x537)
+        fbits = ((fdata << 10) | rem) ^ 0x5412
+        bit = lambda i: ((fbits >> i) & 1) != 0
+        for i in range(0, 6):
+            setf(8, i, bit(i))
+        setf(8, 7, bit(6))
+        setf(8, 8, bit(7))
+        setf(7, 8, bit(8))
+        for i in range(9, 15):
+            setf(14 - i, 8, bit(i))
+        for i in range(0, 8):
+            setf(size - 1 - i, 8, bit(i))
+        for i in range(8, 15):
+            setf(8, size - 15 + i, bit(i))
+        setf(8, size - 8, True)
+
+    def draw_version():
+        if ver < 7:
+            return
+        rem = ver
+        for _ in range(12):
+            rem = (rem << 1) ^ ((rem >> 11) * 0x1F25)
+        vbits = (ver << 12) | rem
+        for i in range(18):
+            b = ((vbits >> i) & 1) != 0
+            a, c = size - 11 + i % 3, i // 3
+            setf(a, c, b)
+            setf(c, a, b)
+
+    draw_format(0)
+    draw_version()
+
+    # --- ma'lumotni zigzag tartibida joylash
+    i = 0
+    x = size - 1
+    while x >= 1:
+        if x == 6:
+            x = 5
+        for vert in range(size):
+            for j in range(2):
+                xx = x - j
+                upward = ((x + 1) & 2) == 0
+                yy = (size - 1 - vert) if upward else vert
+                if not isfunc[yy][xx] and i < len(final) * 8:
+                    modules[yy][xx] = ((final[i >> 3] >> (7 - (i & 7))) & 1) != 0
+                    i += 1
+        x -= 2
+
+    masks = [
+        lambda x, y: (x + y) % 2 == 0,
+        lambda x, y: y % 2 == 0,
+        lambda x, y: x % 3 == 0,
+        lambda x, y: (x + y) % 3 == 0,
+        lambda x, y: (x // 3 + y // 2) % 2 == 0,
+        lambda x, y: x * y % 2 + x * y % 3 == 0,
+        lambda x, y: (x * y % 2 + x * y % 3) % 2 == 0,
+        lambda x, y: ((x + y) % 2 + x * y % 3) % 2 == 0,
+    ]
+
+    def apply_mask(m):
+        for yy in range(size):
+            for xx in range(size):
+                if not isfunc[yy][xx] and masks[m](xx, yy):
+                    modules[yy][xx] = not modules[yy][xx]
+
+    def penalty():
+        score = 0
+        for grid in (modules, [list(r) for r in zip(*modules)]):
+            for row in grid:
+                run, prev = 1, row[0]
+                for v in row[1:]:
+                    if v == prev:
+                        run += 1
+                    else:
+                        if run >= 5:
+                            score += 3 + run - 5
+                        run, prev = 1, v
+                if run >= 5:
+                    score += 3 + run - 5
+        for yy in range(size - 1):
+            for xx in range(size - 1):
+                if modules[yy][xx] == modules[yy][xx + 1] == modules[yy + 1][xx] == modules[yy + 1][xx + 1]:
+                    score += 3
+        dark = sum(sum(r) for r in modules)
+        total = size * size
+        k2 = (abs(dark * 20 - total * 10) + total - 1) // total - 1
+        return score + k2 * 10
+
+    best, best_mask = None, 0
+    for m in range(8):
+        apply_mask(m)
+        draw_format(m)
+        pen = penalty()
+        if best is None or pen < best:
+            best, best_mask = pen, m
+        apply_mask(m)  # qaytarib olamiz
+    apply_mask(best_mask)
+    draw_format(best_mask)
+    return modules
+
+
+def qr_svg(text, border=4):
+    """QR kodni SVG (vektor) ko'rinishida qaytaradi - har qanday ekranda aniq ko'rinadi."""
+    m = qr_matrix(text)
+    n = len(m) + border * 2
+    parts = []
+    for y, row in enumerate(m):
+        x = 0
+        while x < len(row):
+            if row[x]:
+                start = x
+                while x < len(row) and row[x]:
+                    x += 1
+                parts.append(f"M{start + border},{y + border}h{x - start}v1h-{x - start}z")
+            else:
+                x += 1
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {n} {n}" shape-rendering="crispEdges" '
+        f'width="100%" height="100%"><rect width="{n}" height="{n}" fill="#fff"/>'
+        f'<path d="{"".join(parts)}" fill="#000"/></svg>'
+    )
+
+
 def generate_qr_base64(data):
     if not qrcode:
         return None
@@ -1526,13 +1806,16 @@ def qr_page():
         return redirect(url_for("login"))
 
     add_url = request.host_url.rstrip("/") + url_for("user_profile", target_username=session["username"])
-    qr_b64 = generate_qr_base64(add_url)
+    try:
+        qr_svg_markup = qr_svg(add_url)
+    except Exception:
+        qr_svg_markup = None
 
     return render_template(
         "qr.html",
         username=session["username"],
         avatar_letter=session["avatar_letter"],
-        qr_b64=qr_b64,
+        qr_svg=qr_svg_markup,
         add_url=add_url,
         nickname=session.get("nickname"),
         active="people",

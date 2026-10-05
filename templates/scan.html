@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Linko - {{ t.scan_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
 </head>
 <body>
   <div class="glass-card">
@@ -21,76 +20,168 @@
     </div>
     <canvas id="scan-canvas" style="display:none;"></canvas>
 
-    <p id="scan-status" style="text-align:center; font-size:13px; opacity:0.7; margin-top:14px;">
+    <p id="scan-status" style="text-align:center; font-size:13px; opacity:0.8; margin-top:14px;">
       {{ t.scan_opening_camera }}
     </p>
+
+    <div class="scan-tools">
+      <label class="scan-upload-btn">
+        {{ t.scan_upload_photo }}
+        <input type="file" id="scan-file" accept="image/*" style="display:none;">
+      </label>
+      <form class="scan-manual" id="manual-form">
+        <input type="text" id="manual-input" placeholder="{{ t.scan_manual_placeholder }}" autocapitalize="none" autocomplete="off">
+        <button type="submit" class="btn-primary">{{ t.scan_open_btn }}</button>
+      </form>
+    </div>
   </div>
 
   {% include 'navbar.html' %}
 
   <script>
     const T = {
-      instruction: "{{ t.scan_instruction }}",
+      instruction: "{{ t.scan_camera_ready }}",
       noCamera: "{{ t.scan_no_camera }}",
+      httpsNeeded: "{{ t.scan_https_needed }}",
       found: "{{ t.scan_found }}",
       foundText: "{{ t.scan_found_text }}",
-      sending: "{{ t.scan_sending }}",
+      notRecognized: "{{ t.scan_not_recognized }}",
     };
 
     const video = document.getElementById("scan-video");
     const canvas = document.getElementById("scan-canvas");
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const statusEl = document.getElementById("scan-status");
     let scanning = true;
 
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-        });
-        video.srcObject = stream;
-        statusEl.textContent = T.instruction;
-        requestAnimationFrame(tick);
-      } catch (err) {
-        statusEl.textContent = T.noCamera;
-      }
+    // 1) Brauzerning o'z QR o'qigichi (Android Chrome va boshqalar) - eng tez va ishonchli
+    let detector = null;
+    if ("BarcodeDetector" in window) {
+      try { detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch (e) { detector = null; }
     }
 
-    function tick() {
-      if (!scanning) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
-        if (code && code.data) {
-          scanning = false;
-          statusEl.textContent = T.found;
-          handleResult(code.data);
-          return;
-        }
-      }
-      requestAnimationFrame(tick);
+    // 2) Zaxira: jsQR kutubxonasi (bir nechta manzildan yuklanadi)
+    const JSQR_URLS = [
+      "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js",
+      "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js",
+      "https://unpkg.com/jsqr@1.4.0/dist/jsQR.js",
+    ];
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
     }
+    let jsqrPromise = null;
+    function ensureJsQR() {
+      if (window.jsQR) return Promise.resolve(true);
+      if (!jsqrPromise) {
+        jsqrPromise = (async () => {
+          for (const url of JSQR_URLS) {
+            try { await loadScript(url); if (window.jsQR) return true; } catch (e) { /* keyingisi */ }
+          }
+          return false;
+        })();
+      }
+      return jsqrPromise;
+    }
+    if (!detector) ensureJsQR();
 
     function handleResult(text) {
+      scanning = false;
+      text = (text || "").trim();
       try {
         const url = new URL(text);
-        // http/https farqi va domen farqiga qaramay, faqat /add/<username> yo'lini olamiz
-        if (url.pathname.startsWith("/add/") || url.pathname.startsWith("/u/")) {
+        if (url.pathname.startsWith("/u/") || url.pathname.startsWith("/add/")) {
+          statusEl.textContent = T.found;
           window.location.href = url.pathname;
-          return;
+          return true;
         }
-        if (url.origin === window.location.origin) {
-          window.location.href = text;
-          return;
-        }
-      } catch (e) {
-        // URL emas
+      } catch (e) { /* URL emas */ }
+      if (/^@?[A-Za-z0-9_.]{3,24}$/.test(text)) {
+        statusEl.textContent = T.found;
+        window.location.href = "/people?q=" + encodeURIComponent(text.replace(/^@/, ""));
+        return true;
       }
-      statusEl.innerHTML = `${T.foundText} <b>${text.replace(/</g, "&lt;")}</b>`;
+      statusEl.innerHTML = T.foundText + " <b>" + text.replace(/</g, "&lt;") + "</b>";
+      return false;
     }
+
+    async function decodeSource(source, width, height, extraAttempts) {
+      if (detector) {
+        try {
+          const codes = await detector.detect(source);
+          if (codes && codes.length) return codes[0].rawValue;
+        } catch (e) { /* jsQR ga o'tamiz */ }
+      }
+      if (await ensureJsQR()) {
+        const scale = Math.min(1, 800 / Math.max(width, height));
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = window.jsQR(img.data, img.width, img.height, {
+          inversionAttempts: extraAttempts ? "attemptBoth" : "dontInvert",
+        });
+        if (code && code.data) return code.data;
+      }
+      return null;
+    }
+
+    async function tick() {
+      if (!scanning) return;
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        try {
+          const value = await decodeSource(video, video.videoWidth, video.videoHeight, false);
+          if (value) { handleResult(value); return; }
+        } catch (e) { /* keyingi kadr */ }
+      }
+      setTimeout(tick, 150);
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.textContent = window.isSecureContext ? T.noCamera : T.httpsNeeded;
+        return;
+      }
+      let stream = null;
+      const attempts = [
+        { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+        { video: true, audio: false },
+      ];
+      for (const constraints of attempts) {
+        try { stream = await navigator.mediaDevices.getUserMedia(constraints); break; } catch (e) { /* keyingisi */ }
+      }
+      if (!stream) { statusEl.textContent = T.noCamera; return; }
+      video.srcObject = stream;
+      try { await video.play(); } catch (e) { /* autoplay ishlaydi */ }
+      statusEl.textContent = T.instruction;
+      tick();
+    }
+
+    // Rasmdan o'qish (kamera ishlamasa ham ishlaydi)
+    document.getElementById("scan-file").addEventListener("change", async (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = async () => {
+        const value = await decodeSource(img, img.naturalWidth, img.naturalHeight, true);
+        URL.revokeObjectURL(img.src);
+        if (value) handleResult(value); else statusEl.textContent = T.notRecognized;
+      };
+      img.onerror = () => { statusEl.textContent = T.notRecognized; };
+      img.src = URL.createObjectURL(file);
+    });
+
+    // Qo'lda @nik kiritish
+    document.getElementById("manual-form").addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const v = document.getElementById("manual-input").value.trim().replace(/^@/, "");
+      if (v) window.location.href = "/people?q=" + encodeURIComponent(v);
+    });
 
     startCamera();
   </script>

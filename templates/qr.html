@@ -11,23 +11,54 @@
     <div class="chat-header">
       <a href="{{ url_for('people') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ t.qr_title }}</h1>
-      <div style="width:36px;"></div>
+      <a href="{{ url_for('scan_page') }}" class="back-link" title="{{ t.scan_title }}">⌖</a>
     </div>
 
-    <div class="avatar-circle" style="margin: 10px auto 16px auto;">{{ avatar_letter }}</div>
-    <p style="text-align:center; margin-bottom:16px;">@{{ nickname if nickname else username }}</p>
+    {% if avatar_file %}
+      <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="" style="margin: 6px auto 10px auto;">
+    {% else %}
+      <div class="avatar-circle" style="margin: 6px auto 10px auto;">{{ avatar_letter }}</div>
+    {% endif %}
+    <p style="text-align:center; font-weight:700; font-size:18px; margin-bottom:14px;">@{{ nickname if nickname else username }}</p>
 
-    {% if qr_b64 %}
-    <div style="background:#fff; border-radius:16px; padding:16px; width:fit-content; margin:0 auto 16px auto;">
-      <img src="data:image/png;base64,{{ qr_b64 }}" alt="QR kod" style="width:220px; height:220px; display:block;">
-    </div>
-    <p style="font-size:12px; text-align:center; color:rgba(255,255,255,0.65); padding:0 10px;">
+    {% if qr_svg %}
+    <div class="qr-box">{{ qr_svg|safe }}</div>
+    <p style="font-size:12px; text-align:center; color:rgba(255,255,255,0.65); padding:0 10px; margin-top:14px;">
       {{ t.qr_note }}
     </p>
+    <div class="qr-link-row">
+      <input type="text" id="qr-link" value="{{ add_url }}" readonly>
+      <button type="button" id="qr-copy" class="btn-primary" style="width:auto; margin:0; padding:10px 16px;">{{ t.copy_link }}</button>
+    </div>
     {% else %}
     <p class="empty-feed">{{ t.qr_failed_note }}</p>
     {% endif %}
   </div>
+
+  <script>
+    const copyBtn = document.getElementById("qr-copy");
+    if (copyBtn) {
+      const copiedLabel = "{{ t.link_copied }}";
+      const original = copyBtn.textContent;
+      copyBtn.addEventListener("click", async () => {
+        const input = document.getElementById("qr-link");
+        try {
+          if (navigator.share) {
+            await navigator.share({ url: input.value });
+            return;
+          }
+        } catch (e) { /* foydalanuvchi bekor qildi */ }
+        try {
+          await navigator.clipboard.writeText(input.value);
+        } catch (e) {
+          input.select();
+          document.execCommand("copy");
+        }
+        copyBtn.textContent = copiedLabel;
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      });
+    }
+  </script>
 
   {% include 'navbar.html' %}
 </body>
