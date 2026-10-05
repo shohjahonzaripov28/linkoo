@@ -22,6 +22,11 @@ import io
 import base64
 
 try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
+try:
     from config import ANTHROPIC_API_KEY as CONFIG_API_KEY
 except ImportError:
     CONFIG_API_KEY = ""
@@ -98,6 +103,7 @@ class PGConnWrapper:
         self._conn.close()
 
 app = Flask(__name__)
+PAGE_SIZE = 10
 app.secret_key = os.environ.get("SECRET_KEY", "linko-maxfiy-kalit-2026")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "linko.db")
@@ -124,6 +130,24 @@ def set_language(lang_code):
     if lang_code in TRANSLATIONS:
         session["lang"] = lang_code
     return redirect(request.referrer or url_for("login"))
+
+
+# Tez-tez qidiriladigan ustunlarga indeks - so'rovlarni tezlashtiradi
+INDEX_STATEMENTS = [
+    "CREATE INDEX IF NOT EXISTS idx_users_nickname ON users (nickname)",
+    "CREATE INDEX IF NOT EXISTS idx_posts_username ON posts (username)",
+    "CREATE INDEX IF NOT EXISTS idx_products_seller ON products (seller_username)",
+    "CREATE INDEX IF NOT EXISTS idx_likes_post ON likes (post_id)",
+    "CREATE INDEX IF NOT EXISTS idx_cart_username ON cart_items (username)",
+    "CREATE INDEX IF NOT EXISTS idx_pm_sender ON private_messages (sender)",
+    "CREATE INDEX IF NOT EXISTS idx_pm_receiver ON private_messages (receiver)",
+    "CREATE INDEX IF NOT EXISTS idx_groupmembers_group ON group_members (group_id)",
+    "CREATE INDEX IF NOT EXISTS idx_groupmembers_user ON group_members (username)",
+    "CREATE INDEX IF NOT EXISTS idx_groupmsg_group ON group_messages (group_id)",
+    "CREATE INDEX IF NOT EXISTS idx_contacts_username ON contacts (username)",
+    "CREATE INDEX IF NOT EXISTS idx_contactreq_to ON contact_requests (to_username)",
+    "CREATE INDEX IF NOT EXISTS idx_contactreq_from ON contact_requests (from_username)",
+]
 
 
 def get_db():
@@ -277,6 +301,10 @@ def init_db_postgres():
     """)
     # Eski bazalarda bo'lmagan ustunlarni qo'shamiz (PostgreSQL'da xavfsiz, allaqachon bo'lsa o'tkazib yuboradi)
     conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin INTEGER DEFAULT 0")
+
+    for idx_sql in INDEX_STATEMENTS:
+        conn.execute(idx_sql)
+
     conn.commit()
     conn.close()
 
@@ -430,16 +458,41 @@ def init_db_sqlite():
             blocked_at TEXT NOT NULL
         )
     """)
+
+    for idx_sql in INDEX_STATEMENTS:
+        conn.execute(idx_sql)
+
     conn.commit()
     conn.close()
 
 
-def save_image_to_db(conn, file_storage, prefix=""):
-    """Rasm faylini bazaga saqlaydi va generatsiya qilingan nomini qaytaradi"""
+def save_image_to_db(conn, file_storage, prefix="", avatar=False):
+    """Rasm faylini kichraytirib/siqib bazaga saqlaydi va generatsiya qilingan nomini qaytaradi"""
     safe_name = secure_filename(file_storage.filename)
     unique_name = f"{prefix}{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe_name}"
-    data = file_storage.read()
     mimetype = file_storage.mimetype or "image/jpeg"
+
+    max_dim = 480 if avatar else 1280
+    data = None
+
+    if Image is not None:
+        try:
+            img = Image.open(file_storage.stream)
+            img = img.convert("RGB")
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=82, optimize=True)
+            data = buf.getvalue()
+            mimetype = "image/jpeg"
+        except Exception:
+            data = None
+
+    if data is None:
+        # Pillow mavjud bo'lmasa yoki rasmni o'qiy olmasa (masalan animatsion GIF),
+        # original faylni o'zgarishsiz saqlaymiz
+        file_storage.stream.seek(0)
+        data = file_storage.read()
+
     db_data = psycopg2.Binary(data) if USE_POSTGRES else data
     conn.execute(
         "INSERT INTO uploaded_images (filename, mimetype, data, created_at) VALUES (?, ?, ?, ?)",
@@ -744,34 +797,47 @@ def feed():
                 ),
             )
             conn.commit()
-            conn.close()
+        conn.close()
 
         return redirect(url_for("feed"))
 
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
     conn = get_db()
-    posts = conn.execute("SELECT * FROM posts ORDER BY id DESC").fetchall()
+    rows = conn.execute(
+        "SELECT * FROM posts ORDER BY id DESC LIMIT ? OFFSET ?",
+        (PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
+    ).fetchall()
+    has_more = len(rows) > PAGE_SIZE
+    posts = rows[:PAGE_SIZE]
 
-    result = []
-    for p in posts:
-        like_count = conn.execute(
-            "SELECT COUNT(*) as c FROM likes WHERE post_id = ?", (p["id"],)
-        ).fetchone()["c"]
-        liked_by_me = conn.execute(
-            "SELECT 1 FROM likes WHERE post_id = ? AND username = ?",
-            (p["id"], session["username"]),
-        ).fetchone()
-        result.append(
-            {
-                "id": p["id"],
-                "username": p["username"],
-                "avatar_letter": p["avatar_letter"],
-                "content": p["content"],
-                "image_file": p["image_file"],
-                "created_at": p["created_at"],
-                "like_count": like_count,
-                "liked_by_me": bool(liked_by_me),
-            }
-        )
+    counts, mine = {}, set()
+    if posts:
+        ids = [p["id"] for p in posts]
+        marks = ",".join("?" for _ in ids)
+        for r in conn.execute(
+            f"SELECT post_id, COUNT(*) AS c FROM likes WHERE post_id IN ({marks}) GROUP BY post_id",
+            tuple(ids),
+        ).fetchall():
+            counts[r["post_id"]] = r["c"]
+        for r in conn.execute(
+            f"SELECT post_id FROM likes WHERE username = ? AND post_id IN ({marks})",
+            (session["username"], *ids),
+        ).fetchall():
+            mine.add(r["post_id"])
+
+    result = [
+        {
+            "id": p["id"],
+            "username": p["username"],
+            "avatar_letter": p["avatar_letter"],
+            "content": p["content"],
+            "image_file": p["image_file"],
+            "created_at": p["created_at"],
+            "like_count": counts.get(p["id"], 0),
+            "liked_by_me": p["id"] in mine,
+        }
+        for p in posts
+    ]
     conn.close()
 
     return render_template(
@@ -779,6 +845,8 @@ def feed():
         username=session["username"],
         avatar_letter=session["avatar_letter"],
         posts=result,
+        page=page,
+        has_more=has_more,
         active="feed",
     )
 
@@ -894,12 +962,18 @@ def shop():
                 ),
             )
             conn.commit()
-            conn.close()
+        conn.close()
 
         return redirect(url_for("shop"))
 
     conn = get_db()
-    products = conn.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    rows = conn.execute(
+        "SELECT * FROM products ORDER BY id DESC LIMIT ? OFFSET ?",
+        (PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
+    ).fetchall()
+    has_more = len(rows) > PAGE_SIZE
+    products = rows[:PAGE_SIZE]
     cart_count = conn.execute(
         "SELECT COALESCE(SUM(quantity), 0) as c FROM cart_items WHERE username = ?",
         (session["username"],),
@@ -911,6 +985,8 @@ def shop():
         username=session["username"],
         avatar_letter=session["avatar_letter"],
         products=products,
+        page=page,
+        has_more=has_more,
         cart_count=cart_count,
         active="shop",
     )
@@ -1589,7 +1665,7 @@ def profile_edit():
         conn = get_db()
 
         if avatar_image and avatar_image.filename and allowed_file(avatar_image.filename):
-            unique_name = save_image_to_db(conn, avatar_image, prefix=f"avatar_{session['username']}_")
+            unique_name = save_image_to_db(conn, avatar_image, prefix=f"avatar_{session['username']}_", avatar=True)
             conn.execute(
                 "UPDATE users SET avatar_file = ? WHERE username = ?",
                 (unique_name, session["username"]),

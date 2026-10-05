@@ -155,6 +155,9 @@ TRANSLATIONS = {
 
         # Feed
         "feed_title": "Feed",
+        "load_more": "Ko'proq ko'rsatish",
+        "loading": "Yuklanmoqda...",
+        "err_network": "Tarmoq xatosi. Qayta urinib ko'ring.",
         "post_placeholder": "Nima haqida o'ylayapsiz?",
         "add_photo_label": "Rasm",
         "post_btn": "Joylash",
@@ -354,6 +357,9 @@ TRANSLATIONS = {
         "nickname_note_suffix": ") не изменится.",
 
         "feed_title": "Лента",
+        "load_more": "Показать ещё",
+        "loading": "Загрузка...",
+        "err_network": "Ошибка сети. Попробуйте ещё раз.",
         "post_placeholder": "О чём вы думаете?",
         "add_photo_label": "Фото",
         "post_btn": "Опубликовать",
@@ -546,6 +552,9 @@ TRANSLATIONS = {
         "nickname_note_suffix": "）不会改变。",
 
         "feed_title": "动态",
+        "load_more": "加载更多",
+        "loading": "加载中...",
+        "err_network": "网络错误，请重试。",
         "post_placeholder": "你在想什么？",
         "add_photo_label": "照片",
         "post_btn": "发布",
@@ -738,6 +747,9 @@ TRANSLATIONS = {
         "nickname_note_suffix": ") won't change.",
 
         "feed_title": "Feed",
+        "load_more": "Load more",
+        "loading": "Loading...",
+        "err_network": "Network error. Please try again.",
         "post_placeholder": "What's on your mind?",
         "add_photo_label": "Photo",
         "post_btn": "Post",

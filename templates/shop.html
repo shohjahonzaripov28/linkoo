@@ -53,10 +53,18 @@
         </div>
       </div>
       {% endfor %}
+
+      {% if has_more %}
+      <a href="{{ url_for('shop', page=page+1) }}" class="load-more" data-loading="{{ t.loading }}">{{ t.load_more }}</a>
+      {% endif %}
+      {% if page > 1 %}
+      <a href="{{ url_for('shop') }}" class="load-more secondary">← {{ t.shop_title }}</a>
+      {% endif %}
     </div>
   </div>
 
   <script>
+    const netErrorText = "{{ t.err_network }}";
     const addedToCartLabel = "{{ t.added_to_cart }}";
     const addToCartLabel = "{{ t.add_to_cart_btn }}";
 
@@ -71,8 +79,12 @@
     document.querySelectorAll(".add-cart-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const productId = btn.dataset.productId;
-        const res = await fetch(`/api/cart/add/${productId}`, { method: "POST" });
-        const data = await res.json();
+        let data;
+        try {
+          const res = await fetch(`/api/cart/add/${productId}`, { method: "POST" });
+          if (!res.ok) throw new Error("bad");
+          data = await res.json();
+        } catch (e) { alert(netErrorText); return; }
         btn.textContent = addedToCartLabel;
         setTimeout(() => { btn.textContent = addToCartLabel; }, 1200);
 
@@ -85,6 +97,17 @@
         }
         badge.textContent = data.cart_count;
       });
+    });
+
+    document.querySelectorAll(".load-more:not(.secondary)").forEach((a) => {
+      a.addEventListener("click", () => {
+        a.innerHTML = '<span class="spinner"></span> ' + a.dataset.loading;
+      });
+    });
+    document.querySelector(".new-post-form").addEventListener("submit", () => {
+      const b = document.querySelector(".post-btn");
+      b.disabled = true;
+      b.innerHTML = '<span class="spinner"></span>';
     });
   </script>
 

@@ -57,10 +57,18 @@
         </button>
       </div>
       {% endfor %}
+
+      {% if has_more %}
+      <a href="{{ url_for('feed', page=page+1) }}" class="load-more" data-loading="{{ t.loading }}">{{ t.load_more }}</a>
+      {% endif %}
+      {% if page > 1 %}
+      <a href="{{ url_for('feed') }}" class="load-more secondary">← {{ t.feed_title }}</a>
+      {% endif %}
     </div>
   </div>
 
   <script>
+    const netErrorText = "{{ t.err_network }}";
     const confirmDeleteText = "{{ t.confirm_delete_post }}";
 
     const fileInput = document.querySelector('input[name="image"]');
@@ -74,11 +82,14 @@
     document.querySelectorAll(".like-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const postId = btn.dataset.postId;
-        const res = await fetch(`/api/like/${postId}`, { method: "POST" });
-        const data = await res.json();
-        btn.querySelector(".heart").textContent = data.liked ? "❤️" : "🤍";
-        btn.querySelector(".like-count").textContent = data.like_count;
-        btn.classList.toggle("liked", data.liked);
+        try {
+          const res = await fetch(`/api/like/${postId}`, { method: "POST" });
+          if (!res.ok) throw new Error("bad");
+          const data = await res.json();
+          btn.querySelector(".heart").textContent = data.liked ? "❤️" : "🤍";
+          btn.querySelector(".like-count").textContent = data.like_count;
+          btn.classList.toggle("liked", data.liked);
+        } catch (e) { alert(netErrorText); }
       });
     });
 
@@ -86,12 +97,25 @@
       btn.addEventListener("click", async () => {
         if (!confirm(confirmDeleteText)) return;
         const postId = btn.dataset.postId;
-        const res = await fetch(`/api/posts/delete/${postId}`, { method: "POST" });
-        const data = await res.json();
-        if (data.ok) {
-          btn.closest(".post-card").remove();
-        }
+        try {
+          const res = await fetch(`/api/posts/delete/${postId}`, { method: "POST" });
+          const data = await res.json();
+          if (data.ok) {
+            btn.closest(".post-card").remove();
+          }
+        } catch (e) { alert(netErrorText); }
       });
+    });
+
+    document.querySelectorAll(".load-more:not(.secondary)").forEach((a) => {
+      a.addEventListener("click", () => {
+        a.innerHTML = '<span class="spinner"></span> ' + a.dataset.loading;
+      });
+    });
+    document.querySelector(".new-post-form").addEventListener("submit", () => {
+      const b = document.querySelector(".post-btn");
+      b.disabled = true;
+      b.innerHTML = '<span class="spinner"></span>';
     });
   </script>
 
