@@ -1,22 +1,24 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Shaxsiy</title>
+  <title>Linko - {{ t.shaxsiy_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% from '_icons.html' import icon %}
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Shaxsiy</h1>
-      <a href="{{ url_for('people') }}" class="back-link" title="Yangi suhbat">＋</a>
+      <h1 style="font-size:20px;">{{ t.shaxsiy_title }}</h1>
+      <a href="{{ url_for('people') }}" class="back-link" title="{{ t.new_chat }}">{{ icon('plus', 20) }}</a>
     </div>
 
     <div class="feed-list">
       {% if conversations|length == 0 %}
-        <p class="empty-feed">Hali suhbatingiz yo'q. <a href="{{ url_for('people') }}" style="color:#c4b5fd;">Kontaklar</a>dan birini tanlang.</p>
+        <p class="empty-feed">{{ t.no_conversations_empty }}</p>
+        <a href="{{ url_for('people') }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">{{ t.go_to_contacts }}</a>
       {% endif %}
 
       {% for u in conversations %}
@@ -27,7 +29,7 @@
           <div class="avatar-circle small">{{ u.avatar_letter }}</div>
         {% endif %}
         <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
-        <div class="person-arrow">→</div>
+        <span class="chevron">{{ icon('chevron', 16) }}</span>
       </a>
       {% endfor %}
     </div>

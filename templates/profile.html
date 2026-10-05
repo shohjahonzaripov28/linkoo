@@ -1,22 +1,22 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Profil</title>
+  <title>Linko - {{ t.profile_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Profil</h1>
+      <h1 style="font-size:20px;">{{ t.profile_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
     <div class="profile-avatar-wrap">
       {% if avatar_file %}
-        <img class="avatar-circle" src="{{ url_for('static', filename='uploads/' + avatar_file) }}" alt="" style="margin-bottom:8px;">
+        <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="" style="margin-bottom:8px;">
       {% else %}
         <div class="avatar-circle" style="margin-bottom:8px;">{{ avatar_letter }}</div>
       {% endif %}
@@ -26,23 +26,23 @@
     {% if nickname %}
     <p class="subtitle" style="margin-bottom:2px;">@{{ username }}</p>
     {% endif %}
-    <p class="subtitle" style="margin-bottom:20px;">{{ posts|length }} post &nbsp;·&nbsp; {{ products|length }} mahsulot</p>
+    <p class="subtitle" style="margin-bottom:20px;">{{ posts|length }} {{ t.post_unit }} &nbsp;·&nbsp; {{ products|length }} {{ t.product_unit }}</p>
 
     <div class="profile-tabs">
-      <button class="tab-btn active" data-tab="posts-tab">Postlar</button>
-      <button class="tab-btn" data-tab="products-tab">Mahsulotlar</button>
+      <button class="tab-btn active" data-tab="posts-tab">{{ t.posts_tab }}</button>
+      <button class="tab-btn" data-tab="products-tab">{{ t.products_tab }}</button>
     </div>
 
     <div id="posts-tab" class="feed-list tab-panel">
       {% if posts|length == 0 %}
-        <p class="empty-feed">Hali post joylamagansiz.</p>
+        <p class="empty-feed">{{ t.no_posts_yet }}</p>
       {% endif %}
       {% for post in posts %}
       <div class="post-card">
         <div class="post-time">{{ post.created_at }}</div>
         {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
         {% if post.image_file %}
-        <img class="post-image" src="{{ url_for('static', filename='uploads/' + post.image_file) }}" alt="post">
+        <img class="post-image" src="{{ url_for('media', filename=post.image_file) }}" alt="post">
         {% endif %}
       </div>
       {% endfor %}
@@ -50,16 +50,16 @@
 
     <div id="products-tab" class="feed-list tab-panel" style="display:none;">
       {% if products|length == 0 %}
-        <p class="empty-feed">Hali mahsulot qo'shmagansiz.</p>
+        <p class="empty-feed">{{ t.no_products_yet }}</p>
       {% endif %}
       {% for p in products %}
       <div class="product-card">
         {% if p.image_file %}
-        <img class="product-image" src="{{ url_for('static', filename='uploads/' + p.image_file) }}" alt="{{ p.title }}">
+        <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">
         {% endif %}
         <div class="product-info">
           <div class="product-title">{{ p.title }}</div>
-          <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} so'm</div>
+          <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
         </div>
       </div>
       {% endfor %}

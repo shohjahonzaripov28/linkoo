@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - AI</title>
+  <title>Linko - {{ t.tile_ai }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -12,32 +12,37 @@
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
       <div class="dm-title">
         <div class="avatar-circle small">✨</div>
-        <h1 style="font-size:18px;">Linko AI</h1>
+        <h1 style="font-size:18px;">{{ t.tile_ai }}</h1>
       </div>
-      <button id="clear-btn" class="clear-btn" title="Yangi suhbat">🗑️</button>
+      <button id="clear-btn" class="clear-btn" title="{{ t.new_chat }}">🗑️</button>
     </div>
 
     <div id="messages" class="messages-box">
       <div class="msg-row msg-left">
         <div class="msg-bubble msg-other">
-          <div class="msg-text">Salom! Men Linko AI'man. Istalgan savolingizni bering.</div>
+          <div class="msg-text">{{ t.ai_welcome_message }}</div>
         </div>
       </div>
     </div>
 
     <form id="send-form" class="send-form">
-      <input type="text" id="message-input" placeholder="Savolingizni yozing..." autocomplete="off" maxlength="2000">
+      <input type="text" id="message-input" placeholder="{{ t.ai_placeholder }}" autocomplete="off" maxlength="2000">
       <button type="submit" class="btn-primary send-btn">→</button>
     </form>
   </div>
 
   <script>
+    const T = {
+      connectionError: "{{ t.ai_connection_error }}",
+      newChatMessage: "{{ t.ai_new_chat_message }}",
+    };
+
     const messagesBox = document.getElementById("messages");
     const form = document.getElementById("send-form");
     const input = document.getElementById("message-input");
     const clearBtn = document.getElementById("clear-btn");
 
-    let history = []; // {role: "user"/"assistant", content: "..."}
+    let history = [];
 
     function escapeHtml(text) {
       const div = document.createElement("div");
@@ -86,14 +91,14 @@
         }
       } catch (err) {
         loadingRow.remove();
-        addBubble("⚠️ Bog'lanishda xato yuz berdi.", false);
+        addBubble("⚠️ " + T.connectionError, false);
       }
     });
 
     clearBtn.addEventListener("click", () => {
       history = [];
       messagesBox.innerHTML = "";
-      addBubble("Yangi suhbat boshlandi. Savolingizni yozing.", false);
+      addBubble(T.newChatMessage, false);
     });
   </script>
 

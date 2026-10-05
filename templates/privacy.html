@@ -1,36 +1,36 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Maxfiylik siyosati</title>
+  <title>Linko - {{ t.privacy_and_terms }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('settings_page') if logged_in else url_for('login') }}" class="back-link">←</a>
-      <h1 style="font-size:18px;">Maxfiylik va shartlar</h1>
+      <h1 style="font-size:18px;">{{ t.privacy_and_terms }}</h1>
       <div style="width:36px;"></div>
     </div>
 
     <div style="font-size:13px; line-height:1.6; opacity:0.85; max-height:60vh; overflow-y:auto; padding-right:6px;">
-      <p style="font-weight:700; margin-bottom:4px;">1. Ma'lumotlaringiz</p>
-      <p style="margin-bottom:14px;">Linko'da ro'yxatdan o'tganda biz faqat foydalanuvchi nomingiz, parolingiz (shifrlangan holda) va siz ixtiyoriy kiritgan ma'lumotlarni (nickname, profil rasmi) saqlaymiz.</p>
+      <p style="font-weight:700; margin-bottom:4px;">{{ t.privacy_s1_title }}</p>
+      <p style="margin-bottom:14px;">{{ t.privacy_s1_body }}</p>
 
-      <p style="font-weight:700; margin-bottom:4px;">2. Xabarlar va postlar</p>
-      <p style="margin-bottom:14px;">Shaxsiy xabarlaringiz faqat siz va suhbatdoshingizga ko'rinadi. Guruh xabarlari faqat guruh a'zolariga ko'rinadi. Feed postlari barcha foydalanuvchilarga ochiq.</p>
+      <p style="font-weight:700; margin-bottom:4px;">{{ t.privacy_s2_title }}</p>
+      <p style="margin-bottom:14px;">{{ t.privacy_s2_body }}</p>
 
-      <p style="font-weight:700; margin-bottom:4px;">3. Rasmlar</p>
-      <p style="margin-bottom:14px;">Yuklagan rasmlaringiz serverda saqlanadi. Ularni istalgan vaqt o'chirishingiz mumkin.</p>
+      <p style="font-weight:700; margin-bottom:4px;">{{ t.privacy_s3_title }}</p>
+      <p style="margin-bottom:14px;">{{ t.privacy_s3_body }}</p>
 
-      <p style="font-weight:700; margin-bottom:4px;">4. Sun'iy intellekt (Linko AI)</p>
-      <p style="margin-bottom:14px;">Linko AI'ga yozgan xabarlaringiz javob berish uchun tashqi AI xizmatiga (Anthropic) yuboriladi.</p>
+      <p style="font-weight:700; margin-bottom:4px;">{{ t.privacy_s4_title }}</p>
+      <p style="margin-bottom:14px;">{{ t.privacy_s4_body }}</p>
 
-      <p style="font-weight:700; margin-bottom:4px;">5. Qoidabuzarlik</p>
-      <p style="margin-bottom:14px;">Haqoratli, noqonuniy yoki zararli kontent joylash taqiqlanadi. Shikoyat qilingan kontent ko'rib chiqiladi va o'chirilishi mumkin.</p>
+      <p style="font-weight:700; margin-bottom:4px;">{{ t.privacy_s5_title }}</p>
+      <p style="margin-bottom:14px;">{{ t.privacy_s5_body }}</p>
 
-      <p style="font-size:11px; opacity:0.5; margin-top:20px;">Bu — Linko ilovasining dastlabki (test) versiyasi uchun soddalashtirilgan qoidalar. Ilova rasman chiqarilishidan oldin yuridik jihatdan to'liq matn tayyorlanadi.</p>
+      <p style="font-size:11px; opacity:0.5; margin-top:20px;">{{ t.privacy_footer_note }}</p>
     </div>
   </div>
 

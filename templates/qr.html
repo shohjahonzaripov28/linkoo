@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Mening QR kodim</title>
+  <title>Linko - {{ t.qr_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card">
     <div class="chat-header">
       <a href="{{ url_for('people') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Mening QR kodim</h1>
+      <h1 style="font-size:20px;">{{ t.qr_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
@@ -22,10 +22,10 @@
       <img src="data:image/png;base64,{{ qr_b64 }}" alt="QR kod" style="width:220px; height:220px; display:block;">
     </div>
     <p style="font-size:12px; text-align:center; color:rgba(255,255,255,0.65); padding:0 10px;">
-      Bu QR kodni do'stlaringizga ko'rsating — ular skanerlab, sizga kontakt so'rovi yubora oladi.
+      {{ t.qr_note }}
     </p>
     {% else %}
-    <p class="empty-feed">QR kod yaratib bo'lmadi. Terminalda: pip install qrcode Pillow</p>
+    <p class="empty-feed">{{ t.qr_failed_note }}</p>
     {% endif %}
   </div>
 

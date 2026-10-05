@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Parolni tiklash</title>
+  <title>Linko</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card">
-    <h1>Parolni tiklash</h1>
-    <p class="subtitle">{{ "Foydalanuvchi nomingizni kiriting" if step == "username" else "Xavfsizlik savoliga javob bering" }}</p>
+    {% include 'lang_switcher.html' %}
+    <h1>Linko</h1>
+    <p class="subtitle">{{ t.forgot_step_username if step == "username" else t.forgot_step_answer }}</p>
 
     {% with messages = get_flashed_messages() %}
       {% if messages %}
@@ -23,28 +24,28 @@
     <form method="POST">
       <input type="hidden" name="step" value="username">
       <div class="field">
-        <label>Foydalanuvchi nomi</label>
+        <label>{{ t.username }}</label>
         <input type="text" name="username" placeholder="masalan: aziz_dev" required>
       </div>
-      <button type="submit" class="btn-primary">Davom etish</button>
+      <button type="submit" class="btn-primary">{{ t.forgot_continue }}</button>
     </form>
     {% else %}
     <form method="POST">
       <input type="hidden" name="step" value="answer">
       <input type="hidden" name="username" value="{{ username }}">
       <div class="field">
-        <label>Eng yaqin do'stingizning ismi?</label>
-        <input type="text" name="security_answer" placeholder="Javobingiz" required>
+        <label>{{ t.security_answer_label }}</label>
+        <input type="text" name="security_answer" placeholder="..." required>
       </div>
       <div class="field">
-        <label>Yangi parol</label>
-        <input type="password" name="new_password" placeholder="kamida 4 ta belgi" required>
+        <label>{{ t.new_password_label }}</label>
+        <input type="password" name="new_password" placeholder="••••••••" required>
       </div>
-      <button type="submit" class="btn-primary">Parolni o'zgartirish</button>
+      <button type="submit" class="btn-primary">{{ t.forgot_change_password }}</button>
     </form>
     {% endif %}
 
-    <p class="switch-link">Esladingizmi? <a href="{{ url_for('login') }}">Kirish</a></p>
+    <p class="switch-link">{{ t.forgot_remembered }} <a href="{{ url_for('login') }}">{{ t.login_link }}</a></p>
   </div>
 </body>
 </html>

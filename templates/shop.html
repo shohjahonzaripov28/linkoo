@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Do'kon</title>
+  <title>Linko - {{ t.shop_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Do'kon</h1>
+      <h1 style="font-size:20px;">{{ t.shop_title }}</h1>
       <a href="{{ url_for('cart') }}" class="cart-link">
         🛒
         {% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
@@ -18,21 +18,21 @@
     </div>
 
     <form method="POST" enctype="multipart/form-data" class="new-post-form">
-      <input type="text" name="title" placeholder="Mahsulot nomi" class="shop-input" required>
-      <textarea name="description" placeholder="Tavsif (ixtiyoriy)" rows="2"></textarea>
-      <input type="number" name="price" placeholder="Narxi (so'm)" class="shop-input" min="1" required>
+      <input type="text" name="title" placeholder="{{ t.product_name_placeholder }}" class="shop-input" required>
+      <textarea name="description" placeholder="{{ t.description_placeholder }}" rows="2"></textarea>
+      <input type="number" name="price" placeholder="{{ t.price_placeholder }}" class="shop-input" min="1" required>
       <div class="new-post-actions">
         <label class="file-label">
-          📷 Rasm
+          📷 {{ t.add_photo_label }}
           <input type="file" name="image" accept="image/*" style="display:none;">
         </label>
-        <button type="submit" class="btn-primary post-btn">Sotuvga qo'yish</button>
+        <button type="submit" class="btn-primary post-btn">{{ t.sell_btn }}</button>
       </div>
     </form>
 
     <div class="feed-list">
       {% if products|length == 0 %}
-        <p class="empty-feed">Hali mahsulot yo'q. Birinchi bo'lib qo'shing!</p>
+        <p class="empty-feed">{{ t.no_products_empty }}</p>
       {% endif %}
 
       {% for p in products %}
@@ -46,10 +46,10 @@
           <div class="product-desc">{{ p.description }}</div>
           {% endif %}
           <div class="product-footer">
-            <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} so'm</div>
-            <button class="add-cart-btn" data-product-id="{{ p.id }}">Savatga</button>
+            <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
+            <button class="add-cart-btn" data-product-id="{{ p.id }}">{{ t.add_to_cart_btn }}</button>
           </div>
-          <div class="product-seller">Sotuvchi: {{ p.seller_username }}</div>
+          <div class="product-seller">{{ t.seller_label }} {{ p.seller_username }}</div>
         </div>
       </div>
       {% endfor %}
@@ -57,6 +57,9 @@
   </div>
 
   <script>
+    const addedToCartLabel = "{{ t.added_to_cart }}";
+    const addToCartLabel = "{{ t.add_to_cart_btn }}";
+
     const fileInput = document.querySelector('input[name="image"]');
     const fileLabel = document.querySelector('.file-label');
     fileInput.addEventListener("change", () => {
@@ -70,8 +73,8 @@
         const productId = btn.dataset.productId;
         const res = await fetch(`/api/cart/add/${productId}`, { method: "POST" });
         const data = await res.json();
-        btn.textContent = "Qo'shildi ✓";
-        setTimeout(() => { btn.textContent = "Savatga"; }, 1200);
+        btn.textContent = addedToCartLabel;
+        setTimeout(() => { btn.textContent = addToCartLabel; }, 1200);
 
         let badge = document.querySelector(".cart-badge");
         const cartLink = document.querySelector(".cart-link");
@@ -84,6 +87,7 @@
       });
     });
   </script>
+
   {% include 'navbar.html' %}
 </body>
 </html>

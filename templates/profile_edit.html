@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Profilni tahrirlash</title>
+  <title>Linko - {{ t.edit_profile_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card">
     <div class="chat-header">
       <a href="{{ url_for('profile') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Profilni tahrirlash</h1>
+      <h1 style="font-size:20px;">{{ t.edit_profile_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
@@ -23,7 +23,7 @@
     </div>
     {% if avatar_file %}
     <form method="POST" action="{{ url_for('profile_avatar_remove') }}" style="text-align:center; margin-bottom:16px;">
-      <button type="submit" class="remove-avatar-btn">Rasmni o'chirish</button>
+      <button type="submit" class="remove-avatar-btn">{{ t.remove_photo_btn }}</button>
     </form>
     {% endif %}
 
@@ -37,17 +37,17 @@
 
     <form method="POST" enctype="multipart/form-data">
       <div class="field">
-        <label>Profil rasmi</label>
+        <label>{{ t.profile_photo_label }}</label>
         <input type="file" name="avatar_image" accept="image/*" class="shop-input" style="padding:8px 0;">
       </div>
       <div class="field">
-        <label>Nickname (ko'rinadigan ism)</label>
+        <label>{{ t.nickname_label }}</label>
         <input type="text" name="nickname" value="{{ nickname }}" placeholder="masalan: Shoh_UZ" maxlength="30">
       </div>
       <p style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:16px;">
-        Har bir nickname faqat bitta kishida bo'lishi mumkin. Login nomingiz (<b>{{ username }}</b>) o'zgarmaydi.
+        {{ t.nickname_note_prefix }}<b>{{ username }}</b>{{ t.nickname_note_suffix }}
       </p>
-      <button type="submit" class="btn-primary">Saqlash</button>
+      <button type="submit" class="btn-primary">{{ t.save }}</button>
     </form>
   </div>
 

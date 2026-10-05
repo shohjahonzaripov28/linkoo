@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Kontakt qo'shish</title>
+  <title>Linko - {{ t.add_contact_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card">
     <div class="chat-header">
       <a href="{{ url_for('people') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Kontakt qo'shish</h1>
+      <h1 style="font-size:20px;">{{ t.add_contact_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
@@ -24,24 +24,26 @@
     <p style="text-align:center; opacity:0.6; margin-bottom:20px;">@{{ target.username }}</p>
 
     {% if is_me %}
-      <p class="empty-feed">Bu sizning o'z profilingiz 🙂</p>
+      <p class="empty-feed">{{ t.own_profile_note }}</p>
     {% elif is_contact %}
-      <p class="empty-feed">Bu foydalanuvchi allaqachon kontaktlaringizda.</p>
-      <a href="{{ url_for('dm', other_username=target.username) }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Suhbatga o'tish</a>
+      <p class="empty-feed">{{ t.already_contact_note }}</p>
+      <a href="{{ url_for('dm', other_username=target.username) }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">{{ t.go_to_chat_btn }}</a>
     {% elif is_pending %}
-      <p class="empty-feed">So'rov allaqachon yuborilgan, javobni kuting.</p>
+      <p class="empty-feed">{{ t.request_pending_note }}</p>
     {% else %}
-      <button id="send-request-btn" class="btn-primary">Kontakt so'rovi yuborish</button>
+      <button id="send-request-btn" class="btn-primary">{{ t.send_request_btn }}</button>
     {% endif %}
   </div>
 
   <script>
+    const requestSentNote = "{{ t.request_sent_note }}";
+    const addedNote = "{{ t.added_note }}";
     const btn = document.getElementById("send-request-btn");
     if (btn) {
       btn.addEventListener("click", async () => {
         const res = await fetch(`/api/contacts/request/{{ target.username }}`, { method: "POST" });
         const data = await res.json();
-        btn.outerHTML = `<p class="empty-feed">${data.status === "accepted" ? "Kontaktlaringizga qo'shildi!" : "So'rov yuborildi!"}</p>`;
+        btn.outerHTML = `<p class="empty-feed">${data.status === "accepted" ? addedNote : requestSentNote}</p>`;
       });
     }
   </script>

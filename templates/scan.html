@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - QR skanerlash</title>
+  <title>Linko - {{ t.scan_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
 </head>
@@ -11,8 +11,8 @@
   <div class="glass-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">QR skanerlash</h1>
-      <a href="{{ url_for('qr_page') }}" class="back-link" title="Mening QR kodim">▦</a>
+      <h1 style="font-size:20px;">{{ t.scan_title }}</h1>
+      <a href="{{ url_for('qr_page') }}" class="back-link" title="{{ t.qr_title }}">▦</a>
     </div>
 
     <div class="scan-frame">
@@ -22,13 +22,20 @@
     <canvas id="scan-canvas" style="display:none;"></canvas>
 
     <p id="scan-status" style="text-align:center; font-size:13px; opacity:0.7; margin-top:14px;">
-      Kamera ochilmoqda...
+      {{ t.scan_opening_camera }}
     </p>
   </div>
 
   {% include 'navbar.html' %}
 
   <script>
+    const T = {
+      instruction: "{{ t.scan_instruction }}",
+      noCamera: "{{ t.scan_no_camera }}",
+      found: "{{ t.scan_found }}",
+      foundText: "{{ t.scan_found_text }}",
+    };
+
     const video = document.getElementById("scan-video");
     const canvas = document.getElementById("scan-canvas");
     const ctx = canvas.getContext("2d");
@@ -41,10 +48,10 @@
           video: { facingMode: "environment" },
         });
         video.srcObject = stream;
-        statusEl.textContent = "QR kodni ramka ichiga tushiring";
+        statusEl.textContent = T.instruction;
         requestAnimationFrame(tick);
       } catch (err) {
-        statusEl.textContent = "Kameraga ruxsat berilmadi yoki topilmadi.";
+        statusEl.textContent = T.noCamera;
       }
     }
 
@@ -58,7 +65,7 @@
         const code = jsQR(imageData.data, imageData.width, imageData.height);
         if (code && code.data) {
           scanning = false;
-          statusEl.textContent = "Topildi! Yo'naltirilmoqda...";
+          statusEl.textContent = T.found;
           handleResult(code.data);
           return;
         }
@@ -69,7 +76,6 @@
     function handleResult(text) {
       try {
         const url = new URL(text);
-        // Faqat shu saytning o'ziga tegishli manzillarga avtomatik o'tamiz
         if (url.origin === window.location.origin) {
           window.location.href = text;
           return;
@@ -77,7 +83,7 @@
       } catch (e) {
         // URL emas
       }
-      statusEl.innerHTML = `Topilgan matn: <b>${text.replace(/</g, "&lt;")}</b>`;
+      statusEl.innerHTML = `${T.foundText} <b>${text.replace(/</g, "&lt;")}</b>`;
     }
 
     startCamera();

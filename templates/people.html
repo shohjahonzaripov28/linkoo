@@ -1,28 +1,29 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Kontaklar</title>
+  <title>Linko - {{ t.contacts_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% from '_icons.html' import icon %}
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Kontaklar</h1>
+      <h1 style="font-size:20px;">{{ t.contacts_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
     <form method="GET" class="new-post-form" style="padding:10px 14px;">
-      <input type="text" name="q" value="{{ query }}" placeholder="Username bo'yicha qidirish..." class="shop-input" style="margin-bottom:0;">
+      <input type="text" name="q" value="{{ query }}" placeholder="{{ t.search_placeholder }}" class="shop-input" style="margin-bottom:0;">
     </form>
 
     {% if query %}
-      <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">Qidiruv natijalari</p>
+      <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">{{ t.search_results_label }}</p>
       <div class="feed-list" style="margin-bottom:16px;">
         {% if search_results|length == 0 %}
-          <p class="empty-feed">Hech kim topilmadi.</p>
+          <p class="empty-feed">{{ t.no_results }}</p>
         {% endif %}
         {% for u in search_results %}
         <div class="person-row" style="cursor:default;">
@@ -33,11 +34,11 @@
           {% endif %}
           <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
           {% if u.is_contact %}
-            <span style="font-size:11px; opacity:0.6;">Kontaktda</span>
+            <span style="font-size:11px; opacity:0.6;">{{ t.in_contacts }}</span>
           {% elif u.is_pending %}
-            <span style="font-size:11px; opacity:0.6;">Yuborilgan</span>
+            <span style="font-size:11px; opacity:0.6;">{{ t.request_sent_short }}</span>
           {% else %}
-            <button class="add-contact-btn" data-username="{{ u.username }}">So'rov yuborish</button>
+            <button class="add-contact-btn" data-username="{{ u.username }}">{{ t.send_request_btn }}</button>
           {% endif %}
         </div>
         {% endfor %}
@@ -45,7 +46,7 @@
     {% endif %}
 
     {% if incoming_requests|length > 0 %}
-      <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">Kelgan so'rovlar</p>
+      <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">{{ t.incoming_requests_label }}</p>
       <div class="feed-list" style="margin-bottom:16px;">
         {% for r in incoming_requests %}
         <div class="person-row" style="cursor:default;">
@@ -62,10 +63,10 @@
       </div>
     {% endif %}
 
-    <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">Mening kontaktlarim</p>
+    <p style="font-size:12px; color:rgba(255,255,255,0.6); margin:10px 0 6px 4px;">{{ t.my_contacts_label }}</p>
     <div class="feed-list">
       {% if my_contacts|length == 0 %}
-        <p class="empty-feed">Hali kontaktingiz yo'q. Yuqoridan qidiring yoki QR kodingizni ulashing.</p>
+        <p class="empty-feed">{{ t.no_contacts_empty }}</p>
       {% endif %}
       {% for u in my_contacts %}
       <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
@@ -75,19 +76,22 @@
           <div class="avatar-circle small">{{ u.avatar_letter }}</div>
         {% endif %}
         <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
-        <div class="person-arrow">→</div>
+        <span class="chevron">{{ icon('chevron', 16) }}</span>
       </a>
       {% endfor %}
     </div>
   </div>
 
   <script>
+    const inContactsLabel = "{{ t.in_contacts }}";
+    const requestSentLabel = "{{ t.request_sent_toast }}";
+
     document.querySelectorAll(".add-contact-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const username = btn.dataset.username;
         const res = await fetch(`/api/contacts/request/${username}`, { method: "POST" });
         const data = await res.json();
-        btn.outerHTML = `<span style="font-size:11px; opacity:0.6;">${data.status === "accepted" ? "Kontaktda" : "Yuborildi"}</span>`;
+        btn.outerHTML = `<span style="font-size:11px; opacity:0.6;">${data.status === "accepted" ? inContactsLabel : requestSentLabel}</span>`;
       });
     });
     document.querySelectorAll(".accept-btn").forEach((btn) => {

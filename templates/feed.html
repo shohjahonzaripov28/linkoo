@@ -1,33 +1,33 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - Feed</title>
+  <title>Linko - {{ t.feed_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">Feed</h1>
-      <div class="avatar-circle small">{{ avatar_letter }}</div>
+      <h1 style="font-size:20px;">{{ t.feed_title }}</h1>
+      <div style="width:36px;"></div>
     </div>
 
     <form method="POST" enctype="multipart/form-data" class="new-post-form">
-      <textarea name="content" placeholder="Nima haqida o'ylayapsiz?" rows="2"></textarea>
+      <textarea name="content" placeholder="{{ t.post_placeholder }}" rows="2"></textarea>
       <div class="new-post-actions">
         <label class="file-label">
-          📷 Rasm
+          📷 {{ t.add_photo_label }}
           <input type="file" name="image" accept="image/*" style="display:none;">
         </label>
-        <button type="submit" class="btn-primary post-btn">Joylash</button>
+        <button type="submit" class="btn-primary post-btn">{{ t.post_btn }}</button>
       </div>
     </form>
 
     <div class="feed-list">
       {% if posts|length == 0 %}
-        <p class="empty-feed">Hali post yo'q. Birinchi bo'lib yozing!</p>
+        <p class="empty-feed">{{ t.no_posts_feed_empty }}</p>
       {% endif %}
 
       {% for post in posts %}
@@ -39,7 +39,7 @@
             <div class="post-time">{{ post.created_at }}</div>
           </div>
           {% if post.username == username %}
-          <button class="post-delete-btn" data-post-id="{{ post.id }}" title="O'chirish">🗑️</button>
+          <button class="post-delete-btn" data-post-id="{{ post.id }}" title="{{ t.delete }}">🗑️</button>
           {% endif %}
         </div>
 
@@ -61,7 +61,8 @@
   </div>
 
   <script>
-    // Fayl tanlanganda tugma matnini o'zgartirish
+    const confirmDeleteText = "{{ t.confirm_delete_post }}";
+
     const fileInput = document.querySelector('input[name="image"]');
     const fileLabel = document.querySelector('.file-label');
     fileInput.addEventListener("change", () => {
@@ -70,7 +71,6 @@
       }
     });
 
-    // Layk bosish
     document.querySelectorAll(".like-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const postId = btn.dataset.postId;
@@ -82,10 +82,9 @@
       });
     });
 
-    // Postni o'chirish
     document.querySelectorAll(".post-delete-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        if (!confirm("Bu postni o'chirmoqchimisiz?")) return;
+        if (!confirm(confirmDeleteText)) return;
         const postId = btn.dataset.postId;
         const res = await fetch(`/api/posts/delete/${postId}`, { method: "POST" });
         const data = await res.json();
@@ -95,6 +94,7 @@
       });
     });
   </script>
+
   {% include 'navbar.html' %}
 </body>
 </html>
