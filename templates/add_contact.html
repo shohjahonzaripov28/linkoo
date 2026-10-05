@@ -94,8 +94,8 @@
         btn.disabled = true;
         try {
           const res = await fetch(`/api/contacts/request/{{ target.username }}`, { method: "POST" });
-          if (!res.ok) throw new Error("bad");
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) { btn.disabled = false; alert(data.message || netErrorText); return; }
           const note = document.createElement("div");
           note.className = "profile-status";
           note.textContent = data.status === "accepted" ? addedNote : requestSentNote;

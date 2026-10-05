@@ -1,0 +1,83 @@
+{# Chat yozish paneli (shaxsiy va guruh chatlarida bir xil): matn, rasm, stiker/emoji, ovozli va video xabar, reply #}
+{% from '_icons.html' import icon %}
+<div id="messages" class="messages-box wp-{{ prefs.wallpaper }}"></div>
+
+<div id="reply-bar" class="reply-bar" hidden>
+  <span class="reply-bar-ico">{{ icon('reply', 18) }}</span>
+  <div class="reply-bar-text"><b id="reply-bar-author"></b><span id="reply-bar-text"></span></div>
+  <button type="button" id="reply-bar-close" class="reply-bar-close" aria-label="{{ t.reply_cancel }}">{{ icon('close', 18) }}</button>
+</div>
+
+<div id="preview-row" class="preview-row" style="display:none;">
+  <img id="preview-img" src="" alt="">
+  <button type="button" id="preview-remove">✕</button>
+</div>
+
+<div id="rec-bar" class="rec-bar" hidden>
+  <button type="button" id="rec-cancel" class="rec-btn rec-cancel" aria-label="{{ t.cancel }}">{{ icon('trash', 20) }}</button>
+  <span class="rec-dot"></span>
+  <span id="rec-time" class="rec-time">0:00</span>
+  <span class="rec-hint">{{ t.msg_voice }}</span>
+  <button type="button" id="rec-send" class="rec-btn rec-send" aria-label="{{ t.rec_send }}">{{ icon('send', 20) }}</button>
+</div>
+
+<form id="send-form" class="send-form">
+  <label class="attach-label" id="btn-attach" title="{{ t.attach_image_title }}">
+    {{ icon('attach', 22) }}
+    <input type="file" id="image-input" accept="image/*" style="display:none;">
+  </label>
+  <button type="button" id="btn-sticker" class="icon-btn" aria-label="{{ t.stickers_tab }}">{{ icon('smile', 22) }}</button>
+  <textarea id="message-input" rows="1" placeholder="{{ t.type_message_placeholder }}" autocomplete="off" maxlength="1000"></textarea>
+  <button type="button" id="btn-vnote" class="icon-btn" aria-label="{{ t.video_note_title }}">{{ icon('video', 22) }}</button>
+  <button type="button" id="btn-mic" class="icon-btn" aria-label="{{ t.msg_voice }}">{{ icon('mic', 22) }}</button>
+  <button type="submit" id="btn-send" class="send-round" hidden aria-label="{{ t.rec_send }}">{{ icon('send', 20) }}</button>
+</form>
+
+<div id="sticker-panel" class="sticker-panel" hidden>
+  <div class="sticker-tabs">
+    <button type="button" class="st-tab active" data-tab="stickers">{{ t.stickers_tab }}</button>
+    <button type="button" class="st-tab" data-tab="emoji">{{ t.emoji_tab }}</button>
+  </div>
+  <div id="sticker-packs" class="sticker-packs"></div>
+  <div id="sticker-grid" class="sticker-grid"></div>
+</div>
+
+<div id="vnote-overlay" class="vnote-overlay" hidden>
+  <div class="vnote-stage">
+    <div class="vnote-ring" id="vnote-ring"><video id="vnote-preview" muted playsinline autoplay></video></div>
+    <div class="vnote-time" id="vnote-time">0:00</div>
+  </div>
+  <div class="vnote-controls">
+    <button type="button" id="vnote-cancel" class="vn-btn">{{ icon('close', 24) }}</button>
+    <button type="button" id="vnote-record" class="vn-btn vn-record" aria-label="{{ t.video_note_title }}"><span></span></button>
+    <button type="button" id="vnote-flip" class="vn-btn">{{ icon('flip', 24) }}</button>
+  </div>
+</div>
+
+<div class="modal-overlay sheet-overlay" id="action-sheet" hidden>
+  <div class="modal-card sheet-card action-card">
+    <div class="action-preview" id="action-preview"></div>
+    <button type="button" class="action-item" data-act="reply">{{ icon('reply', 20) }}<span>{{ t.msg_reply }}</span></button>
+    <button type="button" class="action-item" data-act="translate">{{ icon('translate', 20) }}<span>{{ t.msg_translate }}</span></button>
+    <button type="button" class="action-item" data-act="copy">{{ icon('copy', 20) }}<span>{{ t.msg_copy }}</span></button>
+    <button type="button" class="action-item danger" data-act="delete">{{ icon('trash', 20) }}<span>{{ t.delete }}</span></button>
+  </div>
+</div>
+
+<div class="toast" id="chat-toast" hidden></div>
+
+<script type="application/json" id="chat-cfg">
+{{ {
+  "enterToSend": prefs.enter_to_send,
+  "shrinkImages": prefs.shrink_images,
+  "t": {
+    "reply": t.msg_reply, "translating": t.msg_translating, "translateSame": t.translate_same,
+    "translateFailed": t.translate_failed, "copied": t.msg_copied, "del": t.msg_delete_btn,
+    "micDenied": t.mic_denied, "camDenied": t.camera_denied, "net": t.err_network, "upload": t.upload_failed,
+    "voice": t.msg_voice, "vnote": t.msg_video_note, "sticker": t.msg_sticker, "photo": t.photo_msg,
+    "callAudio": t.call_audio, "callVideo": t.call_video, "callMissed": t.call_missed, "callDeclined": t.call_declined,
+    "confirmDelete": t.confirm_delete_post
+  }
+}|tojson }}
+</script>
+<script src="{{ url_for('static', filename='chat.js') }}"></script>

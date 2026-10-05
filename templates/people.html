@@ -96,8 +96,12 @@
     document.querySelectorAll(".add-contact-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const username = btn.dataset.username;
-        const res = await fetch(`/api/contacts/request/${username}`, { method: "POST" });
-        const data = await res.json();
+        let res, data;
+        try {
+          res = await fetch(`/api/contacts/request/${username}`, { method: "POST" });
+          data = await res.json();
+        } catch (e) { alert("{{ t.err_network }}"); return; }
+        if (!res.ok) { alert(data.message || "{{ t.err_network }}"); return; }
         btn.outerHTML = `<span style="font-size:11px; opacity:0.6;">${data.status === "accepted" ? inContactsLabel : requestSentLabel}</span>`;
       });
     });

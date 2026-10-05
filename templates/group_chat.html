@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="in-chat">
-  <div class="glass-card chat-card">
+  {% from '_icons.html' import icon %}
+  <div class="glass-card chat-card" data-kind="group" data-target="{{ group.id }}" data-me="{{ username }}">
     <div class="chat-header">
       <a href="{{ url_for('groups_list') }}" class="back-link">←</a>
       <div class="dm-title">
@@ -17,114 +18,8 @@
       <div style="width:36px;"></div>
     </div>
 
-    <div id="messages" class="messages-box"></div>
-
-    <form id="send-form" class="send-form">
-      <label class="attach-label" title="{{ t.attach_image_title }}">
-        📎
-        <input type="file" id="image-input" accept="image/*" style="display:none;">
-      </label>
-      <input type="text" id="message-input" placeholder="{{ t.type_message_placeholder }}" autocomplete="off" maxlength="1000">
-      <button type="submit" class="btn-primary send-btn">→</button>
-    </form>
-    <div id="preview-row" class="preview-row" style="display:none;">
-      <img id="preview-img" src="" alt="">
-      <button type="button" id="preview-remove">✕</button>
-    </div>
+    {% include '_chat_composer.html' %}
   </div>
-
-  <script>
-    const me = "{{ username }}";
-    const msgDeleteLabel = "{{ t.msg_delete_btn }}";
-    const groupId = {{ group.id }};
-    const messagesBox = document.getElementById("messages");
-    const form = document.getElementById("send-form");
-    const input = document.getElementById("message-input");
-    const imageInput = document.getElementById("image-input");
-    const previewRow = document.getElementById("preview-row");
-    const previewImg = document.getElementById("preview-img");
-    const previewRemove = document.getElementById("preview-remove");
-
-    function escapeHtml(text) {
-      const div = document.createElement("div");
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    imageInput.addEventListener("change", () => {
-      if (imageInput.files.length > 0) {
-        previewImg.src = URL.createObjectURL(imageInput.files[0]);
-        previewRow.style.display = "flex";
-      }
-    });
-    previewRemove.addEventListener("click", () => {
-      imageInput.value = "";
-      previewRow.style.display = "none";
-    });
-
-    function renderMessages(messages) {
-      messagesBox.innerHTML = "";
-      messages.forEach((m) => {
-        const isMe = m.username === me;
-        const row = document.createElement("div");
-        row.className = "msg-row " + (isMe ? "msg-right" : "msg-left");
-        let imgHtml = "";
-        if (m.image_file) {
-          imgHtml = `<img class="msg-image" src="/media/${m.image_file}" alt="">`;
-        }
-        row.innerHTML = `
-          <div class="msg-bubble ${isMe ? "msg-mine" : "msg-other"}">
-            ${!isMe ? `<div class="msg-author">${escapeHtml(m.username)}</div>` : ""}
-            ${imgHtml}
-            ${m.content ? `<div class="msg-text">${escapeHtml(m.content)}</div>` : ""}
-            <div class="msg-time">${m.created_at}</div>
-            ${isMe ? `<button class="msg-delete-btn" data-id="${m.id}">${msgDeleteLabel}</button>` : ""}
-          </div>
-        `;
-        messagesBox.appendChild(row);
-      });
-      messagesBox.scrollTop = messagesBox.scrollHeight;
-
-      document.querySelectorAll(".msg-delete-btn").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          await fetch(`/api/groups/message/delete/${btn.dataset.id}`, { method: "POST" });
-          loadMessages();
-        });
-      });
-    }
-
-    async function loadMessages() {
-      try {
-        const res = await fetch(`/api/groups/${groupId}/messages`);
-        if (!res.ok) return;
-        const data = await res.json();
-        renderMessages(data.messages);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const content = input.value.trim();
-      const hasImage = imageInput.files.length > 0;
-      if (!content && !hasImage) return;
-
-      const formData = new FormData();
-      formData.append("content", content);
-      if (hasImage) formData.append("image", imageInput.files[0]);
-
-      input.value = "";
-      imageInput.value = "";
-      previewRow.style.display = "none";
-
-      await fetch(`/api/groups/${groupId}/send`, { method: "POST", body: formData });
-      loadMessages();
-    });
-
-    loadMessages();
-    setInterval(loadMessages, 2000);
-  </script>
 
   {% include 'navbar.html' %}
 </body>

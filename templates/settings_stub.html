@@ -7,18 +7,172 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon %}
-  <div class="glass-card">
+  {% from '_icons.html' import icon, empty_state %}
+  <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('settings_page') }}" class="back-link" style="transform:scaleX(-1); display:inline-flex;">{{ icon('chevron', 20) }}</a>
       <h1 style="font-size:20px;">{{ title }}</h1>
       <div style="width:36px;"></div>
     </div>
-    <div style="text-align:center; padding:40px 10px;">
-      <div class="settings-icon-badge" style="width:56px; height:56px; margin:0 auto 16px auto;">{{ icon('sliders', 26) }}</div>
-      <p style="opacity:0.6; font-size:13px;">{{ t.coming_soon }}</p>
+
+    {% if items %}
+    <div class="settings-list pref-list">
+      {% for it in items %}
+      <div class="settings-row pref-row" style="cursor:default;">
+        <div class="settings-row-label">{{ t['pref_' ~ it.key] }}</div>
+        {% if it.type == 'toggle' %}
+        <label class="switch"><input type="checkbox" data-key="{{ it.key }}" {% if it.value %}checked{% endif %}><span class="slider"></span></label>
+        {% else %}
+        <select class="pref-select" data-key="{{ it.key }}">
+          {% for val, label in it.options %}
+          <option value="{{ val }}" {% if val == it.value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+      </div>
+      {% endfor %}
     </div>
+    {% endif %}
+
+    {% if section == 'privacy-settings' %}
+    <p class="section-title">{{ t.blocked_users_title }}</p>
+    <div class="settings-list" id="blocked-list">
+      {% if blocked|length == 0 %}
+        <div class="settings-row" style="cursor:default; opacity:.7;"><div class="settings-row-label">{{ t.blocked_none }}</div></div>
+      {% endif %}
+      {% for u in blocked %}
+      <div class="settings-row" style="cursor:default;" data-user="{{ u.username }}">
+        {% if u.avatar_file %}
+          <img class="avatar-circle tiny" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
+        {% else %}
+          <div class="avatar-circle tiny">{{ u.avatar_letter }}</div>
+        {% endif %}
+        <div class="settings-row-label">@{{ u.nickname or u.username }}</div>
+        <button type="button" class="mini-btn unblock-btn">{{ t.unblock_btn }}</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if section == 'security' %}
+    <p class="section-title">{{ t.change_password_title if password_set else t.set_password_title }}</p>
+    <form id="pw-form" class="pw-form">
+      {% if password_set %}
+      <input type="password" id="pw-current" class="shop-input" placeholder="{{ t.current_password }}" autocomplete="current-password">
+      {% endif %}
+      <input type="password" id="pw-new" class="shop-input" placeholder="{{ t.new_password_label }}" autocomplete="new-password">
+      <div class="flash" id="pw-msg" hidden></div>
+      <button type="submit" class="btn-primary">{{ t.save_btn }}</button>
+    </form>
+
+    {% if google_client_id %}
+    <p class="section-title">{{ t.google_account_row }}</p>
+    <div class="settings-list">
+      <div class="settings-row" style="cursor:default;">
+        <div class="settings-icon-badge">{{ icon('globe', 18) }}</div>
+        <div class="settings-row-label">{{ t.google_account_row }}</div>
+        {% if google_email %}<span class="settings-row-value">✓ {{ google_email }}</span>{% endif %}
+      </div>
+      {% if not google_email %}
+      <div style="padding:6px 6px 10px;">
+        <p class="g-note" style="margin:0 0 10px;">{{ t.sec_google_hint }}</p>
+        {% include '_google.html' %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if section == 'devices' %}
+    <p class="g-note" style="margin:0 0 12px; text-align:left;">{{ t.devices_hint }}</p>
+    <div class="settings-list" id="sessions-list">
+      {% for s in sessions %}
+      <div class="settings-row" style="cursor:default;" data-sid="{{ s.id }}">
+        <div class="settings-icon-badge">{{ icon('monitor', 18) }}</div>
+        <div style="flex:1; min-width:0;">
+          <div class="settings-row-label">{{ s.name }}{% if s.current %} <span class="this-device">{{ t.device_this }}</span>{% endif %}</div>
+          <div style="font-size:12px; opacity:.55;">{{ t.device_active }} {{ s.ago }}{% if s.ip %} · {{ s.ip }}{% endif %}</div>
+        </div>
+        {% if not s.current %}<button type="button" class="mini-btn revoke-btn">{{ t.device_logout }}</button>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if sessions|length > 1 %}
+    <button type="button" id="revoke-others" class="btn-primary btn-danger" style="margin-top:14px;">{{ t.device_logout_others }}</button>
+    {% endif %}
+    {% endif %}
   </div>
+
+  <div class="toast" id="s-toast" hidden></div>
+
+  <script>
+    (function () {
+      var toastEl = document.getElementById("s-toast"), tt;
+      function toast(text) { toastEl.textContent = text; toastEl.hidden = false; clearTimeout(tt); tt = setTimeout(function () { toastEl.hidden = true; }, 1600); }
+      function postJSON(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); });
+      }
+      function save(key, value, el, revert) {
+        postJSON("/api/settings", { key: key, value: value }).then(function (res) {
+          if (!res.ok || !res.d.ok) { revert && revert(); toast("{{ t.err_network }}"); return; }
+          if (window.LINKO_PREFS) window.LINKO_PREFS[key] = value;
+          if (key === "font_size") {
+            document.documentElement.classList.remove("fs-small", "fs-medium", "fs-large");
+            document.documentElement.classList.add("fs-" + value);
+          }
+          if (key === "reduce_motion") document.documentElement.classList.toggle("reduce-motion", !!value);
+          toast("{{ t.settings_saved }}");
+        }).catch(function () { revert && revert(); toast("{{ t.err_network }}"); });
+      }
+      document.querySelectorAll('.pref-row input[type="checkbox"]').forEach(function (cb) {
+        cb.addEventListener("change", function () {
+          var key = cb.dataset.key, on = cb.checked;
+          if (key === "notif_browser" && on) {
+            if (!("Notification" in window)) { cb.checked = false; toast("{{ t.notif_browser_denied }}"); return; }
+            Notification.requestPermission().then(function (p) {
+              if (p !== "granted") { cb.checked = false; toast("{{ t.notif_browser_denied }}"); return; }
+              save(key, true, cb, function () { cb.checked = false; });
+            });
+            return;
+          }
+          save(key, on, cb, function () { cb.checked = !on; });
+        });
+      });
+      document.querySelectorAll(".pref-select").forEach(function (sel) {
+        var prev = sel.value;
+        sel.addEventListener("change", function () { save(sel.dataset.key, sel.value, sel, function () { sel.value = prev; }); prev = sel.value; });
+      });
+
+      document.querySelectorAll(".unblock-btn").forEach(function (b) {
+        b.addEventListener("click", function () {
+          var row = b.closest("[data-user]");
+          postJSON("/api/blocks/" + encodeURIComponent(row.dataset.user) + "/remove").then(function (res) { if (res.ok) { row.remove(); toast("{{ t.settings_saved }}"); } });
+        });
+      });
+
+      var pw = document.getElementById("pw-form");
+      if (pw) pw.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var msg = document.getElementById("pw-msg"), cur = document.getElementById("pw-current");
+        postJSON("/api/settings/password", { current: cur ? cur.value : "", new: document.getElementById("pw-new").value }).then(function (res) {
+          msg.textContent = res.d.message || "{{ t.err_network }}"; msg.hidden = false;
+          if (res.ok && res.d.ok) { pw.reset(); setTimeout(function () { location.reload(); }, 900); }
+        }).catch(function () { msg.textContent = "{{ t.err_network }}"; msg.hidden = false; });
+      });
+
+      document.querySelectorAll(".revoke-btn").forEach(function (b) {
+        b.addEventListener("click", function () {
+          var row = b.closest("[data-sid]");
+          postJSON("/api/sessions/revoke/" + row.dataset.sid).then(function (res) { if (res.ok) row.remove(); });
+        });
+      });
+      var ro = document.getElementById("revoke-others");
+      if (ro) ro.addEventListener("click", function () {
+        postJSON("/api/sessions/revoke_others").then(function (res) { if (res.ok) location.reload(); });
+      });
+    })();
+  </script>
 
   {% include 'navbar.html' %}
 </body>

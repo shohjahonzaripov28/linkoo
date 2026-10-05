@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.call_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="call-body">
+  {% from '_icons.html' import icon %}
+  <div class="call-screen" id="call-screen" data-call="{{ call.id }}" data-role="{{ role }}" data-kind="{{ call.kind }}" data-peer="{{ peer.username }}">
+    <video id="remote-video" class="call-remote" autoplay playsinline></video>
+    <div class="call-avatar-stage" id="call-avatar-stage">
+      {% if peer.avatar_file %}
+        <img class="avatar-circle call-avatar" src="{{ url_for('media', filename=peer.avatar_file) }}" alt="">
+      {% else %}
+        <div class="avatar-circle call-avatar">{{ peer.avatar_letter }}</div>
+      {% endif %}
+    </div>
+    <div class="call-top">
+      <div class="call-name">{{ peer_display }}</div>
+      <div class="call-status" id="call-status">{{ t.call_calling if role == 'caller' else t.call_connecting }}</div>
+    </div>
+    <video id="local-video" class="call-local" autoplay playsinline muted {% if call.kind != 'video' %}hidden{% endif %}></video>
+    <div class="call-controls">
+      <button type="button" class="call-btn" id="btn-mute" aria-label="{{ t.call_mute }}">{{ icon('mic', 26) }}</button>
+      {% if call.kind == 'video' %}
+      <button type="button" class="call-btn" id="btn-cam" aria-label="{{ t.call_camera }}">{{ icon('video', 26) }}</button>
+      {% endif %}
+      <button type="button" class="call-btn call-hangup" id="btn-hangup" aria-label="{{ t.call_end }}">{{ icon('phone-off', 28) }}</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var screen = document.getElementById("call-screen");
+      var CALL = screen.dataset.call, ROLE = screen.dataset.role, KIND = screen.dataset.kind, PEER = screen.dataset.peer;
+      var L = {
+        calling: "{{ t.call_calling }}", connecting: "{{ t.call_connecting }}", ended: "{{ t.call_ended }}",
+        declined: "{{ t.call_declined }}", missed: "{{ t.call_missed }}", failed: "{{ t.call_failed }}", denied: "{{ t.call_mic_denied }}"
+      };
+      var statusEl = document.getElementById("call-status");
+      var remoteVideo = document.getElementById("remote-video"), localVideo = document.getElementById("local-video");
+      var pc = null, local = null, lastSig = 0, finished = false, pendingIce = [], remoteSet = false, offered = false, answered = false;
+      var timerStart = 0, timerId = null, pollId = null;
+
+      function setStatus(t) { statusEl.textContent = t; }
+      function api(path, body) {
+        return fetch("/api/call/" + CALL + path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+          .then(function (r) { return r.json().catch(function () { return {}; }); });
+      }
+      function leave(msg) {
+        if (finished) return; finished = true;
+        clearInterval(pollId); clearInterval(timerId);
+        if (pc) pc.close();
+        if (local) local.getTracks().forEach(function (t) { t.stop(); });
+        setStatus(msg);
+        setTimeout(function () { location.href = "/dm/" + encodeURIComponent(PEER); }, 1300);
+      }
+      function hangup() { api("/end", {}).then(function () { leave(L.ended); }).catch(function () { leave(L.ended); }); }
+      document.getElementById("btn-hangup").addEventListener("click", hangup);
+
+      document.getElementById("btn-mute").addEventListener("click", function () {
+        if (!local) return;
+        var t = local.getAudioTracks()[0]; if (!t) return;
+        t.enabled = !t.enabled; this.classList.toggle("off", !t.enabled);
+      });
+      var camBtn = document.getElementById("btn-cam");
+      if (camBtn) camBtn.addEventListener("click", function () {
+        if (!local) return;
+        var t = local.getVideoTracks()[0]; if (!t) return;
+        t.enabled = !t.enabled; this.classList.toggle("off", !t.enabled);
+      });
+
+      function startTimer() {
+        timerStart = Date.now();
+        timerId = setInterval(function () {
+          var s = Math.floor((Date.now() - timerStart) / 1000);
+          setStatus(Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"));
+        }, 500);
+      }
+
+      function createPeer(iceServers) {
+        pc = new RTCPeerConnection({ iceServers: iceServers });
+        local.getTracks().forEach(function (t) { pc.addTrack(t, local); });
+        pc.ontrack = function (e) {
+          remoteVideo.srcObject = e.streams[0];
+          if (KIND === "video") document.getElementById("call-avatar-stage").style.display = "none";
+        };
+        pc.onicecandidate = function (e) { if (e.candidate) api("/signal", { type: "ice", data: e.candidate }); };
+        pc.onconnectionstatechange = function () {
+          if (pc.connectionState === "connected" && !timerId) startTimer();
+          if (pc.connectionState === "failed") { api("/end", {}); leave(L.failed); }
+        };
+      }
+
+      function flushIce() {
+        pendingIce.forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
+        pendingIce = [];
+      }
+
+      function handleSignal(s) {
+        if (!pc) return;
+        if (s.type === "offer" && ROLE === "callee" && !answered) {
+          answered = true;
+          pc.setRemoteDescription(s.data).then(function () { remoteSet = true; flushIce(); return pc.createAnswer(); })
+            .then(function (a) { return pc.setLocalDescription(a).then(function () { return api("/signal", { type: "answer", data: pc.localDescription }); }); })
+            .catch(function () { leave(L.failed); });
+        } else if (s.type === "answer" && ROLE === "caller" && !remoteSet) {
+          pc.setRemoteDescription(s.data).then(function () { remoteSet = true; flushIce(); }).catch(function () { leave(L.failed); });
+        } else if (s.type === "ice") {
+          if (remoteSet) pc.addIceCandidate(s.data).catch(function () {}); else pendingIce.push(s.data);
+        }
+      }
+
+      function makeOffer() {
+        if (offered) return; offered = true;
+        setStatus(L.connecting);
+        pc.createOffer().then(function (o) { return pc.setLocalDescription(o).then(function () { return api("/signal", { type: "offer", data: pc.localDescription }); }); })
+          .catch(function () { leave(L.failed); });
+      }
+
+      function poll() {
+        if (finished) return;
+        api("/poll?after=" + lastSig).then(function (d) {
+          if (finished) return;
+          if (d.error) { leave(L.ended); return; }
+          if (d.status === "declined") { leave(L.declined); return; }
+          if (d.status === "missed") { leave(L.missed); return; }
+          if (d.status === "ended") { leave(L.ended); return; }
+          if (d.status === "accepted" && ROLE === "caller" && pc) makeOffer();
+          (d.signals || []).forEach(function (s) { lastSig = Math.max(lastSig, s.id); handleSignal(s); });
+        }).catch(function () {});
+      }
+
+      function boot() {
+        if (!navigator.mediaDevices || !window.RTCPeerConnection) { leave(L.denied); return; }
+        Promise.all([
+          navigator.mediaDevices.getUserMedia({ audio: true, video: KIND === "video" ? { facingMode: "user" } : false }),
+          fetch("/api/call/ice").then(function (r) { return r.json(); })
+        ]).then(function (res) {
+          local = res[0];
+          if (KIND === "video") localVideo.srcObject = local;
+          createPeer(res[1].iceServers);
+          if (ROLE === "callee") {
+            setStatus(L.connecting);
+            return api("/accept", {}).then(function (d) { if (d.error) { leave(L.ended); } });
+          }
+          setStatus(L.calling);
+        }).then(function () {
+          pollId = setInterval(poll, 800); poll();
+        }).catch(function () {
+          api("/end", {}); leave(L.denied);
+        });
+      }
+      boot();
+    })();
+  </script>
+</body>
+</html>
