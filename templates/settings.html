@@ -22,8 +22,8 @@
         <div class="avatar-circle">{{ avatar_letter }}</div>
       {% endif %}
       <div style="flex:1;">
-        <div style="font-weight:700; font-size:16px;">{{ nickname if nickname else username }}</div>
-        <div style="font-size:12px; opacity:0.6;">@{{ username }}</div>
+        <div style="font-weight:700; font-size:16px;">@{{ nickname if nickname else username }}</div>
+        <div style="font-size:12px; opacity:0.6;">{{ username }}</div>
         <div style="font-size:12px; color:#93c5fd; margin-top:2px;">{{ t.manage_account }}</div>
       </div>
       <span class="chevron">{{ icon('chevron', 18) }}</span>
@@ -82,6 +82,16 @@
         <span class="chevron">{{ icon('chevron', 16) }}</span>
       </a>
     </div>
+
+    {% if is_admin %}
+    <div class="settings-list" style="margin-top:16px;">
+      <a href="{{ url_for('admin_page') }}" class="settings-row">
+        <div class="settings-icon-badge">{{ icon('shield', 18) }}</div>
+        <div class="settings-row-label">{{ t.admin_panel }}</div>
+        <span class="chevron">{{ icon('chevron', 16) }}</span>
+      </a>
+    </div>
+    {% endif %}
 
     <div class="settings-list" style="margin-top:16px;">
       <a href="{{ url_for('logout') }}" class="settings-row danger-row" onclick="return confirm('{{ t.confirm_logout }}');">

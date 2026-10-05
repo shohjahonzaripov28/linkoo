@@ -39,7 +39,7 @@
             <div class="post-author">{{ post.username }}</div>
             <div class="post-time">{{ post.created_at }}</div>
           </div>
-          {% if post.username == username %}
+          {% if post.username == username or is_admin %}
           <button class="post-delete-btn" data-post-id="{{ post.id }}" title="{{ t.delete }}">🗑️</button>
           {% endif %}
         </div>

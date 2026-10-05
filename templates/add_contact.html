@@ -3,41 +3,93 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - {{ t.add_contact_title }}</title>
+  <title>Linko - @{{ target.nickname if target.nickname else target.username }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <div class="glass-card">
+  {% from '_icons.html' import icon, empty_state %}
+  <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('people') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">{{ t.add_contact_title }}</h1>
+      <h1 style="font-size:20px;">{{ t.profile_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
-    {% if target.avatar_file %}
-      <img class="avatar-circle" src="{{ url_for('media', filename=target.avatar_file) }}" alt="" style="margin: 10px auto 16px auto;">
-    {% else %}
-      <div class="avatar-circle" style="margin: 10px auto 16px auto;">{{ target.avatar_letter }}</div>
+    <div class="profile-avatar-wrap">
+      {% if target.avatar_file %}
+        <img class="avatar-circle" src="{{ url_for('media', filename=target.avatar_file) }}" alt="" style="margin-bottom:8px;">
+      {% else %}
+        <div class="avatar-circle" style="margin-bottom:8px;">{{ target.avatar_letter }}</div>
+      {% endif %}
+    </div>
+    <h1 style="font-size:22px; text-align:center;">@{{ target.nickname if target.nickname else target.username }}</h1>
+    {% if target.nickname %}
+    <p class="subtitle" style="margin-bottom:2px;">{{ target.username }}</p>
     {% endif %}
+    <p class="subtitle" style="margin-bottom:6px;">{{ posts|length }} {{ t.post_unit }} &nbsp;·&nbsp; {{ products|length }} {{ t.product_unit }}</p>
+    {% if target_is_admin %}<p style="text-align:center; margin-bottom:6px;"><span class="admin-chip">{{ t.admin_badge }}</span></p>{% endif %}
+    {% if is_blocked %}<p style="text-align:center; margin-bottom:6px;"><span class="admin-chip danger">{{ t.blocked_label }}</span></p>{% endif %}
 
-    <p style="text-align:center; font-size:18px; font-weight:700;">{{ target.nickname if target.nickname else target.username }}</p>
-    <p style="text-align:center; opacity:0.6; margin-bottom:20px;">@{{ target.username }}</p>
+    <div class="profile-actions">
+      <a href="{{ url_for('dm', other_username=target.username) }}" class="btn-primary profile-action-btn" style="text-decoration:none; text-align:center;">{{ t.write_message }}</a>
+      {% if is_contact %}
+        <div class="profile-status">✓ {{ t.in_contacts }}</div>
+      {% elif is_pending %}
+        <div class="profile-status">{{ t.request_pending_note }}</div>
+      {% else %}
+        <button id="send-request-btn" class="btn-primary profile-action-btn secondary-btn">{{ t.send_request_btn }}</button>
+      {% endif %}
+      {% if is_admin and not target_is_admin %}
+        <button id="block-btn" class="btn-primary profile-action-btn danger-btn" data-blocked="{{ 1 if is_blocked else 0 }}">
+          {{ t.unblock_btn if is_blocked else t.block_btn }}
+        </button>
+      {% endif %}
+    </div>
 
-    {% if is_me %}
-      <p class="empty-feed">{{ t.own_profile_note }}</p>
-    {% elif is_contact %}
-      <p class="empty-feed">{{ t.already_contact_note }}</p>
-      <a href="{{ url_for('dm', other_username=target.username) }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">{{ t.go_to_chat_btn }}</a>
-    {% elif is_pending %}
-      <p class="empty-feed">{{ t.request_pending_note }}</p>
-    {% else %}
-      <button id="send-request-btn" class="btn-primary">{{ t.send_request_btn }}</button>
-    {% endif %}
+    <div class="profile-tabs">
+      <button class="tab-btn active" data-tab="posts-tab">{{ t.posts_tab }}</button>
+      <button class="tab-btn" data-tab="products-tab">{{ t.products_tab }}</button>
+    </div>
+
+    <div id="posts-tab" class="feed-list tab-panel">
+      {% if posts|length == 0 %}
+        {{ empty_state('feed', t.admin_empty) }}
+      {% endif %}
+      {% for post in posts %}
+      <div class="post-card">
+        <div class="post-time">{{ post.created_at }}</div>
+        {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
+        {% if post.image_file %}
+        <img class="post-image" src="{{ url_for('media', filename=post.image_file) }}" alt="post">
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="products-tab" class="feed-list tab-panel" style="display:none;">
+      {% if products|length == 0 %}
+        {{ empty_state('shop', t.admin_empty) }}
+      {% endif %}
+      {% for p in products %}
+      <div class="product-card">
+        {% if p.image_file %}
+        <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">
+        {% endif %}
+        <div class="product-info">
+          <div class="product-title">{{ p.title }}</div>
+          <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 
   <script>
     const requestSentNote = "{{ t.request_sent_note }}";
     const addedNote = "{{ t.added_note }}";
+    const netErrorText = "{{ t.err_network }}";
+    const confirmBlockText = "{{ t.confirm_block }}";
+
     const btn = document.getElementById("send-request-btn");
     if (btn) {
       btn.addEventListener("click", async () => {
@@ -46,17 +98,38 @@
           const res = await fetch(`/api/contacts/request/{{ target.username }}`, { method: "POST" });
           if (!res.ok) throw new Error("bad");
           const data = await res.json();
-          btn.outerHTML = `<p class="empty-feed">${data.status === "accepted" ? addedNote : requestSentNote}</p>`;
+          const note = document.createElement("div");
+          note.className = "profile-status";
+          note.textContent = data.status === "accepted" ? addedNote : requestSentNote;
+          btn.replaceWith(note);
         } catch (e) {
           btn.disabled = false;
-          alert("{{ t.err_network }}");
+          alert(netErrorText);
         }
       });
-      // QR skanerlangan bo'lsa, so'rov o'zi yuboriladi
-      if (new URLSearchParams(window.location.search).get("scan") === "1") {
-        btn.click();
-      }
     }
+
+    const blockBtn = document.getElementById("block-btn");
+    if (blockBtn) {
+      blockBtn.addEventListener("click", async () => {
+        const isBlocked = blockBtn.dataset.blocked === "1";
+        if (!isBlocked && !confirm(confirmBlockText)) return;
+        try {
+          const res = await fetch(`/api/admin/${isBlocked ? "unblock" : "block"}/{{ target.username }}`, { method: "POST" });
+          if (!res.ok) throw new Error("bad");
+          window.location.reload();
+        } catch (e) { alert(netErrorText); }
+      });
+    }
+
+    document.querySelectorAll(".tab-btn").forEach((b) => {
+      b.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach((x) => x.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
+        b.classList.add("active");
+        document.getElementById(b.dataset.tab).style.display = "flex";
+      });
+    });
   </script>
 
   {% include 'navbar.html' %}

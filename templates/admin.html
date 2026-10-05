@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.admin_panel }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('settings_page') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.admin_panel }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <div class="profile-tabs">
+      <button class="tab-btn active" data-tab="users-tab">{{ t.admin_users }}</button>
+      <button class="tab-btn" data-tab="posts-tab">{{ t.admin_posts }}</button>
+      <button class="tab-btn" data-tab="products-tab">{{ t.admin_products }}</button>
+    </div>
+
+    <div id="users-tab" class="tab-panel">
+      <form method="GET" class="new-post-form" style="padding:10px 14px; margin-bottom:12px;">
+        <input type="text" name="q" value="{{ q }}" placeholder="{{ t.search_hint }}" class="shop-input" style="margin-bottom:0;">
+      </form>
+      <div class="feed-list">
+        {% if users|length == 0 %}{{ empty_state('search', t.no_results) }}{% endif %}
+        {% for u in users %}
+        <div class="person-row" style="cursor:default;" data-user="{{ u.username }}">
+          {% if u.avatar_file %}
+            <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
+          {% else %}
+            <div class="avatar-circle small">{{ u.avatar_letter }}</div>
+          {% endif %}
+          <div class="person-main">
+            <a href="{{ url_for('user_profile', target_username=u.username) }}" class="person-name" style="color:#fff; text-decoration:none;">@{{ u.nickname if u.nickname else u.username }}</a>
+            <div class="person-sub">{{ u.username }}
+              {% if u.is_admin_user %} · <span class="admin-chip">{{ t.admin_badge }}</span>{% endif %}
+              <span class="blocked-tag" {% if not u.blocked_id %}style="display:none;"{% endif %}> · <span class="admin-chip danger">{{ t.blocked_label }}</span></span>
+            </div>
+          </div>
+          {% if not u.is_admin_user and u.username != username %}
+          <button class="admin-block-btn {% if u.blocked_id %}is-blocked{% endif %}" data-user="{{ u.username }}" data-blocked="{{ 1 if u.blocked_id else 0 }}">
+            {{ t.unblock_btn if u.blocked_id else t.block_btn }}
+          </button>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div id="posts-tab" class="tab-panel" style="display:none;">
+      <div class="feed-list">
+        {% if posts|length == 0 %}{{ empty_state('feed', t.admin_empty) }}{% endif %}
+        {% for post in posts %}
+        <div class="post-card">
+          <div class="post-header">
+            <div style="flex:1;">
+              <div class="post-author">@{{ post.username }}</div>
+              <div class="post-time">{{ post.created_at }}</div>
+            </div>
+            <button class="admin-del-btn" data-kind="posts" data-id="{{ post.id }}" title="{{ t.delete }}">🗑️</button>
+          </div>
+          {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
+          {% if post.image_file %}<img class="post-image" src="{{ url_for('media', filename=post.image_file) }}" alt="">{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div id="products-tab" class="tab-panel" style="display:none;">
+      <div class="feed-list">
+        {% if products|length == 0 %}{{ empty_state('shop', t.admin_empty) }}{% endif %}
+        {% for p in products %}
+        <div class="product-card">
+          {% if p.image_file %}<img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="">{% endif %}
+          <div class="product-info">
+            <div class="product-title">{{ p.title }}</div>
+            <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
+            <div class="product-seller">{{ t.seller_label }} @{{ p.seller_username }}</div>
+            <button class="product-delete-btn admin-del-btn" data-kind="products" data-id="{{ p.id }}">🗑️ {{ t.delete }}</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const netErrorText = "{{ t.err_network }}";
+    const confirmBlockText = "{{ t.confirm_block }}";
+    const confirmDeleteItem = "{{ t.confirm_delete_item }}";
+    const labels = { block: "{{ t.block_btn }}", unblock: "{{ t.unblock_btn }}" };
+
+    document.querySelectorAll(".tab-btn").forEach((b) => {
+      b.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach((x) => x.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
+        b.classList.add("active");
+        document.getElementById(b.dataset.tab).style.display = "block";
+      });
+    });
+
+    document.querySelectorAll(".admin-block-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const isBlocked = btn.dataset.blocked === "1";
+        if (!isBlocked && !confirm(confirmBlockText)) return;
+        btn.disabled = true;
+        try {
+          const res = await fetch(`/api/admin/${isBlocked ? "unblock" : "block"}/${btn.dataset.user}`, { method: "POST" });
+          if (!res.ok) throw new Error("bad");
+          btn.dataset.blocked = isBlocked ? "0" : "1";
+          btn.textContent = isBlocked ? labels.block : labels.unblock;
+          btn.classList.toggle("is-blocked", !isBlocked);
+          btn.closest(".person-row").querySelector(".blocked-tag").style.display = isBlocked ? "none" : "inline";
+        } catch (e) { alert(netErrorText); }
+        btn.disabled = false;
+      });
+    });
+
+    document.querySelectorAll(".admin-del-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(confirmDeleteItem)) return;
+        const url = btn.dataset.kind === "posts" ? `/api/posts/delete/${btn.dataset.id}` : `/api/products/delete/${btn.dataset.id}`;
+        try {
+          const res = await fetch(url, { method: "POST" });
+          const data = await res.json();
+          if (data.ok) btn.closest(".post-card, .product-card").remove();
+        } catch (e) { alert(netErrorText); }
+      });
+    });
+  </script>
+
+  {% include 'navbar.html' %}
+</body>
+</html>

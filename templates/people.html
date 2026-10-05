@@ -16,8 +16,12 @@
       <div style="width:36px;"></div>
     </div>
 
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
     <form method="GET" class="new-post-form" style="padding:10px 14px;">
-      <input type="text" name="q" value="{{ query }}" placeholder="{{ t.search_placeholder }}" class="shop-input" style="margin-bottom:0;">
+      <input type="text" name="q" value="{{ query }}" placeholder="{{ t.search_hint }}" class="shop-input" style="margin-bottom:0;">
     </form>
 
     {% if query %}
@@ -27,21 +31,23 @@
           {{ empty_state('search', t.no_results) }}
         {% endif %}
         {% for u in search_results %}
-        <div class="person-row" style="cursor:default;">
+        <a href="{{ url_for('profile') if u.is_me else url_for('user_profile', target_username=u.username) }}" class="person-row">
           {% if u.avatar_file %}
             <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
           {% else %}
             <div class="avatar-circle small">{{ u.avatar_letter }}</div>
           {% endif %}
-          <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
+          <div class="person-main">
+            <div class="person-name">@{{ u.nickname if u.nickname else u.username }}{% if u.is_me %} <span style="opacity:0.55; font-weight:500;">({{ t.you_label }})</span>{% endif %}</div>
+            {% if u.nickname %}<div class="person-sub">{{ u.username }}</div>{% endif %}
+          </div>
           {% if u.is_contact %}
             <span style="font-size:11px; opacity:0.6;">{{ t.in_contacts }}</span>
           {% elif u.is_pending %}
             <span style="font-size:11px; opacity:0.6;">{{ t.request_sent_short }}</span>
-          {% else %}
-            <button class="add-contact-btn" data-username="{{ u.username }}">{{ t.send_request_btn }}</button>
           {% endif %}
-        </div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
         {% endfor %}
       </div>
     {% endif %}

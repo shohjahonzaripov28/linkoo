@@ -1437,3 +1437,44 @@ button:disabled { opacity: 0.6; cursor: wait; }
   justify-content: center;
   line-height: 1;
 }
+
+/* ===== Ochiq profil va admin ===== */
+.profile-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 12px 0 18px; }
+.profile-action-btn { width: auto; min-width: 150px; padding: 11px 18px; margin: 0; font-size: 14px; }
+.secondary-btn { background: rgba(255, 255, 255, 0.14); color: #fff; box-shadow: none; }
+.danger-btn { background: rgba(239, 68, 68, 0.9); color: #fff; box-shadow: none; }
+.profile-status { align-self: center; font-size: 13px; color: rgba(255, 255, 255, 0.7); padding: 0 6px; }
+.admin-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(129, 140, 248, 0.3);
+  color: #e0e7ff;
+}
+.admin-chip.danger { background: rgba(239, 68, 68, 0.3); color: #fecaca; }
+.admin-block-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+  flex-shrink: 0;
+}
+.admin-block-btn.is-blocked { background: rgba(255, 255, 255, 0.16); }
+.product-delete-btn {
+  margin-top: 8px;
+  border: none;
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#users-tab .feed-list, #posts-tab .feed-list, #products-tab .feed-list { margin-top: 4px; }

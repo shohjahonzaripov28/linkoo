@@ -116,6 +116,7 @@ app = Flask(__name__)
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 PAGE_SIZE = 10
+NICK_RE = re.compile(r"^[A-Za-z0-9_.]{3,24}$")
 app.secret_key = os.environ.get("SECRET_KEY", "linko-maxfiy-kalit-2026")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "linko.db")
@@ -143,29 +144,64 @@ def close_leftover_connections(exc):
 
 OPEN_ENDPOINTS = {
     "static", "media", "login", "register", "forgot_password",
-    "set_language", "privacy_page",
+    "set_language", "privacy_page", "home",
 }
+
+
+ADMIN_USERNAMES = {
+    n.strip().lower() for n in os.environ.get("ADMIN_USERNAMES", "").split(",") if n.strip()
+}
+
+
+def tr(key):
+    """Joriy til bo'yicha matn (flash xabarlari uchun)."""
+    return TRANSLATIONS[current_lang()].get(key, key)
+
+
+def is_safe_next(path):
+    return bool(path) and path.startswith("/") and not path.startswith("//") and "\\" not in path
 
 
 @app.before_request
 def validate_session_user():
-    """Sessiyadagi foydalanuvchi bazada bor-yo'qligini tekshiradi va profil ma'lumotlarini yangilab turadi.
-    (Baza almashgandan keyin eski sessiya qolib ketib, sahifalar xato bermasligi uchun.)"""
-    if request.endpoint in OPEN_ENDPOINTS or "user_id" not in session:
+    """Har so'rovda: foydalanuvchi bazada bormi, bloklanmaganmi, adminmi - tekshiradi.
+    Kirmagan foydalanuvchi sahifaga kirmoqchi bo'lsa, login'dan keyin shu sahifaga qaytariladi."""
+    g.is_admin = False
+    if request.endpoint in OPEN_ENDPOINTS or request.endpoint is None:
         return
+
+    if "user_id" not in session:
+        if request.method == "GET" and not request.path.startswith("/api/"):
+            return redirect(url_for("login", next=request.full_path.rstrip("?")))
+        return
+
     conn = get_db()
     row = conn.execute(
-        "SELECT id, username, avatar_letter, nickname, avatar_file FROM users WHERE username = ?",
+        """SELECT u.id, u.username, u.avatar_letter, u.nickname, u.avatar_file, u.is_admin, b.id AS blocked_id
+           FROM users u LEFT JOIN blocked_users b ON b.username = u.username
+           WHERE u.username = ?""",
         (session.get("username", ""),),
     ).fetchone()
     conn.close()
     if not row:
         session.clear()
         return
+    if row["blocked_id"]:
+        session.clear()
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "blocked"}), 403
+        flash(tr("blocked_msg"))
+        return redirect(url_for("login"))
     session["user_id"] = row["id"]
     session["avatar_letter"] = row["avatar_letter"]
     session["nickname"] = row["nickname"]
     session["avatar_file"] = row["avatar_file"]
+    g.is_admin = bool(row["is_admin"]) or row["username"].lower() in ADMIN_USERNAMES
+
+
+def admin_required():
+    """Admin bo'lmasa False qaytaradi."""
+    return "user_id" in session and getattr(g, "is_admin", False)
 
 
 def get_conversations(conn, me, limit=50):
@@ -254,7 +290,8 @@ def inject_translations():
             conn.close()
         except Exception:
             unread_total = 0
-    return dict(t=TRANSLATIONS[lang], lang=lang, langs=LANG_NAMES, unread_total=unread_total)
+    return dict(t=TRANSLATIONS[lang], lang=lang, langs=LANG_NAMES, unread_total=unread_total,
+                is_admin=getattr(g, "is_admin", False))
 
 
 @app.route("/set-language/<lang_code>")
@@ -728,12 +765,21 @@ def login():
         conn.close()
 
         if user and user["password_hash"] == hash_password(password):
+            conn = get_db()
+            is_blocked = conn.execute(
+                "SELECT 1 FROM blocked_users WHERE username = ?", (user["username"],)
+            ).fetchone()
+            conn.close()
+            if is_blocked:
+                flash(tr("blocked_msg"))
+                return render_template("login.html")
             session["user_id"] = user["id"]
             session["username"] = user["username"]
             session["avatar_letter"] = user["avatar_letter"]
             session["nickname"] = user["nickname"]
             session["avatar_file"] = user["avatar_file"]
-            return redirect(url_for("dashboard"))
+            nxt = request.args.get("next", "")
+            return redirect(nxt if is_safe_next(nxt) else url_for("dashboard"))
         else:
             flash("Login yoki parol xato")
 
@@ -985,7 +1031,7 @@ def api_post_delete(post_id):
     conn = get_db()
     post = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
 
-    if not post or post["username"] != session["username"]:
+    if not post or (post["username"] != session["username"] and not g.is_admin):
         conn.close()
         return jsonify({"error": "ruxsat yo'q"}), 403
 
@@ -997,6 +1043,108 @@ def api_post_delete(post_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/api/products/delete/<int:product_id>", methods=["POST"])
+def api_product_delete(product_id):
+    if "user_id" not in session:
+        return jsonify({"error": "kirish kerak"}), 401
+
+    conn = get_db()
+    product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not product or (product["seller_username"] != session["username"] and not g.is_admin):
+        conn.close()
+        return jsonify({"error": "ruxsat yo'q"}), 403
+
+    if product["image_file"]:
+        delete_image_from_db(conn, product["image_file"])
+    conn.execute("DELETE FROM cart_items WHERE product_id = ?", (product_id,))
+    conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+# ---------------- ADMIN ----------------
+
+@app.route("/admin")
+def admin_page():
+    if not admin_required():
+        flash(tr("admin_only"))
+        return redirect(url_for("dashboard"))
+
+    q = request.args.get("q", "").strip().lstrip("@")
+    conn = get_db()
+    if q:
+        like = f"%{q}%"
+        users = conn.execute(
+            """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.is_admin, b.id AS blocked_id
+               FROM users u LEFT JOIN blocked_users b ON b.username = u.username
+               WHERE LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.nickname, '')) LIKE LOWER(?)
+               ORDER BY u.id DESC LIMIT 50""",
+            (like, like),
+        ).fetchall()
+    else:
+        users = conn.execute(
+            """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.is_admin, b.id AS blocked_id
+               FROM users u LEFT JOIN blocked_users b ON b.username = u.username
+               ORDER BY u.id DESC LIMIT 50"""
+        ).fetchall()
+    posts = conn.execute("SELECT id, username, content, image_file, created_at FROM posts ORDER BY id DESC LIMIT 30").fetchall()
+    products = conn.execute("SELECT id, seller_username, title, price, image_file FROM products ORDER BY id DESC LIMIT 30").fetchall()
+    conn.close()
+
+    admin_set = ADMIN_USERNAMES
+    users = [
+        {**dict(u), "is_admin_user": bool(u["is_admin"]) or u["username"].lower() in admin_set}
+        for u in users
+    ]
+    return render_template(
+        "admin.html",
+        username=session["username"],
+        avatar_letter=session["avatar_letter"],
+        users=users,
+        posts=posts,
+        products=products,
+        q=q,
+        active="profile",
+    )
+
+
+@app.route("/api/admin/block/<target_username>", methods=["POST"])
+def api_admin_block(target_username):
+    if not admin_required():
+        return jsonify({"error": "ruxsat yo'q"}), 403
+    if target_username == session["username"]:
+        return jsonify({"error": "o'zingizni bloklab bo'lmaydi"}), 400
+
+    conn = get_db()
+    user = conn.execute("SELECT username, is_admin FROM users WHERE username = ?", (target_username,)).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({"error": "topilmadi"}), 404
+    if bool(user["is_admin"]) or user["username"].lower() in ADMIN_USERNAMES:
+        conn.close()
+        return jsonify({"error": "adminni bloklab bo'lmaydi"}), 400
+
+    conn.execute(
+        "INSERT OR IGNORE INTO blocked_users (username, blocked_at) VALUES (?, ?)",
+        (target_username, datetime.now().strftime("%d.%m.%Y %H:%M")),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "blocked": True})
+
+
+@app.route("/api/admin/unblock/<target_username>", methods=["POST"])
+def api_admin_unblock(target_username):
+    if not admin_required():
+        return jsonify({"error": "ruxsat yo'q"}), 403
+    conn = get_db()
+    conn.execute("DELETE FROM blocked_users WHERE username = ?", (target_username,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "blocked": False})
 
 
 @app.route("/api/posts/edit/<int:post_id>", methods=["POST"])
@@ -1230,12 +1378,17 @@ def people():
     ).fetchall()
 
     search_results = []
+    query = query.lstrip("@").strip()
     if query:
+        like = f"%{query}%"
         rows = conn.execute(
-            """SELECT username, avatar_letter, avatar_file, nickname FROM users
-               WHERE username != ? AND (LOWER(username) LIKE LOWER(?) OR LOWER(COALESCE(nickname, '')) LIKE LOWER(?))
-               ORDER BY username LIMIT 20""",
-            (me, f"%{query}%", f"%{query}%"),
+            """SELECT u.username, u.avatar_letter, u.avatar_file, u.nickname FROM users u
+               WHERE (LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.nickname, '')) LIKE LOWER(?))
+                 AND u.username NOT IN (SELECT username FROM blocked_users)
+               ORDER BY (CASE WHEN LOWER(u.username) = LOWER(?) OR LOWER(COALESCE(u.nickname, '')) = LOWER(?) THEN 0 ELSE 1 END),
+                        u.username
+               LIMIT 30""",
+            (like, like, query, query),
         ).fetchall()
         contact_names = {c["username"] for c in my_contacts}
         pending_out = {
@@ -1250,6 +1403,7 @@ def people():
                 "avatar_letter": r["avatar_letter"],
                 "avatar_file": r["avatar_file"],
                 "nickname": r["nickname"],
+                "is_me": r["username"] == me,
                 "is_contact": r["username"] in contact_names,
                 "is_pending": r["username"] in pending_out,
             })
@@ -1371,7 +1525,7 @@ def qr_page():
     if "user_id" not in session:
         return redirect(url_for("login"))
 
-    add_url = request.host_url.rstrip("/") + url_for("add_contact_page", target_username=session["username"])
+    add_url = request.host_url.rstrip("/") + url_for("user_profile", target_username=session["username"])
     qr_b64 = generate_qr_base64(add_url)
 
     return render_template(
@@ -1380,6 +1534,7 @@ def qr_page():
         avatar_letter=session["avatar_letter"],
         qr_b64=qr_b64,
         add_url=add_url,
+        nickname=session.get("nickname"),
         active="people",
     )
 
@@ -1398,25 +1553,40 @@ def scan_page():
 
 @app.route("/add/<target_username>")
 def add_contact_page(target_username):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
+    """Eski QR kodlar uchun: ochiq profilga yo'naltiradi."""
+    return redirect(url_for("user_profile", target_username=target_username))
 
+
+@app.route("/u/<target_username>")
+def user_profile(target_username):
+    """Boshqa odamning ochiq profili (QR skanerlash yoki qidiruvdan keyin shu ochiladi)."""
     me = session["username"]
+    if target_username == me:
+        return redirect(url_for("profile"))
+
     conn = get_db()
     target = conn.execute("SELECT * FROM users WHERE username = ?", (target_username,)).fetchone()
+    blocked = conn.execute(
+        "SELECT 1 FROM blocked_users WHERE username = ?", (target_username,)
+    ).fetchone() if target else None
 
-    if not target:
+    if not target or (blocked and not g.is_admin):
         conn.close()
-        flash("Bunday foydalanuvchi topilmadi")
+        flash(tr("profile_not_found"))
         return redirect(url_for("people"))
 
-    is_me = target_username == me
     is_contact = conn.execute(
         "SELECT 1 FROM contacts WHERE username = ? AND contact_username = ?", (me, target_username)
     ).fetchone()
     is_pending = conn.execute(
         "SELECT 1 FROM contact_requests WHERE from_username = ? AND to_username = ?", (me, target_username)
     ).fetchone()
+    posts = conn.execute(
+        "SELECT * FROM posts WHERE username = ? ORDER BY id DESC LIMIT 20", (target_username,)
+    ).fetchall()
+    products = conn.execute(
+        "SELECT * FROM products WHERE seller_username = ? ORDER BY id DESC LIMIT 20", (target_username,)
+    ).fetchall()
     conn.close()
 
     return render_template(
@@ -1424,9 +1594,12 @@ def add_contact_page(target_username):
         username=me,
         avatar_letter=session["avatar_letter"],
         target=target,
-        is_me=is_me,
         is_contact=bool(is_contact),
         is_pending=bool(is_pending),
+        is_blocked=bool(blocked),
+        target_is_admin=bool(target["is_admin"]) or target["username"].lower() in ADMIN_USERNAMES,
+        posts=posts,
+        products=products,
         active="people",
     )
 
@@ -1791,15 +1964,24 @@ def profile_edit():
             )
             session["avatar_file"] = unique_name
 
+        nickname = nickname.lstrip("@").strip()
         if nickname:
-            existing = conn.execute(
-                "SELECT username FROM users WHERE nickname = ? AND username != ?",
-                (nickname, session["username"]),
-            ).fetchone()
+            error = None
+            if not NICK_RE.match(nickname):
+                error = tr("nick_invalid")
+            else:
+                existing = conn.execute(
+                    """SELECT username FROM users
+                       WHERE username != ? AND (LOWER(nickname) = LOWER(?) OR LOWER(username) = LOWER(?))""",
+                    (session["username"], nickname, nickname),
+                ).fetchone()
+                if existing:
+                    error = tr("nick_taken")
 
-            if existing:
+            if error:
+                conn.rollback()
                 conn.close()
-                flash("Bu nickname band, boshqasini tanlang")
+                flash(error)
                 return render_template(
                     "profile_edit.html",
                     username=session["username"],

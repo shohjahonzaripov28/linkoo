@@ -23,9 +23,9 @@
       {% endif %}
       <a href="{{ url_for('profile_edit') }}" class="edit-pencil">✏️</a>
     </div>
-    <h1 style="font-size:20px; text-align:center;">{{ nickname if nickname else username }}</h1>
+    <h1 style="font-size:22px; text-align:center;">@{{ nickname if nickname else username }}</h1>
     {% if nickname %}
-    <p class="subtitle" style="margin-bottom:2px;">@{{ username }}</p>
+    <p class="subtitle" style="margin-bottom:2px;">{{ username }}</p>
     {% endif %}
     <p class="subtitle" style="margin-bottom:20px;">{{ posts|length }} {{ t.post_unit }} &nbsp;·&nbsp; {{ products|length }} {{ t.product_unit }}</p>
 

@@ -50,6 +50,9 @@
             <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
             <button class="add-cart-btn" data-product-id="{{ p.id }}">{{ t.add_to_cart_btn }}</button>
           </div>
+          {% if p.seller_username == username or is_admin %}
+          <button class="product-delete-btn" data-product-id="{{ p.id }}">🗑️ {{ t.delete }}</button>
+          {% endif %}
           <div class="product-seller">{{ t.seller_label }} {{ p.seller_username }}</div>
         </div>
       </div>
@@ -97,6 +100,17 @@
           cartLink.appendChild(badge);
         }
         badge.textContent = data.cart_count;
+      });
+    });
+
+    document.querySelectorAll(".product-delete-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("{{ t.confirm_delete_product }}")) return;
+        try {
+          const res = await fetch(`/api/products/delete/${btn.dataset.productId}`, { method: "POST" });
+          const data = await res.json();
+          if (data.ok) btn.closest(".product-card").remove();
+        } catch (e) { alert(netErrorText); }
       });
     });
 

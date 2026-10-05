@@ -15,7 +15,7 @@
     </div>
 
     <div class="avatar-circle" style="margin: 10px auto 16px auto;">{{ avatar_letter }}</div>
-    <p style="text-align:center; margin-bottom:16px;">@{{ username }}</p>
+    <p style="text-align:center; margin-bottom:16px;">@{{ nickname if nickname else username }}</p>
 
     {% if qr_b64 %}
     <div style="background:#fff; border-radius:16px; padding:16px; width:fit-content; margin:0 auto 16px auto;">

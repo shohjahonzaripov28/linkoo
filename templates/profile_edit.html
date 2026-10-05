@@ -42,10 +42,10 @@
       </div>
       <div class="field">
         <label>{{ t.nickname_label }}</label>
-        <input type="text" name="nickname" value="{{ nickname }}" placeholder="masalan: Shoh_UZ" maxlength="30">
+        <input type="text" name="nickname" value="{{ nickname }}" placeholder="@shoh_uz" maxlength="24" autocapitalize="none" autocomplete="off">
       </div>
       <p style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:16px;">
-        {{ t.nickname_note_prefix }}<b>{{ username }}</b>{{ t.nickname_note_suffix }}
+        {{ t.nick_rules }}
       </p>
       <button type="submit" class="btn-primary">{{ t.save }}</button>
     </form>

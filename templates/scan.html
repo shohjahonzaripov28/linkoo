@@ -78,9 +78,8 @@
       try {
         const url = new URL(text);
         // http/https farqi va domen farqiga qaramay, faqat /add/<username> yo'lini olamiz
-        if (url.pathname.startsWith("/add/")) {
-          statusEl.textContent = T.sending;
-          window.location.href = url.pathname + "?scan=1";
+        if (url.pathname.startsWith("/add/") || url.pathname.startsWith("/u/")) {
+          window.location.href = url.pathname;
           return;
         }
         if (url.origin === window.location.origin) {
