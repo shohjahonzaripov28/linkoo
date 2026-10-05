@@ -66,14 +66,23 @@
         {{ empty_state('chat', t.no_recent_chats) }}
       {% endif %}
       {% for u in recent_chats %}
-      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row">
+      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row {% if u.unread %}has-unread{% endif %}">
         {% if u.avatar_file %}
           <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ u.avatar_letter }}</div>
         {% endif %}
-        <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
+        <div class="person-main">
+          <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
+          <div class="person-sub">
+            {% if u.unread %}{{ t.new_messages.replace('{n}', u.unread|string) }}
+            {% else %}{% if u.mine %}{{ t.you_prefix }}{% endif %}{% if u.has_image %}📷 {{ t.photo_msg }}{% else %}{{ u.preview }}{% endif %}{% endif %}
+          </div>
+        </div>
+        <div class="person-meta">
+          <span class="person-time">{{ u.time }}</span>
+          {% if u.unread %}<span class="unread-badge">{{ u.unread if u.unread < 100 else '99+' }}</span>{% endif %}
+        </div>
       </a>
       {% endfor %}
     </div>

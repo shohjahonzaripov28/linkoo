@@ -7,7 +7,7 @@
     <span class="nav-label">{{ t.nav_home }}</span>
   </a>
   <a href="{{ url_for('shaxsiy') }}" class="nav-item {% if active in ('shaxsiy', 'groups', 'people', 'chat') %}active{% endif %}">
-    <span class="nav-icon">{{ icon('chat', 22) }}</span>
+    <span class="nav-icon">{{ icon('chat', 22) }}<span class="nav-badge" id="nav-unread" {% if not unread_total %}style="display:none;"{% endif %}>{{ unread_total if unread_total < 100 else '99+' }}</span></span>
     <span class="nav-label">{{ t.nav_chats }}</span>
   </a>
   <a href="{{ url_for('shop') }}" class="nav-item {% if active == 'shop' %}active{% endif %}">
@@ -23,3 +23,18 @@
     <span class="nav-label">{{ t.nav_profile }}</span>
   </a>
 </nav>
+<script>
+  (function () {
+    var badge = document.getElementById("nav-unread");
+    if (!badge) return;
+    function refresh() {
+      fetch("/api/unread").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+        if (!d) return;
+        badge.textContent = d.total > 99 ? "99+" : d.total;
+        badge.style.display = d.total > 0 ? "flex" : "none";
+      }).catch(function () {});
+    }
+    refresh();
+    setInterval(refresh, 8000);
+  })();
+</script>

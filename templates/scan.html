@@ -34,6 +34,7 @@
       noCamera: "{{ t.scan_no_camera }}",
       found: "{{ t.scan_found }}",
       foundText: "{{ t.scan_found_text }}",
+      sending: "{{ t.scan_sending }}",
     };
 
     const video = document.getElementById("scan-video");
@@ -76,6 +77,12 @@
     function handleResult(text) {
       try {
         const url = new URL(text);
+        // http/https farqi va domen farqiga qaramay, faqat /add/<username> yo'lini olamiz
+        if (url.pathname.startsWith("/add/")) {
+          statusEl.textContent = T.sending;
+          window.location.href = url.pathname + "?scan=1";
+          return;
+        }
         if (url.origin === window.location.origin) {
           window.location.href = text;
           return;

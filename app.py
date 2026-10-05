@@ -112,6 +112,9 @@ class PGConnWrapper:
             pass
 
 app = Flask(__name__)
+# Render kabi proksi ortasida to'g'ri https:// manzil olish uchun (QR havolasi uchun muhim)
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 PAGE_SIZE = 10
 app.secret_key = os.environ.get("SECRET_KEY", "linko-maxfiy-kalit-2026")
 
@@ -165,10 +168,93 @@ def validate_session_user():
     session["avatar_file"] = row["avatar_file"]
 
 
+def get_conversations(conn, me, limit=50):
+    """Shaxsiy suhbatlar ro'yxati: oxirgi xabar, vaqt va o'qilmagan xabarlar soni bilan (yangisi tepada)."""
+    pairs = conn.execute(
+        """SELECT partner, MAX(mid) AS last_id FROM (
+             SELECT id AS mid, CASE WHEN sender = ? THEN receiver ELSE sender END AS partner
+             FROM private_messages WHERE sender = ? OR receiver = ?
+           ) AS chat_pairs GROUP BY partner ORDER BY last_id DESC LIMIT ?""",
+        (me, me, me, limit),
+    ).fetchall()
+    if not pairs:
+        return []
+
+    unread = {
+        r["sender"]: r["c"]
+        for r in conn.execute(
+            "SELECT sender, COUNT(*) AS c FROM private_messages WHERE receiver = ? AND is_read = 0 GROUP BY sender",
+            (me,),
+        ).fetchall()
+    }
+    ids = [p["last_id"] for p in pairs]
+    marks = ",".join("?" for _ in ids)
+    last_msgs = {
+        r["id"]: r
+        for r in conn.execute(
+            f"SELECT id, sender, content, image_file, created_at FROM private_messages WHERE id IN ({marks})",
+            tuple(ids),
+        ).fetchall()
+    }
+    names = [p["partner"] for p in pairs]
+    nmarks = ",".join("?" for _ in names)
+    users = {
+        r["username"]: r
+        for r in conn.execute(
+            f"SELECT username, avatar_letter, avatar_file, nickname FROM users WHERE username IN ({nmarks})",
+            tuple(names),
+        ).fetchall()
+    }
+
+    result = []
+    for p in pairs:
+        u = users.get(p["partner"])
+        if not u:
+            continue
+        m = last_msgs.get(p["last_id"])
+        text = (m["content"] or "")[:40] if m else ""
+        result.append({
+            "username": u["username"],
+            "avatar_letter": u["avatar_letter"],
+            "avatar_file": u["avatar_file"],
+            "nickname": u["nickname"],
+            "unread": unread.get(u["username"], 0),
+            "preview": text,
+            "has_image": bool(m and m["image_file"] and not m["content"]),
+            "mine": bool(m and m["sender"] == me),
+            "time": m["created_at"] if m else "",
+        })
+    return result
+
+
+def count_unread(conn, me):
+    return conn.execute(
+        "SELECT COUNT(*) AS c FROM private_messages WHERE receiver = ? AND is_read = 0", (me,)
+    ).fetchone()["c"]
+
+
+@app.route("/api/unread")
+def api_unread():
+    if "user_id" not in session:
+        return jsonify({"total": 0}), 401
+    conn = get_db()
+    total = count_unread(conn, session["username"])
+    conn.close()
+    return jsonify({"total": total})
+
+
 @app.context_processor
 def inject_translations():
     lang = current_lang()
-    return dict(t=TRANSLATIONS[lang], lang=lang, langs=LANG_NAMES)
+    unread_total = 0
+    if "user_id" in session and request.endpoint not in OPEN_ENDPOINTS:
+        try:
+            conn = get_db()
+            unread_total = count_unread(conn, session["username"])
+            conn.close()
+        except Exception:
+            unread_total = 0
+    return dict(t=TRANSLATIONS[lang], lang=lang, langs=LANG_NAMES, unread_total=unread_total)
 
 
 @app.route("/set-language/<lang_code>")
@@ -352,6 +438,8 @@ def init_db_postgres():
     """)
     # Eski bazalarda bo'lmagan ustunlarni qo'shamiz (PostgreSQL'da xavfsiz, allaqachon bo'lsa o'tkazib yuboradi)
     conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin INTEGER DEFAULT 0")
+    # Eski xabarlar "o'qilgan" hisoblanadi (DEFAULT 1), yangilari 0 bilan yoziladi
+    conn.execute("ALTER TABLE private_messages ADD COLUMN IF NOT EXISTS is_read INTEGER DEFAULT 1")
 
     for idx_sql in INDEX_STATEMENTS:
         conn.execute(idx_sql)
@@ -398,6 +486,8 @@ def init_db_sqlite():
     pm_cols = [row["name"] for row in conn.execute("PRAGMA table_info(private_messages)").fetchall()]
     if "image_file" not in pm_cols:
         conn.execute("ALTER TABLE private_messages ADD COLUMN image_file TEXT")
+    if "is_read" not in pm_cols:
+        conn.execute("ALTER TABLE private_messages ADD COLUMN is_read INTEGER DEFAULT 1")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -710,22 +800,7 @@ def dashboard():
         (me,),
     ).fetchone()["c"]
 
-    recent_rows = conn.execute(
-        """SELECT partner, MAX(mid) as last_id FROM (
-             SELECT id as mid, CASE WHEN sender = ? THEN receiver ELSE sender END as partner
-             FROM private_messages WHERE sender = ? OR receiver = ?
-           ) AS chat_pairs GROUP BY partner ORDER BY last_id DESC LIMIT 4""",
-        (me, me, me),
-    ).fetchall()
-
-    recent_chats = []
-    for r in recent_rows:
-        user_row = conn.execute(
-            "SELECT username, avatar_letter, avatar_file, nickname FROM users WHERE username = ?",
-            (r["partner"],),
-        ).fetchone()
-        if user_row:
-            recent_chats.append(user_row)
+    recent_chats = get_conversations(conn, me, limit=4)
     conn.close()
 
     return render_template(
@@ -1394,6 +1469,12 @@ def api_dm_messages(other_username):
            ORDER BY id DESC LIMIT 100""",
         (me, other_username, other_username, me),
     ).fetchall()
+    # Suhbat ochiq: undagi xabarlar o'qilgan hisoblanadi
+    conn.execute(
+        "UPDATE private_messages SET is_read = 1 WHERE sender = ? AND receiver = ? AND is_read = 0",
+        (other_username, me),
+    )
+    conn.commit()
     conn.close()
 
     messages = [
@@ -1449,7 +1530,7 @@ def api_dm_send(other_username):
         return jsonify({"error": "bo'sh xabar"}), 400
 
     conn.execute(
-        "INSERT INTO private_messages (sender, receiver, content, image_file, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO private_messages (sender, receiver, content, image_file, created_at, is_read) VALUES (?, ?, ?, ?, ?, 0)",
         (session["username"], other_username, content[:1000], image_filename, datetime.now().strftime("%H:%M")),
     )
     conn.commit()
@@ -1465,20 +1546,7 @@ def shaxsiy():
 
     me = session["username"]
     conn = get_db()
-    rows = conn.execute(
-        """SELECT DISTINCT CASE WHEN sender = ? THEN receiver ELSE sender END AS partner
-           FROM private_messages WHERE sender = ? OR receiver = ?""",
-        (me, me, me),
-    ).fetchall()
-
-    conversations = []
-    for r in rows:
-        user_row = conn.execute(
-            "SELECT username, avatar_letter, avatar_file, nickname FROM users WHERE username = ?",
-            (r["partner"],),
-        ).fetchone()
-        if user_row:
-            conversations.append(user_row)
+    conversations = get_conversations(conn, me)
     conn.close()
 
     return render_template(

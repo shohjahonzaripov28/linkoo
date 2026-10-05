@@ -52,6 +52,10 @@ TRANSLATIONS = {
         "nav_profile": "Profil",
         "nav_settings": "Sozlama",
         "nav_chats": "Chatlar",
+        "new_messages": "{n} ta yangi xabar",
+        "you_prefix": "Siz: ",
+        "photo_msg": "Rasm",
+        "scan_sending": "So'rov yuborilmoqda...",
         "confirm_logout": "Hisobdan chiqmoqchimisiz?",
         "open_settings": "Sozlamalar",
 
@@ -265,6 +269,10 @@ TRANSLATIONS = {
         "nav_profile": "Профиль",
         "nav_settings": "Настройки",
         "nav_chats": "Чаты",
+        "new_messages": "Новых сообщений: {n}",
+        "you_prefix": "Вы: ",
+        "photo_msg": "Фото",
+        "scan_sending": "Отправка запроса...",
         "confirm_logout": "Выйти из аккаунта?",
         "open_settings": "Настройки",
 
@@ -463,6 +471,10 @@ TRANSLATIONS = {
         "nav_profile": "我的",
         "nav_settings": "设置",
         "nav_chats": "聊天",
+        "new_messages": "{n} 条新消息",
+        "you_prefix": "你：",
+        "photo_msg": "图片",
+        "scan_sending": "正在发送请求...",
         "confirm_logout": "确定要退出登录吗？",
         "open_settings": "设置",
 
@@ -661,6 +673,10 @@ TRANSLATIONS = {
         "nav_profile": "Profile",
         "nav_settings": "Settings",
         "nav_chats": "Chats",
+        "new_messages": "{n} new messages",
+        "you_prefix": "You: ",
+        "photo_msg": "Photo",
+        "scan_sending": "Sending request...",
         "confirm_logout": "Do you want to log out?",
         "open_settings": "Settings",
 
