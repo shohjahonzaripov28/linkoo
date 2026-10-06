@@ -211,7 +211,7 @@ def unhandled_exception(e):
 
 OPEN_ENDPOINTS = {
     "static", "media", "login", "register", "forgot_password",
-    "set_language", "privacy_page", "home", "version", "google_auth",
+    "set_language", "privacy_page", "home", "version", "google_auth", "web_manifest", "favicon",
 }
 
 
@@ -1530,10 +1530,40 @@ def mobile_no_zoom(resp):
             )
             if "</body>" in body:
                 body = body.replace("</body>", NO_ZOOM_JS + "</body>", 1)
+            if "rel=\"icon\"" not in body and "</head>" in body:
+                body = body.replace("</head>", BRAND_HEAD + "</head>", 1)
             resp.set_data(body)
     except Exception:
         pass
     return resp
+
+
+BRAND_HEAD = (
+    '<link rel="icon" type="image/svg+xml" href="/static/logo.svg">'
+    '<link rel="icon" type="image/png" sizes="64x64" href="/static/favicon-64.png">'
+    '<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">'
+    '<link rel="manifest" href="/manifest.webmanifest">'
+    '<meta name="theme-color" content="#0f1226">'
+)
+
+
+@app.route("/manifest.webmanifest")
+def web_manifest():
+    data = {
+        "name": "Linko", "short_name": "Linko", "start_url": "/", "display": "standalone",
+        "background_color": "#0f1226", "theme_color": "#0f1226",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    }
+    return Response(json.dumps(data), mimetype="application/manifest+json")
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return redirect("/static/favicon-64.png", code=302)
 
 
 NO_ZOOM_JS = """<script>

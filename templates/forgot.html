@@ -9,7 +9,7 @@
 <body>
   <div class="glass-card">
     {% include 'lang_switcher.html' %}
-    <h1>Linko</h1>
+    <div class="brand-head"><img class="brand-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="" width="64" height="64"><h1>Linko</h1></div>
     <p class="subtitle">{{ t.forgot_step_username if step == "username" else t.forgot_step_answer }}</p>
 
     {% with messages = get_flashed_messages() %}

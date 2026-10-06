@@ -1,7 +1,7 @@
 {% from '_icons.html' import icon %}
 {# Pastki menyu (telefon) / yon menyu (kompyuter) - 5 ta tugma, barcha sahifalarda bir xil #}
 <nav class="bottom-nav">
-  <div class="nav-brand">Linko</div>
+  <div class="nav-brand"><img class="nav-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="" width="34" height="34"><span>Linko</span></div>
   <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'home' %}active{% endif %}">
     <span class="nav-icon">{{ icon('home', 22) }}</span>
     <span class="nav-label">{{ t.nav_home }}</span>

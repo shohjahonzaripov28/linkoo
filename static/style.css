@@ -2461,3 +2461,13 @@ a.fab { color: #fff; }
 .manage-row { flex-wrap: wrap; }
 .mr-actions { flex-direction: row; width: 100%; justify-content: flex-end; gap: 8px; }
 @media (min-width: 640px) { .manage-row { flex-wrap: nowrap; } .mr-actions { width: auto; } }
+
+/* v10: Linko logotipi */
+.brand-head { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 4px; }
+.brand-head h1 { margin: 0; }
+.brand-logo { width: 64px; height: 64px; border-radius: 18px; box-shadow: 0 8px 24px rgba(99,102,241,.45); }
+.nav-logo { width: 34px; height: 34px; border-radius: 10px; flex: 0 0 auto; }
+@media (min-width: 900px) {
+  .nav-brand { display: flex !important; align-items: center; gap: 10px; }
+  .nav-brand span { background: linear-gradient(135deg, #818cf8, #f0abfc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+}
