@@ -164,7 +164,9 @@ def error_response(code, title_key, text_key):
     if request.path.startswith("/api/"):
         return jsonify({"error": text_key, "message": tr(text_key)}), code
     try:
-        detail = getattr(g, "err_detail", "") if (session.get("username") or "").lower() in ADMIN_USERNAMES else ""
+        # Vaqtinchalik: xatoning qisqa sababi hamma uchun ko'rinadi (aniqlash uchun). Tuzatilgach SHOW_ERRORS=0 qo'ying.
+        show = os.environ.get("SHOW_ERRORS", "1") != "0" or (session.get("username") or "").lower() in ADMIN_USERNAMES
+        detail = getattr(g, "err_detail", "")[:300] if show else ""
         return render_template("error.html", code=code, title=tr(title_key), text=tr(text_key),
                                logged_in="user_id" in session, active="", detail=detail), code
     except Exception:
