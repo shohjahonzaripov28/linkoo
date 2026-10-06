@@ -163,8 +163,9 @@ def error_response(code, title_key, text_key):
     if request.path.startswith("/api/"):
         return jsonify({"error": text_key, "message": tr(text_key)}), code
     try:
+        detail = getattr(g, "err_detail", "") if (session.get("username") or "").lower() in ADMIN_USERNAMES else ""
         return render_template("error.html", code=code, title=tr(title_key), text=tr(text_key),
-                               logged_in="user_id" in session, active=""), code
+                               logged_in="user_id" in session, active="", detail=detail), code
     except Exception:
         return f"Error {code}", code
 
@@ -198,6 +199,7 @@ def unhandled_exception(e):
     if isinstance(e, HTTPException):
         return error_response(e.code or 500, "err_500_title", "err_500_text")
     app.logger.exception("Kutilmagan xatolik: %s", e)
+    g.err_detail = (type(e).__name__ + ": " + str(e))[:600]
     transient = isinstance(e, psycopg2.OperationalError) if USE_POSTGRES else isinstance(e, sqlite3.OperationalError)
     if transient:
         return error_response(503, "err_503_title", "err_503_text")
