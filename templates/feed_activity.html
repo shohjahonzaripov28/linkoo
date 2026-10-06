@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.activity_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('feed') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.activity_title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <div class="activity-summary">
+      <div class="sum-tile"><span class="sum-ico like">{{ icon('heart-fill', 20) }}</span><b>{{ new_likes }}</b><span>{{ t.activity_new_likes }}</span></div>
+      <div class="sum-tile"><span class="sum-ico comment">{{ icon('comment', 20) }}</span><b>{{ new_comments }}</b><span>{{ t.activity_new_comments }}</span></div>
+    </div>
+
+    <div class="profile-tabs">
+      <button class="tab-btn {% if tab == 'likes' %}active{% endif %}" data-tab="likes-tab">{{ t.activity_likes }}</button>
+      <button class="tab-btn {% if tab == 'comments' %}active{% endif %}" data-tab="comments-tab">{{ t.activity_comments }}</button>
+    </div>
+
+    <div id="likes-tab" class="feed-list tab-panel" {% if tab != 'likes' %}style="display:none;"{% endif %}>
+      {% set has_likes = cards|selectattr('likes')|list|length %}
+      {% if not has_likes %}{{ empty_state('feed', t.activity_empty_likes) }}{% endif %}
+      {% for c in cards if c.likes %}
+      <div class="act-card">
+        <div class="act-post">
+          {% if c.thumb %}<img src="{{ url_for('media', filename=c.thumb) }}" alt="">{% endif %}
+          <div><div class="act-text">{{ c.text or t.activity_post_media }}</div><div class="act-ago">{{ c.ago }}</div></div>
+          <span class="act-count">{{ icon('heart-fill', 14) }} {{ c.likes|length }}{% if c.new_likes %}<i class="new-dot">+{{ c.new_likes }}</i>{% endif %}</span>
+        </div>
+        <div class="act-people">
+          {% for u in c.likes %}
+          <a href="{{ url_for('user_profile', target_username=u.username) }}" class="act-person {% if u.new %}is-new{% endif %}">
+            {% if u.avatar_file %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">{% else %}<div class="avatar-circle tiny">{{ u.letter }}</div>{% endif %}
+            <span>{{ u.display }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="comments-tab" class="feed-list tab-panel" {% if tab != 'comments' %}style="display:none;"{% endif %}>
+      {% set has_comments = cards|selectattr('comments')|list|length %}
+      {% if not has_comments %}{{ empty_state('feed', t.activity_empty_comments) }}{% endif %}
+      {% for c in cards if c.comments %}
+      <div class="act-card">
+        <div class="act-post">
+          {% if c.thumb %}<img src="{{ url_for('media', filename=c.thumb) }}" alt="">{% endif %}
+          <div><div class="act-text">{{ c.text or t.activity_post_media }}</div><div class="act-ago">{{ c.ago }}</div></div>
+          <span class="act-count">{{ icon('comment', 14) }} {{ c.comments|length }}{% if c.new_comments %}<i class="new-dot">+{{ c.new_comments }}</i>{% endif %}</span>
+        </div>
+        {% for u in c.comments %}
+        <div class="act-comment {% if u.new %}is-new{% endif %}">
+          <a href="{{ url_for('user_profile', target_username=u.username) }}">
+            {% if u.avatar_file %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">{% else %}<div class="avatar-circle tiny">{{ u.letter }}</div>{% endif %}
+          </a>
+          <div>
+            <a href="{{ url_for('user_profile', target_username=u.username) }}" class="act-name">{{ u.display }}</a>
+            <span class="act-when">{{ u.when }}</span>
+            <div class="act-body">{{ u.text }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll(".tab-btn").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.querySelectorAll(".tab-btn").forEach(function (x) { x.classList.remove("active"); });
+        document.querySelectorAll(".tab-panel").forEach(function (p) { p.style.display = "none"; });
+        b.classList.add("active");
+        document.getElementById(b.dataset.tab).style.display = "flex";
+      });
+    });
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>
