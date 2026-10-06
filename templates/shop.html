@@ -8,172 +8,130 @@
 </head>
 <body>
   {% from '_icons.html' import icon, empty_state %}
-  <div class="glass-card feed-card">
+  {% from '_shop_macros.html' import product_card, shop_tabs with context %}
+  <div class="glass-card feed-card shop-card">
     <div class="chat-header">
       <a href="{{ url_for('group_chat', group_id=channel.id) if channel else url_for('dashboard') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ channel.name if channel else t.shop_title }}</h1>
-      <a href="{{ url_for('cart') }}" class="cart-link">
+      <a href="{{ url_for('cart') }}" class="cart-link" aria-label="{{ t.shoptab_cart }}">
         {{ icon('cart', 22) }}
         {% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
       </a>
     </div>
 
+    {{ shop_tabs(shop_tab, cart_count) }}
+
     {% with messages = get_flashed_messages() %}
       {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
     {% endwith %}
 
-    <form method="GET" class="home-search" style="margin-bottom:12px;">
-      {{ icon('search', 18) }}
-      {% if channel %}<input type="hidden" name="channel" value="{{ channel.id }}">{% endif %}
-      <input type="text" name="q" value="{{ q }}" placeholder="{{ t.shop_search }}">
+    <form method="GET" class="shop-search" id="shop-search">
+      <div class="home-search">
+        {{ icon('search', 18) }}
+        {% if channel %}<input type="hidden" name="channel" value="{{ channel.id }}">{% endif %}
+        {% if f.cat %}<input type="hidden" name="cat" value="{{ f.cat }}">{% endif %}
+        {% if f.sub %}<input type="hidden" name="sub" value="{{ f.sub }}">{% endif %}
+        <input type="search" name="q" value="{{ f.q }}" placeholder="{{ t.shop_search }}" enterkeyhint="search">
+      </div>
+      <button type="button" class="filter-btn{% if f.sort != 'new' or f.min or f.max or f.instock %} on{% endif %}" id="filter-toggle" aria-label="{{ t.filter_title }}">{{ icon('filter', 20) }}</button>
+      <div class="filter-panel" id="filter-panel" hidden>
+        <label>{{ t.filter_sort }}
+          <select name="sort">
+            <option value="new" {% if f.sort == 'new' %}selected{% endif %}>{{ t.sort_new }}</option>
+            <option value="popular" {% if f.sort == 'popular' %}selected{% endif %}>{{ t.sort_popular }}</option>
+            <option value="cheap" {% if f.sort == 'cheap' %}selected{% endif %}>{{ t.sort_cheap }}</option>
+            <option value="expensive" {% if f.sort == 'expensive' %}selected{% endif %}>{{ t.sort_expensive }}</option>
+          </select>
+        </label>
+        <div class="filter-row">
+          <label>{{ t.filter_price_from }}<input type="number" name="min" min="0" value="{{ f.min }}" inputmode="numeric"></label>
+          <label>{{ t.filter_price_to }}<input type="number" name="max" min="0" value="{{ f.max }}" inputmode="numeric"></label>
+        </div>
+        <label class="check-row"><input type="checkbox" name="instock" value="1" {% if f.instock %}checked{% endif %}> {{ t.filter_instock }}</label>
+        <div class="filter-actions">
+          <a class="mini-btn" href="{{ url_for('shop', channel=channel.id if channel else None, cat=f.cat or None, sub=f.sub or None) }}">{{ t.filter_reset }}</a>
+          <button type="submit" class="btn-primary">{{ t.filter_apply }}</button>
+        </div>
+      </div>
     </form>
+
+    {% if channel %}
+    <a class="channel-banner" href="{{ url_for('group_chat', group_id=channel.id) }}">{{ icon('megaphone', 16) }} {{ t.shop_channel_banner }}: <b>{{ channel.name }}</b></a>
+    {% endif %}
+
+    {% if not filtered and page == 1 %}
+      <div class="market-hero">
+        <div>
+          <h2>{{ t.market_hero_title }}</h2>
+          <p>{{ t.market_hero_text }}</p>
+        </div>
+        <a href="{{ url_for('store_manage') }}" class="hero-cta">{{ icon('store', 16) }} {{ t.market_hero_cta if not my_store else t.shoptab_mystore }}</a>
+      </div>
+
+      <div class="section-row"><h3>{{ t.shoptab_catalog }}</h3><a href="{{ url_for('shop_catalog') }}">{{ t.see_all }} ›</a></div>
+      <div class="cat-strip">
+        {% for c in cats %}
+        <a href="{{ url_for('shop', cat=c.id) }}" class="cat-tile"><span class="cat-ico">{{ cat_icon(c.id) }}</span><span class="cat-name">{{ c.name }}</span></a>
+        {% endfor %}
+      </div>
+
+      {% if stores_strip %}
+      <div class="section-row"><h3>{{ t.shoptab_stores }}</h3><a href="{{ url_for('stores') }}">{{ t.see_all }} ›</a></div>
+      <div class="store-strip">
+        {% for s in stores_strip %}
+        <a href="{{ url_for('store_page', handle=s.handle) }}" class="store-bubble">
+          {% if s.logo_file %}<img class="avatar-circle" src="{{ url_for('media', filename=s.logo_file) }}" alt="">{% else %}<div class="avatar-circle">{{ s.name[:1]|upper }}</div>{% endif %}
+          <span>{{ s.name }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if deals %}
+      <div class="section-row"><h3>{{ icon('tag', 16) }} {{ t.shop_deals }}</h3></div>
+      <div class="deal-strip">
+        {% for p in deals %}<div class="deal-item">{{ product_card(p, username) }}</div>{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="section-row"><h3>{{ t.shop_new_products }}</h3></div>
+    {% else %}
+      <div class="active-filters">
+        {% if f.cat %}
+          <a class="chip active" href="{{ url_for('shop', q=f.q or None, channel=channel.id if channel else None) }}">{{ cat_icon(f.cat) }} {{ cat_name(f.cat) }}{% if f.sub %} › {{ sub_name(f.cat, f.sub) }}{% endif %} ✕</a>
+        {% endif %}
+        {% if f.q %}<a class="chip active" href="{{ url_for('shop', cat=f.cat or None, sub=f.sub or None, channel=channel.id if channel else None) }}">“{{ f.q }}” ✕</a>{% endif %}
+      </div>
+      {% if f.cat %}
+      {% for c in cats if c.id == f.cat and c.subs %}
+      <div class="chip-row">
+        <a class="chip{% if not f.sub %} active{% endif %}" href="{{ url_for('shop', **dict(url_args, sub=None)) }}">{{ t.filter_all }}</a>
+        {% for s in c.subs %}<a class="chip{% if f.sub == s.id %} active{% endif %}" href="{{ url_for('shop', **dict(url_args, sub=s.id)) }}">{{ s.name }}</a>{% endfor %}
+      </div>
+      {% endfor %}
+      {% endif %}
+    {% endif %}
 
     <div class="shop-grid">
       {% if products|length == 0 %}
         {{ empty_state('shop', t.no_products_empty) }}
       {% endif %}
-
-      {% for p in products %}
-      <div class="product-card" data-id="{{ p.id }}">
-        <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-media">
-          {% if p.image_file %}
-          <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}" loading="lazy">
-          {% else %}
-          <div class="product-image product-noimg">{{ icon('shop', 30) }}</div>
-          {% endif %}
-          {% if p.channel_name and not channel %}<span class="product-tag">{{ icon('megaphone', 11) }} {{ p.channel_name }}</span>{% endif %}
-        </a>
-        <div class="product-info">
-          <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-title">{{ p.title }}</a>
-          <div class="product-seller">{{ p.seller_business or p.seller_nick or p.seller_username }}</div>
-          <div class="product-footer">
-            <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} <small>{{ t.currency_sum }}</small></div>
-            {% if p.seller_username != username %}
-            <button class="add-round" data-product-id="{{ p.id }}" data-options="{{ 1 if (p.colors or p.sizes) else 0 }}" aria-label="{{ t.add_to_cart_btn }}">{{ icon('plus', 18) }}</button>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-      {% endfor %}
+      {% for p in products %}{{ product_card(p, username) }}{% endfor %}
 
       {% if has_more %}
-      <a href="{{ url_for('shop', page=page+1, q=q or None, channel=channel.id if channel else None) }}" class="load-more" data-loading="{{ t.loading }}">{{ t.load_more }}</a>
+      <a href="{{ url_for('shop', page=page+1, **url_args) }}" class="load-more" data-loading="{{ t.loading }}">{{ t.load_more }}</a>
       {% endif %}
       {% if page > 1 %}
-      <a href="{{ url_for('shop', channel=channel.id if channel else None) }}" class="load-more secondary">← {{ t.shop_title }}</a>
+      <a href="{{ url_for('shop', **url_args) }}" class="load-more secondary">← {{ t.shop_title }}</a>
       {% endif %}
     </div>
   </div>
 
   {% if can_add %}
-  <button type="button" class="fab" id="shop-fab" aria-label="{{ t.shop_add_title }}">{{ icon('plus', 28) }}</button>
+  <a class="fab" href="{{ url_for('store_product_form', channel=channel.id if channel else None) if my_store else url_for('store_open') }}" aria-label="{{ t.shop_add_title }}">{{ icon('plus', 28) }}</a>
   {% endif %}
 
-  <div class="modal-overlay sheet-overlay" id="shop-modal" hidden>
-    <div class="modal-card sheet-card">
-      <div class="modal-head">
-        <h3>{{ t.shop_add_title }}</h3>
-        <button type="button" class="modal-close" id="shop-modal-close">{{ icon('close', 20) }}</button>
-      </div>
-
-      <div id="biz-step" {% if is_business %}hidden{% endif %}>
-        <div class="biz-intro">{{ icon('store', 28) }}<p>{{ t.business_intro }}</p></div>
-        <input type="text" id="biz-name" class="shop-input" placeholder="{{ t.business_name_label }}" maxlength="40" value="{{ business_name }}">
-        <input type="tel" id="biz-phone" class="shop-input" placeholder="{{ t.phone_label }} (+998...)" maxlength="20" value="{{ my_phone }}">
-        <div class="flash" id="biz-msg" hidden></div>
-        <button type="button" class="btn-primary" id="biz-btn">{{ t.business_open_btn }}</button>
-      </div>
-
-      <form method="POST" action="{{ url_for('shop') }}" enctype="multipart/form-data" class="new-post-form" id="product-form" {% if not is_business %}hidden{% endif %}>
-        <input type="text" name="title" placeholder="{{ t.product_name_placeholder }}" class="shop-input" maxlength="80" required>
-        <textarea name="description" placeholder="{{ t.description_placeholder }}" rows="2"></textarea>
-        <input type="number" name="price" placeholder="{{ t.price_placeholder }}" class="shop-input" min="1" required>
-        <input type="text" name="colors" placeholder="{{ t.product_colors_ph }}" class="shop-input">
-        <input type="text" name="sizes" placeholder="{{ t.product_sizes_ph }}" class="shop-input">
-        {% if channel %}
-          <input type="hidden" name="channel_id" value="{{ channel.id }}">
-        {% elif my_channels %}
-          <select name="channel_id" class="shop-input">
-            <option value="">{{ t.product_general_shop }}</option>
-            {% for c in my_channels %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-          </select>
-        {% endif %}
-        <div class="thumb-row" id="thumb-row"></div>
-        <div class="new-post-actions">
-          <label class="file-label">
-            <span class="file-label-text">📷 {{ t.add_photos_label }}</span>
-            <input type="file" name="images" accept="image/*" multiple style="display:none;" id="images-input">
-          </label>
-          <button type="submit" class="btn-primary post-btn">{{ t.sell_btn }}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <script>
-    const netErrorText = "{{ t.err_network }}";
-    const addedToCartLabel = "✓";
-
-    function bumpCart(n) {
-      let badge = document.querySelector(".cart-badge");
-      const cartLink = document.querySelector(".cart-link");
-      if (!badge) { badge = document.createElement("span"); badge.className = "cart-badge"; cartLink.appendChild(badge); }
-      badge.textContent = n;
-    }
-    document.querySelectorAll(".add-round").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (btn.dataset.options === "1") { location.href = "/product/" + btn.dataset.productId; return; }
-        let data;
-        try {
-          const res = await fetch(`/api/cart/add/${btn.dataset.productId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-          data = await res.json();
-          if (!res.ok) { if (data.need_options) { location.href = "/product/" + btn.dataset.productId; return; } alert(data.message || netErrorText); return; }
-        } catch (e) { alert(netErrorText); return; }
-        btn.classList.add("done"); setTimeout(() => btn.classList.remove("done"), 1000);
-        bumpCart(data.cart_count);
-      });
-    });
-
-    document.querySelectorAll(".load-more:not(.secondary)").forEach((a) => {
-      a.addEventListener("click", () => { a.innerHTML = '<span class="spinner"></span> ' + a.dataset.loading; });
-    });
-
-    const shopModal = document.getElementById("shop-modal");
-    const fab = document.getElementById("shop-fab");
-    if (fab) fab.addEventListener("click", () => { shopModal.hidden = false; });
-    document.getElementById("shop-modal-close").addEventListener("click", () => { shopModal.hidden = true; });
-    shopModal.addEventListener("click", (e) => { if (e.target === shopModal) shopModal.hidden = true; });
-
-    // Biznes akkaunt ochish
-    document.getElementById("biz-btn").addEventListener("click", async () => {
-      const msg = document.getElementById("biz-msg");
-      msg.hidden = true;
-      try {
-        const res = await fetch("/api/business/enable", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ business_name: document.getElementById("biz-name").value, phone: document.getElementById("biz-phone").value }) });
-        const d = await res.json();
-        if (!res.ok || !d.ok) { msg.textContent = d.message || netErrorText; msg.hidden = false; return; }
-        document.getElementById("biz-step").hidden = true;
-        document.getElementById("product-form").hidden = false;
-      } catch (e) { msg.textContent = netErrorText; msg.hidden = false; }
-    });
-
-    // Rasm tanlash: fayl maydonini o'chirmasdan, kichik rasmlar ko'rsatiladi
-    const imgInput = document.getElementById("images-input");
-    imgInput.addEventListener("change", () => {
-      const row = document.getElementById("thumb-row");
-      row.innerHTML = "";
-      Array.from(imgInput.files).slice(0, 6).forEach((f) => {
-        const im = document.createElement("img"); im.src = URL.createObjectURL(f); row.appendChild(im);
-      });
-      document.querySelector(".file-label-text").textContent = "✅ " + Math.min(imgInput.files.length, 6) + " 📷";
-    });
-    document.getElementById("product-form").addEventListener("submit", () => {
-      const b = document.querySelector(".post-btn");
-      b.disabled = true; b.innerHTML = '<span class="spinner"></span>';
-    });
-  </script>
-
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
   {% include 'navbar.html' %}
 </body>
 </html>

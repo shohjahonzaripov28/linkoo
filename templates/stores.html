@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.shoptab_stores }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  {% from '_shop_macros.html' import shop_tabs with context %}
+  <div class="glass-card feed-card shop-card">
+    <div class="chat-header">
+      <a href="{{ url_for('shop') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.shoptab_stores }}</h1>
+      <a href="{{ url_for('cart') }}" class="cart-link">{{ icon('cart', 22) }}{% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
+    </div>
+    {{ shop_tabs(shop_tab, cart_count) }}
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <form method="GET" class="shop-search">
+      <div class="home-search">
+        {{ icon('search', 18) }}
+        {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
+        <input type="search" name="q" value="{{ q }}" placeholder="{{ t.stores_search }}" enterkeyhint="search">
+      </div>
+    </form>
+
+    <div class="chip-row">
+      <a class="chip{% if not cat %} active{% endif %}" href="{{ url_for('stores', q=q or None) }}">{{ t.filter_all }}</a>
+      {% for c in cats %}<a class="chip{% if cat == c.id %} active{% endif %}" href="{{ url_for('stores', cat=c.id, q=q or None) }}">{{ cat_icon(c.id) }} {{ c.name }}</a>{% endfor %}
+    </div>
+
+    {% if not my_store %}
+    <a class="market-hero slim" href="{{ url_for('store_open') }}">
+      <div><h2>{{ t.market_hero_title }}</h2><p>{{ t.store_open_hint }}</p></div>
+      <span class="hero-cta">{{ icon('store', 16) }} {{ t.market_hero_cta }}</span>
+    </a>
+    {% endif %}
+
+    <div class="store-grid">
+      {% if stores|length == 0 %}{{ empty_state('store', t.stores_empty) }}{% endif %}
+      {% for s in stores %}
+      <a class="store-card" href="{{ url_for('store_page', handle=s.handle) }}">
+        <div class="store-card-banner"{% if s.banner_file %} style="background-image:url('{{ url_for('media', filename=s.banner_file) }}')"{% endif %}></div>
+        <div class="store-card-body">
+          {% if s.logo_file %}<img class="avatar-circle" src="{{ url_for('media', filename=s.logo_file) }}" alt="">{% else %}<div class="avatar-circle">{{ s.name[:1]|upper }}</div>{% endif %}
+          <div class="store-card-text">
+            <b>{{ s.name }}</b>
+            <small>@{{ s.handle }}{% if s.place %} · {{ s.place }}{% endif %}</small>
+            <span class="store-card-meta">{% if s.category %}{{ cat_icon(s.category) }} {{ cat_name(s.category) }} · {% endif %}{{ s.n }} {{ t.product_unit }}</span>
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+      {% if has_more %}<a class="load-more" href="{{ url_for('stores', page=page+1, q=q or None, cat=cat or None) }}">{{ t.load_more }}</a>{% endif %}
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

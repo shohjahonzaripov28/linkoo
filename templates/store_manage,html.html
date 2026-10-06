@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.store_manage }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  {% from '_shop_macros.html' import shop_tabs, store_tabs, price with context %}
+  <div class="glass-card feed-card shop-card">
+    <div class="chat-header">
+      <a href="{{ url_for('shop') }}" class="back-link">←</a>
+      <h1 style="font-size:19px;">{{ t.store_manage }}</h1>
+      <a href="{{ url_for('store_page', handle=store.handle) }}" class="cart-link" aria-label="{{ t.store_view }}">{{ icon('eye', 22) }}</a>
+    </div>
+    {{ shop_tabs(shop_tab, 0) }}
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <a class="manage-store" href="{{ url_for('store_page', handle=store.handle) }}">
+      {% if store.logo_file %}<img class="avatar-circle" src="{{ url_for('media', filename=store.logo_file) }}" alt="">{% else %}<div class="avatar-circle">{{ store.name[:1]|upper }}</div>{% endif %}
+      <div><b>{{ store.name }}</b><small>@{{ store.handle }} · {{ t.store_view }} ›</small></div>
+    </a>
+
+    {{ store_tabs(store_tab) }}
+
+    <div class="stat-tiles">
+      <div class="stat-tile"><b>{{ stats.active }}</b><span>{{ t.stat_active }}</span></div>
+      <div class="stat-tile"><b>{{ stats.hidden }}</b><span>{{ t.stat_hidden }}</span></div>
+      <div class="stat-tile{% if stats.out %} warn{% endif %}"><b>{{ stats.out }}</b><span>{{ t.stat_out }}</span></div>
+      <a class="stat-tile link{% if ostats.new %} hot{% endif %}" href="{{ url_for('store_orders', st='new') }}"><b>{{ ostats.new }}</b><span>{{ t.stat_new_orders }}</span></a>
+      <div class="stat-tile wide"><b>{{ ostats.revenue|money }}</b><span>{{ t.stat_revenue }} ({{ t.currency_sum }})</span></div>
+    </div>
+
+    <a class="btn-primary add-product-btn" href="{{ url_for('store_product_form') }}">{{ icon('plus', 18) }} {{ t.shop_add_title }}</a>
+
+    <div class="chip-row">
+      <a class="chip{% if st == 'all' %} active{% endif %}" href="{{ url_for('store_manage') }}">{{ t.filter_all }} · {{ stats.total }}</a>
+      <a class="chip{% if st == 'active' %} active{% endif %}" href="{{ url_for('store_manage', st='active') }}">{{ t.stat_active }}</a>
+      <a class="chip{% if st == 'hidden' %} active{% endif %}" href="{{ url_for('store_manage', st='hidden') }}">{{ t.stat_hidden }}</a>
+      <a class="chip{% if st == 'out' %} active{% endif %}" href="{{ url_for('store_manage', st='out') }}">{{ t.stat_out }}</a>
+    </div>
+
+    <div class="manage-list">
+      {% if products|length == 0 %}{{ empty_state('shop', t.manage_empty) }}{% endif %}
+      {% for p in products %}
+      <div class="manage-row{% if p.status == 'hidden' %} is-hidden{% endif %}" data-id="{{ p.id }}">
+        <a class="mr-thumb" href="{{ url_for('product_page', product_id=p.id) }}">
+          {% if p.image_file %}<img src="{{ url_for('media', filename=p.image_file) }}" alt="">{% else %}<span>{{ icon('shop', 20) }}</span>{% endif %}
+        </a>
+        <div class="mr-main">
+          <a class="mr-title" href="{{ url_for('product_page', product_id=p.id) }}">{{ p.title }}</a>
+          <div class="mr-price">{{ price(p) }}</div>
+          <div class="mr-meta">
+            <span>{{ cat_icon(p.category) }} {{ cat_name(p.category) }}</span>
+            <span class="{% if p.stock is not none and p.stock <= 0 %}bad{% endif %}">{{ t.product_stock_label }}: {{ '∞' if p.stock is none else p.stock }}</span>
+            <span>{{ icon('eye', 12) }} {{ p.views or 0 }}</span>
+            <span>{{ t.store_sold }}: {{ p.sold or 0 }}</span>
+          </div>
+        </div>
+        <div class="mr-actions">
+          <a class="icon-btn" href="{{ url_for('store_product_form', product_id=p.id) }}" aria-label="{{ t.edit }}">{{ icon('edit', 18) }}</a>
+          <button type="button" class="icon-btn" data-toggle-product="{{ p.id }}" aria-label="{{ t.product_toggle }}">{{ icon('eye-off' if p.status == 'active' else 'eye', 18) }}</button>
+          <button type="button" class="icon-btn bad" data-delete-product="{{ p.id }}" data-confirm-text="{{ t.confirm_delete_product }}" aria-label="{{ t.delete }}">{{ icon('trash', 18) }}</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

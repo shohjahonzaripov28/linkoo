@@ -1,0 +1,115 @@
+{% from '_icons.html' import icon %}
+{# Do'kon uchun umumiy bloklar: mahsulot kartochkasi, narx, rang belgisi, ichki menyu #}
+{% macro price(p) %}
+<span class="price-now">{{ p.price|money }} <small>{{ t.currency_sum }}</small></span>{% if p.old_price and p.old_price > p.price %}<s class="price-old">{{ p.old_price|money }}</s>{% endif %}
+{% endmacro %}
+
+{% macro product_card(p, username, owner_view=False) %}
+{% set out = p.stock is not none and p.stock <= 0 %}
+<div class="product-card{% if out %} is-out{% endif %}" data-id="{{ p.id }}">
+  <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-media">
+    {% if p.image_file %}
+    <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}" loading="lazy">
+    {% else %}
+    <div class="product-image product-noimg">{{ icon('shop', 30) }}</div>
+    {% endif %}
+    {% if p.old_price and p.old_price > p.price %}<span class="badge-discount">-{{ ((p.old_price - p.price) * 100 / p.old_price)|round|int }}%</span>{% endif %}
+    {% if out %}<span class="badge-out">{{ t.product_out_of_stock }}</span>{% endif %}
+    {% if owner_view and p.status == 'hidden' %}<span class="badge-hidden">{{ icon('eye-off', 12) }} {{ t.product_hidden }}</span>{% endif %}
+  </a>
+  <div class="product-info">
+    <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-title">{{ p.title }}</a>
+    {% if p.store_handle %}
+    <a class="product-store" href="{{ url_for('store_page', handle=p.store_handle) }}">{{ icon('store', 12) }} <span>{{ p.seller_business }}</span></a>
+    {% else %}
+    <div class="product-store plain"><span>{{ p.seller_business }}</span></div>
+    {% endif %}
+    <div class="product-footer">
+      <div class="product-price">{{ price(p) }}</div>
+      {% if p.seller_username != username and not out %}
+      <button type="button" class="add-round" data-product-id="{{ p.id }}" data-options="{{ 1 if (p.colors or p.sizes) else 0 }}" aria-label="{{ t.add_to_cart_btn }}">{{ icon('plus', 18) }}</button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro swatch(hex, size=18) %}
+{% if hex == 'multi' %}<i class="swatch swatch-multi" style="width:{{ size }}px;height:{{ size }}px;"></i>
+{% elif hex %}<i class="swatch" style="width:{{ size }}px;height:{{ size }}px;background:{{ hex }};"></i>{% endif %}
+{% endmacro %}
+
+{% macro shop_tabs(shop_tab, cart_count) %}
+<nav class="shop-tabs" aria-label="shop">
+  <a href="{{ url_for('shop') }}" class="{{ 'active' if shop_tab == 'home' }}">{{ icon('home', 17) }}<span>{{ t.shoptab_home }}</span></a>
+  <a href="{{ url_for('shop_catalog') }}" class="{{ 'active' if shop_tab == 'catalog' }}">{{ icon('feed', 17) }}<span>{{ t.shoptab_catalog }}</span></a>
+  <a href="{{ url_for('stores') }}" class="{{ 'active' if shop_tab == 'stores' }}">{{ icon('store', 17) }}<span>{{ t.shoptab_stores }}</span></a>
+  <a href="{{ url_for('orders') }}" class="{{ 'active' if shop_tab == 'orders' }}">{{ icon('box', 17) }}<span>{{ t.shoptab_orders }}</span></a>
+  <a href="{{ url_for('cart') }}" class="{{ 'active' if shop_tab == 'cart' }}">{{ icon('cart', 17) }}<span>{{ t.shoptab_cart }}</span>{% if cart_count %}<i class="tab-badge">{{ cart_count }}</i>{% endif %}</a>
+  <a href="{{ url_for('store_manage') }}" class="{{ 'active' if shop_tab == 'store' }} tab-mine">{{ icon('dashboard', 17) }}<span>{{ t.shoptab_mystore }}</span></a>
+</nav>
+{% endmacro %}
+
+{% macro store_tabs(store_tab) %}
+<nav class="store-tabs">
+  <a href="{{ url_for('store_manage') }}" class="{{ 'active' if store_tab == 'products' }}">{{ icon('shop', 16) }} {{ t.storetab_products }}</a>
+  <a href="{{ url_for('store_orders') }}" class="{{ 'active' if store_tab == 'orders' }}">{{ icon('box', 16) }} {{ t.storetab_orders }}</a>
+  <a href="{{ url_for('store_settings') }}" class="{{ 'active' if store_tab == 'settings' }}">{{ icon('settings', 16) }} {{ t.storetab_settings }}</a>
+</nav>
+{% endmacro %}
+
+{% macro status_badge(status) %}
+<span class="status-badge st-{{ status }}">{{ t['order_status_' ~ status] }}</span>
+{% endmacro %}
+
+{% macro order_card(o, mode) %}
+<div class="order-card" data-order="{{ o.id }}">
+  <div class="order-head">
+    <div class="order-who">
+      {% if mode == 'seller' %}
+        {% if o.buyer_avatar %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=o.buyer_avatar) }}" alt="">{% else %}<div class="avatar-circle tiny">{{ o.buyer_letter or o.buyer[:1]|upper }}</div>{% endif %}
+        <div><b>{{ o.buyer_name }}</b><small>#{{ o.id }} · {{ o.ago }}</small></div>
+      {% else %}
+        {% if o.store_logo %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=o.store_logo) }}" alt="">{% else %}<div class="avatar-circle tiny">{{ icon('store', 14) }}</div>{% endif %}
+        <div><b>{% if o.store_handle %}<a href="{{ url_for('store_page', handle=o.store_handle) }}">{{ o.store_name }}</a>{% else %}{{ o.store_name }}{% endif %}</b><small>#{{ o.id }} · {{ o.ago }}</small></div>
+      {% endif %}
+    </div>
+    <span class="status-badge st-{{ o.status }}" data-status-badge>{{ t['order_status_' ~ o.status] }}</span>
+  </div>
+  <div class="order-items">
+    {% for it in o["items"] %}
+    <div class="order-item">
+      {% if it.image_file %}<img src="{{ url_for('media', filename=it.image_file) }}" alt="">{% else %}<div class="oi-noimg">{{ icon('shop', 16) }}</div>{% endif %}
+      <div class="oi-main">
+        <div class="oi-title">{{ it.title }}</div>
+        <div class="oi-opts">
+          {% if it.color %}{% set ci = color_opts(it.color)[0] %}<span class="oi-opt">{{ swatch(ci.hex, 11) }} {{ ci.label }}</span>{% endif %}
+          {% if it.size %}<span class="oi-opt">{{ size_label(it.size) }}</span>{% endif %}
+          <span class="oi-opt">× {{ it.qty }}</span>
+        </div>
+      </div>
+      <div class="oi-price">{{ (it.price * it.qty)|money }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="order-meta">
+    <div>{{ icon('pin', 14) }} {{ o.place }}{% if o.address %}, {{ o.address }}{% endif %}</div>
+    <div>{{ icon('phone', 14) }} <a href="tel:{{ o.phone }}">{{ o.phone }}</a></div>
+    {% if o.note %}<div>{{ icon('comment', 14) }} {{ o.note }}</div>{% endif %}
+  </div>
+  <div class="order-foot">
+    <div class="order-total">{{ t.order_total }}: <b>{{ o.total|money }}</b> {{ t.currency_sum }}</div>
+    <div class="order-actions">
+      <a class="mini-btn" href="{{ url_for('dm', other_username=(o.buyer if mode == 'seller' else o.seller)) }}">{{ icon('chat', 15) }} {{ t.order_chat }}</a>
+      {% if mode == 'seller' %}
+        {% if o.status == 'new' %}<button type="button" class="mini-btn ok" data-set-status="confirmed">{{ icon('check', 15) }} {{ t.order_act_confirm }}</button>{% endif %}
+        {% if o.status == 'confirmed' %}<button type="button" class="mini-btn ok" data-set-status="shipped">{{ icon('truck', 15) }} {{ t.order_act_ship }}</button>{% endif %}
+        {% if o.status == 'shipped' %}<button type="button" class="mini-btn ok" data-set-status="delivered">{{ icon('check', 15) }} {{ t.order_act_deliver }}</button>{% endif %}
+        {% if o.status in ('new', 'confirmed') %}<button type="button" class="mini-btn bad" data-set-status="cancelled" data-confirm-text="{{ t.order_cancel_confirm }}">{{ icon('close', 15) }} {{ t.order_act_cancel }}</button>{% endif %}
+      {% else %}
+        {% if o.status == 'new' %}<button type="button" class="mini-btn bad" data-set-status="cancelled" data-confirm-text="{{ t.order_cancel_confirm }}">{{ icon('close', 15) }} {{ t.order_act_cancel }}</button>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}

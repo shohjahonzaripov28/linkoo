@@ -142,6 +142,7 @@ app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("RENDER"))
 # ---------- Tillar (i18n) - barcha matnlar translations.py faylida ----------
 from translations import LANG_NAMES, TRANSLATIONS
 import locations
+import catalog
 
 def current_lang():
     lang = session.get("lang", "uz")
@@ -835,6 +836,63 @@ def ensure_v9_tables(conn):
         conn.execute(stmt)
 
 
+def slugify_handle(text):
+    base = re.sub(r"[^a-z0-9_.]", "", (text or "").lower().replace(" ", "_").replace("-", "_"))
+    return base.strip("_.")[:30]
+
+
+def unique_handle(conn, base, exclude_username=None):
+    base = slugify_handle(base)
+    if len(base) < 3:
+        base = (base + "shop")[:30] if base else "shop"
+    handle, n = base, 1
+    while True:
+        row = conn.execute("SELECT username FROM stores WHERE handle = ?", (handle,)).fetchone()
+        if not row or (exclude_username and row["username"] == exclude_username):
+            return handle
+        n += 1
+        suffix = str(n)
+        handle = base[: 30 - len(suffix)] + suffix
+
+
+def ensure_v10_tables(conn):
+    """v10: do'kon profillari, kategoriyalar katalogi, ombor, chegirma, buyurtma holatlari."""
+    pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS stores (
+        id {pk}, username TEXT UNIQUE NOT NULL, name TEXT NOT NULL, handle TEXT UNIQUE NOT NULL,
+        logo_file TEXT, banner_file TEXT, description TEXT, category TEXT, phone TEXT,
+        country TEXT, region TEXT, district TEXT, address TEXT, hours TEXT, telegram TEXT, instagram TEXT,
+        created_ts BIGINT NOT NULL)""")
+    for table, col, typ in (
+        ("products", "category", "TEXT"), ("products", "subcategory", "TEXT"), ("products", "old_price", "INTEGER"),
+        ("products", "stock", "INTEGER"), ("products", "brand", "TEXT"), ("products", "status", "TEXT DEFAULT 'active'"),
+        ("products", "views", "INTEGER DEFAULT 0"), ("products", "sold", "INTEGER DEFAULT 0"), ("products", "created_ts", "BIGINT"),
+        ("orders", "updated_ts", "BIGINT"), ("orders", "note", "TEXT"), ("order_items", "image_file", "TEXT"),
+    ):
+        add_column_if_missing(conn, table, col, typ)
+    conn.execute("UPDATE products SET status = 'active' WHERE status IS NULL")
+    conn.execute("UPDATE products SET views = 0 WHERE views IS NULL")
+    conn.execute("UPDATE products SET sold = 0 WHERE sold IS NULL")
+    conn.execute("UPDATE products SET category = 'other' WHERE category IS NULL OR category = ''")
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS idx_products_seller ON products (seller_username)",
+        "CREATE INDEX IF NOT EXISTS idx_products_category ON products (category, subcategory)",
+        "CREATE INDEX IF NOT EXISTS idx_stores_user ON stores (username)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders (buyer)",
+    ):
+        conn.execute(stmt)
+    # v9 dagi biznes akkauntlar uchun do'kon profili yaratiladi
+    for u in conn.execute(
+        """SELECT username, business_name, phone, country, region, district FROM users
+           WHERE account_type = 'business' AND username NOT IN (SELECT username FROM stores)"""
+    ).fetchall():
+        name = (u["business_name"] or u["username"])[:40]
+        conn.execute(
+            "INSERT INTO stores (username, name, handle, phone, country, region, district, created_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (u["username"], name, unique_handle(conn, name or u["username"]), u["phone"], u["country"], u["region"], u["district"], int(time.time())),
+        )
+
+
 def init_db():
     """Baza va jadvallarni birinchi ishga tushganda avtomatik yaratadi"""
     if USE_POSTGRES:
@@ -985,6 +1043,7 @@ def init_db_postgres():
     ensure_google_columns(conn)
     ensure_extra_tables(conn)
     ensure_v9_tables(conn)
+    ensure_v10_tables(conn)
 
     conn.commit()
     conn.close()
@@ -1148,6 +1207,7 @@ def init_db_sqlite():
     ensure_google_columns(conn)
     ensure_extra_tables(conn)
     ensure_v9_tables(conn)
+    ensure_v10_tables(conn)
 
     conn.commit()
     conn.close()
@@ -1409,8 +1469,7 @@ def delete_user_everything(conn, username):
         delete_image_from_db(conn, row["image_file"])
     conn.execute("DELETE FROM group_messages WHERE username = ?", (username,))
     conn.execute("DELETE FROM messages WHERE username = ?", (username,))
-    for prod in conn.execute("SELECT * FROM products WHERE seller_username = ?", (username,)).fetchall():
-        delete_product_everything(conn, prod)
+    delete_store_everything(conn, username)
     conn.execute("DELETE FROM contact_requests WHERE from_username = ? OR to_username = ?", (username, username))
     conn.execute("DELETE FROM contacts WHERE username = ? OR contact_username = ?", (username, username))
     conn.execute("DELETE FROM blocked_users WHERE username = ?", (username,))
@@ -2237,11 +2296,11 @@ def normalize_phone(raw):
 def parse_options(text):
     seen, out = set(), []
     for part in re.split(r"[,;\n]", text or ""):
-        v = part.strip()[:20]
+        v = part.strip()[:24]
         if v and v.lower() not in seen:
             seen.add(v.lower())
             out.append(v)
-    return out[:12]
+    return out[:30]
 
 
 def user_location_text(u, lang=None):
@@ -2255,9 +2314,56 @@ def user_location_text(u, lang=None):
     return ", ".join(parts)
 
 
+# ---------- Do'kon (marketplace): kategoriyalar, do'kon profillari, mahsulotlar, savat, buyurtmalar ----------
+SHOP_PAGE_SIZE = 12
+ORDER_STATUSES = ("new", "confirmed", "shipped", "delivered", "cancelled")
+SORTS = {
+    "new": "p.id DESC",
+    "cheap": "p.price ASC, p.id DESC",
+    "expensive": "p.price DESC, p.id DESC",
+    "popular": "p.sold DESC, p.views DESC, p.id DESC",
+}
+HANDLE_RE = re.compile(r"^[a-z0-9_.]{3,30}$")
+
+
 def is_business(conn, username):
-    r = conn.execute("SELECT account_type FROM users WHERE username = ?", (username,)).fetchone()
-    return bool(r and r["account_type"] == "business")
+    return bool(conn.execute("SELECT 1 FROM stores WHERE username = ?", (username,)).fetchone())
+
+
+def get_store(conn, username):
+    return conn.execute("SELECT * FROM stores WHERE username = ?", (username,)).fetchone()
+
+
+def clean_social(v):
+    return re.sub(r"[^A-Za-z0-9_.]", "", (v or "").strip().lstrip("@"))[:32]
+
+
+def place_text(country, region, district, lang=None):
+    lang = lang or current_lang()
+    parts = [x for x in (district, region) if x]
+    if country:
+        parts.append(locations.country_name(country, lang))
+    return ", ".join(parts)
+
+
+def color_label(token):
+    return catalog.color_name(token, current_lang())
+
+
+def size_label_fn(token):
+    return catalog.size_label(token, current_lang())
+
+
+app.jinja_env.globals.update(
+    cat_name=lambda cid: catalog.category_name(cid, current_lang()),
+    cat_icon=lambda cid: catalog.category_icon(cid),
+    sub_name=lambda cid, sid: catalog.sub_name(cid, sid, current_lang()),
+    color_opts=lambda raw: catalog.display_options(raw, "color", current_lang()),
+    size_opts=lambda raw: catalog.display_options(raw, "size", current_lang()),
+    color_label=color_label,
+    size_label=size_label_fn,
+)
+app.jinja_env.filters["money"] = lambda n: "{:,}".format(int(n or 0)).replace(",", " ")
 
 
 @app.route("/api/geo/countries")
@@ -2281,8 +2387,383 @@ def api_geo_districts():
     return jsonify({"districts": locations.district_list(request.args.get("country", ""), request.args.get("region", ""))})
 
 
+def product_card_rows(conn, where_sql, params, limit, offset, order_sql="p.id DESC"):
+    return conn.execute(
+        f"""SELECT p.*, COALESCE(s.name, u.business_name, u.nickname, p.seller_username) AS seller_business,
+                   s.handle AS store_handle, s.logo_file AS store_logo, u.nickname AS seller_nick,
+                   gr.name AS channel_name
+            FROM products p
+            LEFT JOIN users u ON u.username = p.seller_username
+            LEFT JOIN stores s ON s.username = p.seller_username
+            LEFT JOIN groups gr ON gr.id = p.channel_id
+            {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?""",
+        (*params, limit, offset),
+    ).fetchall()
+
+
+def shop_where(args, base=("p.status = 'active'",)):
+    """Qidiruv, kategoriya, narx, saralash filtrlaridan SQL sharti va filtr lug'ati."""
+    where, params = list(base), []
+    q = (args.get("q") or "").strip()[:60]
+    if q:
+        where.append("(LOWER(p.title) LIKE LOWER(?) OR LOWER(COALESCE(p.brand, '')) LIKE LOWER(?) OR LOWER(COALESCE(p.description, '')) LIKE LOWER(?))")
+        params += [f"%{q}%"] * 3
+    cat = (args.get("cat") or "").strip()
+    sub = (args.get("sub") or "").strip()
+    if cat and catalog.valid_category(cat):
+        if cat == "other":
+            where.append("(p.category = 'other' OR p.category IS NULL OR p.category = '')")
+        else:
+            where.append("p.category = ?")
+            params.append(cat)
+        if sub and catalog.valid_category(cat, sub):
+            where.append("p.subcategory = ?")
+            params.append(sub)
+        else:
+            sub = ""
+    else:
+        cat, sub = "", ""
+    pmin = args.get("min", type=int) if hasattr(args, "get") else None
+    pmax = args.get("max", type=int) if hasattr(args, "get") else None
+    if pmin and pmin > 0:
+        where.append("p.price >= ?")
+        params.append(pmin)
+    if pmax and pmax > 0:
+        where.append("p.price <= ?")
+        params.append(pmax)
+    instock = args.get("instock") == "1"
+    if instock:
+        where.append("(p.stock IS NULL OR p.stock > 0)")
+    sort = args.get("sort") if args.get("sort") in SORTS else "new"
+    return where, params, {"q": q, "cat": cat, "sub": sub, "min": pmin or "", "max": pmax or "",
+                           "instock": "1" if instock else "", "sort": sort}
+
+
+def active_filter_args(f, **extra):
+    """URL uchun bo'sh bo'lmagan filtrlar."""
+    out = {k: v for k, v in f.items() if v and not (k == "sort" and v == "new")}
+    out.update({k: v for k, v in extra.items() if v})
+    return out
+
+
+def cart_count_for(conn, me):
+    return conn.execute("SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ?", (me,)).fetchone()["c"]
+
+
+def category_counts(conn, extra_where="", params=()):
+    rows = conn.execute(
+        f"SELECT COALESCE(NULLIF(category, ''), 'other') AS c, COALESCE(subcategory, '') AS s, COUNT(*) AS n "
+        f"FROM products p WHERE p.status = 'active' {extra_where} GROUP BY 1, 2", params).fetchall()
+    cats, subs = {}, {}
+    for r in rows:
+        cats[r["c"]] = cats.get(r["c"], 0) + r["n"]
+        subs[(r["c"], r["s"])] = r["n"]
+    return cats, subs
+
+
+@app.route("/shop")
+def shop():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    channel_id = request.args.get("channel", type=int)
+    channel = group_row(conn, channel_id) if channel_id else None
+    where, params, f = shop_where(request.args)
+    if channel:
+        where.append("p.channel_id = ?")
+        params.append(channel["id"])
+    where_sql = "WHERE " + " AND ".join(where)
+    rows = product_card_rows(conn, where_sql, params, SHOP_PAGE_SIZE + 1, (page - 1) * SHOP_PAGE_SIZE, SORTS[f["sort"]])
+    has_more = len(rows) > SHOP_PAGE_SIZE
+    products = rows[:SHOP_PAGE_SIZE]
+    filtered = bool(f["q"] or f["cat"] or f["min"] or f["max"] or f["instock"] or f["sort"] != "new" or channel)
+
+    cat_counts, _ = category_counts(conn)
+    cats = []
+    for c in catalog.category_list(current_lang()):
+        c["count"] = cat_counts.get(c["id"], 0)
+        cats.append(c)
+    stores_strip, deals = [], []
+    if page == 1 and not filtered:
+        stores_strip = conn.execute(
+            """SELECT s.*, (SELECT COUNT(*) FROM products p WHERE p.seller_username = s.username AND p.status = 'active') AS n
+               FROM stores s ORDER BY n DESC, s.id DESC LIMIT 14""").fetchall()
+        stores_strip = [s for s in stores_strip if s["n"]]
+        deals = product_card_rows(conn, "WHERE p.status = 'active' AND p.old_price IS NOT NULL AND p.old_price > p.price", (), 8, 0)
+    my_store = get_store(conn, me)
+    can_add = True
+    if channel:
+        can_add = member_role(conn, channel["id"], me) in ("owner", "admin")
+    cart_count = cart_count_for(conn, me)
+    conn.close()
+    return render_template(
+        "shop.html", username=me, avatar_letter=session["avatar_letter"],
+        products=products, page=page, has_more=has_more, cart_count=cart_count,
+        f=f, filtered=filtered, channel=channel, can_add=can_add, my_store=my_store,
+        cats=cats, stores_strip=stores_strip, deals=deals,
+        url_args=active_filter_args(f, channel=channel["id"] if channel else None),
+        shop_tab="home", active="shop",
+    )
+
+
+@app.route("/shop/catalog")
+def shop_catalog():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    cat_counts, sub_counts = category_counts(conn)
+    cats = []
+    for c in catalog.category_list(current_lang()):
+        c["count"] = cat_counts.get(c["id"], 0)
+        for s in c["subs"]:
+            s["count"] = sub_counts.get((c["id"], s["id"]), 0)
+        cats.append(c)
+    cart_count = cart_count_for(conn, me)
+    conn.close()
+    return render_template("shop_catalog.html", username=me, avatar_letter=session["avatar_letter"],
+                           cats=cats, cart_count=cart_count, shop_tab="catalog", active="shop")
+
+
+@app.route("/stores")
+def stores():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    q = (request.args.get("q") or "").strip()[:40]
+    cat = (request.args.get("cat") or "").strip()
+    where, params = [], []
+    if q:
+        where.append("(LOWER(s.name) LIKE LOWER(?) OR LOWER(s.handle) LIKE LOWER(?))")
+        params += [f"%{q}%", f"%{q}%"]
+    if cat and catalog.valid_category(cat):
+        where.append("s.category = ?")
+        params.append(cat)
+    else:
+        cat = ""
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = conn.execute(
+        f"""SELECT s.*, (SELECT COUNT(*) FROM products p WHERE p.seller_username = s.username AND p.status = 'active') AS n
+            FROM stores s {where_sql} ORDER BY n DESC, s.id DESC LIMIT ? OFFSET ?""",
+        (*params, SHOP_PAGE_SIZE + 1, (page - 1) * SHOP_PAGE_SIZE)).fetchall()
+    has_more = len(rows) > SHOP_PAGE_SIZE
+    my_store = get_store(conn, me)
+    cart_count = cart_count_for(conn, me)
+    conn.close()
+    cards = [dict(r, place=place_text(r["country"], r["region"], r["district"])) for r in rows[:SHOP_PAGE_SIZE]]
+    return render_template(
+        "stores.html", username=me, avatar_letter=session["avatar_letter"], stores=cards, q=q, cat=cat,
+        page=page, has_more=has_more, my_store=my_store, cart_count=cart_count,
+        cats=catalog.category_list(current_lang()), shop_tab="stores", active="shop",
+    )
+
+
+@app.route("/store/<handle>")
+def store_page(handle):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    store = conn.execute("SELECT * FROM stores WHERE handle = ?", (handle.lower(),)).fetchone()
+    if not store:
+        conn.close()
+        flash(tr("store_not_found"))
+        return redirect(url_for("stores"))
+    owner = store["username"] == me
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    base = ("p.seller_username = ?",) if owner else ("p.seller_username = ?", "p.status = 'active'")
+    where, params, f = shop_where(request.args, base=base)
+    params = [store["username"]] + params
+    where_sql = "WHERE " + " AND ".join(where)
+    rows = product_card_rows(conn, where_sql, params, SHOP_PAGE_SIZE + 1, (page - 1) * SHOP_PAGE_SIZE, SORTS[f["sort"]])
+    has_more = len(rows) > SHOP_PAGE_SIZE
+    cat_counts, _ = category_counts(conn, "AND p.seller_username = ?", (store["username"],))
+    chips = [{"id": cid, "n": n} for cid, n in sorted(cat_counts.items(), key=lambda kv: -kv[1])]
+    stats = conn.execute(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(sold), 0) AS sold FROM products WHERE seller_username = ? AND status = 'active'",
+        (store["username"],)).fetchone()
+    seller = conn.execute("SELECT username, nickname, last_seen_ts FROM users WHERE username = ?", (store["username"],)).fetchone()
+    cart_count = cart_count_for(conn, me)
+    conn.close()
+    return render_template(
+        "store.html", username=me, avatar_letter=session["avatar_letter"], store=store, owner=owner,
+        place=place_text(store["country"], store["region"], store["district"]),
+        products=rows[:SHOP_PAGE_SIZE], has_more=has_more, page=page, f=f, chips=chips,
+        stats=stats, seller=seller, cart_count=cart_count,
+        since=datetime.fromtimestamp(store["created_ts"]).strftime("%m.%Y"),
+        url_args=active_filter_args(f), shop_tab="stores", active="shop",
+    )
+
+
+# ----- Do'kon ochish va sozlash -----
+def read_store_form(conn, me, existing=None):
+    f = request.form
+    data = {
+        "name": f.get("name", "").strip()[:40],
+        "handle": slugify_handle(f.get("handle", "")),
+        "description": f.get("description", "").strip()[:300],
+        "category": f.get("category", "").strip(),
+        "phone": f.get("phone", "").strip(),
+        "country": f.get("country", "").strip(),
+        "region": f.get("region", "").strip(),
+        "district": f.get("district", "").strip(),
+        "address": f.get("address", "").strip()[:120],
+        "hours": f.get("hours", "").strip()[:60],
+        "telegram": clean_social(f.get("telegram")),
+        "instagram": clean_social(f.get("instagram")),
+    }
+    error = None
+    if len(data["name"]) < 2:
+        error = tr("business_name_required")
+    elif not data["handle"]:
+        data["handle"] = slugify_handle(data["name"])
+    if not error and not HANDLE_RE.match(data["handle"] or ""):
+        error = tr("store_handle_invalid")
+    if not error:
+        row = conn.execute("SELECT username FROM stores WHERE handle = ?", (data["handle"],)).fetchone()
+        if row and row["username"] != me:
+            error = tr("store_handle_taken")
+    if not error and data["category"] and not catalog.valid_category(data["category"]):
+        data["category"] = ""
+    if not error and not normalize_phone(data["phone"]):
+        error = tr("phone_invalid")
+    if not error and not locations.is_valid(data["country"], data["region"], data["district"]):
+        error = tr("order_location_required")
+    return data, error
+
+
+def store_form_page(store_data, editing, error=None):
+    me = session["username"]
+    return render_template(
+        "store_form.html", username=me, avatar_letter=session["avatar_letter"], data=store_data, editing=editing,
+        countries=locations.country_list(current_lang()), cats=catalog.category_list(current_lang()),
+        error=error, shop_tab="store", active="shop",
+    )
+
+
+@app.route("/store/open", methods=["GET", "POST"])
+def store_open():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    if get_store(conn, me):
+        conn.close()
+        return redirect(url_for("store_manage"))
+    u = conn.execute("SELECT phone, country, region, district FROM users WHERE username = ?", (me,)).fetchone()
+    if request.method == "POST":
+        data, error = read_store_form(conn, me)
+        if error:
+            conn.close()
+            return store_form_page(data, False, error)
+        logo = request.files.get("logo")
+        banner = request.files.get("banner")
+        logo_name = save_image_to_db(conn, logo, prefix="store_logo_", avatar=True) if logo and logo.filename and allowed_file(logo.filename) else None
+        banner_name = save_image_to_db(conn, banner, prefix="store_banner_") if banner and banner.filename and allowed_file(banner.filename) else None
+        conn.execute(
+            """INSERT INTO stores (username, name, handle, logo_file, banner_file, description, category, phone, country, region,
+                                   district, address, hours, telegram, instagram, created_ts)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (me, data["name"], data["handle"], logo_name, banner_name, data["description"], data["category"],
+             normalize_phone(data["phone"]), data["country"], data["region"], data["district"], data["address"],
+             data["hours"], data["telegram"], data["instagram"], int(time.time())),
+        )
+        conn.execute("UPDATE users SET account_type = 'business', business_name = ? WHERE username = ?", (data["name"], me))
+        conn.execute("UPDATE users SET phone = ? WHERE username = ? AND (phone IS NULL OR phone = '')", (normalize_phone(data["phone"]), me))
+        conn.commit()
+        conn.close()
+        flash(tr("store_created"))
+        return redirect(url_for("store_manage"))
+    data = {"name": "", "handle": "", "description": "", "category": "", "phone": (u["phone"] if u else "") or "",
+            "country": (u["country"] if u else "") or "", "region": (u["region"] if u else "") or "",
+            "district": (u["district"] if u else "") or "", "address": "", "hours": "", "telegram": "", "instagram": ""}
+    conn.close()
+    return store_form_page(data, False)
+
+
+@app.route("/store/settings", methods=["GET", "POST"])
+def store_settings():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    store = get_store(conn, me)
+    if not store:
+        conn.close()
+        return redirect(url_for("store_open"))
+    if request.method == "POST":
+        data, error = read_store_form(conn, me, store)
+        if error:
+            data.update({"logo_file": store["logo_file"], "banner_file": store["banner_file"], "id": store["id"]})
+            conn.close()
+            return store_form_page(data, True, error)
+        logo_name, banner_name = store["logo_file"], store["banner_file"]
+        logo, banner = request.files.get("logo"), request.files.get("banner")
+        if request.form.get("remove_logo") and logo_name:
+            delete_image_from_db(conn, logo_name)
+            logo_name = None
+        if request.form.get("remove_banner") and banner_name:
+            delete_image_from_db(conn, banner_name)
+            banner_name = None
+        if logo and logo.filename and allowed_file(logo.filename):
+            if logo_name:
+                delete_image_from_db(conn, logo_name)
+            logo_name = save_image_to_db(conn, logo, prefix="store_logo_", avatar=True)
+        if banner and banner.filename and allowed_file(banner.filename):
+            if banner_name:
+                delete_image_from_db(conn, banner_name)
+            banner_name = save_image_to_db(conn, banner, prefix="store_banner_")
+        conn.execute(
+            """UPDATE stores SET name = ?, handle = ?, logo_file = ?, banner_file = ?, description = ?, category = ?, phone = ?,
+                                 country = ?, region = ?, district = ?, address = ?, hours = ?, telegram = ?, instagram = ?
+               WHERE username = ?""",
+            (data["name"], data["handle"], logo_name, banner_name, data["description"], data["category"],
+             normalize_phone(data["phone"]), data["country"], data["region"], data["district"], data["address"],
+             data["hours"], data["telegram"], data["instagram"], me),
+        )
+        conn.execute("UPDATE users SET business_name = ? WHERE username = ?", (data["name"], me))
+        conn.commit()
+        conn.close()
+        flash(tr("store_saved"))
+        return redirect(url_for("store_manage"))
+    data = dict(store)
+    conn.close()
+    return store_form_page(data, True)
+
+
+def delete_store_everything(conn, username):
+    for prod in conn.execute("SELECT * FROM products WHERE seller_username = ?", (username,)).fetchall():
+        delete_product_everything(conn, prod)
+    st = get_store(conn, username)
+    if st:
+        for n in (st["logo_file"], st["banner_file"]):
+            if n:
+                delete_image_from_db(conn, n)
+        conn.execute("DELETE FROM stores WHERE username = ?", (username,))
+    conn.execute("UPDATE users SET account_type = 'personal', business_name = NULL WHERE username = ?", (username,))
+
+
+@app.route("/api/store/delete", methods=["POST"])
+def api_store_delete():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    conn = get_db()
+    if not get_store(conn, session["username"]):
+        conn.close()
+        return jsonify({"ok": False}), 404
+    delete_store_everything(conn, session["username"])
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "redirect": url_for("shop")})
+
+
 @app.route("/api/business/enable", methods=["POST"])
 def api_business_enable():
+    """Eski mijozlar uchun: tezkor do'kon ochish (nom + telefon)."""
     if "user_id" not in session:
         return jsonify({"error": "auth"}), 401
     data = request.get_json(silent=True) or {}
@@ -2292,131 +2773,200 @@ def api_business_enable():
         return jsonify({"ok": False, "message": tr("business_name_required")}), 400
     if not phone:
         return jsonify({"ok": False, "message": tr("phone_invalid")}), 400
+    me = session["username"]
     conn = get_db()
-    conn.execute("UPDATE users SET account_type = 'business', business_name = ?, phone = ? WHERE username = ?",
-                 (name, phone, session["username"]))
-    conn.commit()
+    if not get_store(conn, me):
+        conn.execute("INSERT INTO stores (username, name, handle, phone, created_ts) VALUES (?, ?, ?, ?, ?)",
+                     (me, name, unique_handle(conn, name), phone, int(time.time())))
+        conn.execute("UPDATE users SET account_type = 'business', business_name = ?, phone = COALESCE(NULLIF(phone, ''), ?) WHERE username = ?",
+                     (name, phone, me))
+        conn.commit()
     conn.close()
     return jsonify({"ok": True})
 
 
-def product_card_rows(conn, where_sql, params, limit, offset):
-    return conn.execute(
-        f"""SELECT p.*, u.business_name AS seller_business, u.nickname AS seller_nick, gr.name AS channel_name
-            FROM products p
-            LEFT JOIN users u ON u.username = p.seller_username
-            LEFT JOIN groups gr ON gr.id = p.channel_id
-            {where_sql} ORDER BY p.id DESC LIMIT ? OFFSET ?""",
-        (*params, limit, offset),
-    ).fetchall()
+# ----- Do'kon paneli -----
+def require_store(conn, me):
+    st = get_store(conn, me)
+    if not st:
+        conn.close()
+        return None
+    return st
 
 
-@app.route("/shop", methods=["GET", "POST"])
-def shop():
+@app.route("/store/manage")
+def store_manage():
     if "user_id" not in session:
         return redirect(url_for("login"))
     me = session["username"]
     conn = get_db()
+    store = require_store(conn, me)
+    if not store:
+        return redirect(url_for("store_open"))
+    st = request.args.get("st", "all")
+    where = "WHERE p.seller_username = ?"
+    if st == "active":
+        where += " AND p.status = 'active'"
+    elif st == "hidden":
+        where += " AND p.status = 'hidden'"
+    elif st == "out":
+        where += " AND p.stock IS NOT NULL AND p.stock <= 0"
+    else:
+        st = "all"
+    products = product_card_rows(conn, where, (me,), 80, 0)
+    stats = conn.execute(
+        """SELECT COUNT(*) AS total,
+                  COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS active,
+                  COALESCE(SUM(CASE WHEN status = 'hidden' THEN 1 ELSE 0 END), 0) AS hidden,
+                  COALESCE(SUM(CASE WHEN stock IS NOT NULL AND stock <= 0 THEN 1 ELSE 0 END), 0) AS out
+           FROM products WHERE seller_username = ?""", (me,)).fetchone()
+    ostats = conn.execute(
+        """SELECT COUNT(*) AS total,
+                  COALESCE(SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END), 0) AS new,
+                  COALESCE(SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END), 0) AS revenue
+           FROM orders WHERE seller = ?""", (me,)).fetchone()
+    conn.close()
+    return render_template("store_manage.html", username=me, avatar_letter=session["avatar_letter"], store=store,
+                           products=products, stats=stats, ostats=ostats, st=st, shop_tab="store", store_tab="products", active="shop")
+
+
+@app.route("/api/store/product/<int:product_id>/toggle", methods=["POST"])
+def api_store_product_toggle(product_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    conn = get_db()
+    p = conn.execute("SELECT id, status FROM products WHERE id = ? AND seller_username = ?", (product_id, session["username"])).fetchone()
+    if not p:
+        conn.close()
+        return jsonify({"ok": False}), 404
+    new = "hidden" if p["status"] == "active" else "active"
+    conn.execute("UPDATE products SET status = ? WHERE id = ?", (new, product_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "status": new})
+
+
+def manageable_channels(conn, me):
+    return conn.execute(
+        """SELECT g.id, g.name FROM groups g JOIN group_members m ON m.group_id = g.id
+           WHERE m.username = ? AND m.role IN ('owner', 'admin') AND g.kind = 'channel' ORDER BY g.name""", (me,)).fetchall()
+
+
+def to_int_or_none(raw, minimum=0, maximum=2_000_000_000):
+    raw = re.sub(r"\D", "", raw or "")
+    if not raw:
+        return None
+    n = int(raw)
+    return n if minimum <= n <= maximum else None
+
+
+@app.route("/store/product/new", methods=["GET", "POST"])
+@app.route("/store/product/<int:product_id>/edit", methods=["GET", "POST"])
+def store_product_form(product_id=None):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    store = require_store(conn, me)
+    if not store:
+        return redirect(url_for("store_open"))
+    product, media = None, []
+    if product_id:
+        product = conn.execute("SELECT * FROM products WHERE id = ? AND seller_username = ?", (product_id, me)).fetchone()
+        if not product:
+            conn.close()
+            return redirect(url_for("store_manage"))
+        media = [r["filename"] for r in conn.execute(
+            "SELECT filename FROM product_media WHERE product_id = ? ORDER BY position, id", (product_id,)).fetchall()]
+        if not media and product["image_file"]:
+            media = [product["image_file"]]
+    channels = manageable_channels(conn, me)
+    preset_channel = request.args.get("channel", type=int)
 
     if request.method == "POST":
-        redirect_to = url_for("shop")
-        title = request.form.get("title", "").strip()[:80]
-        description = request.form.get("description", "").strip()[:1000]
-        try:
-            price = int(re.sub(r"\D", "", request.form.get("price", "")) or 0)
-        except ValueError:
-            price = 0
-        colors = ", ".join(parse_options(request.form.get("colors")))
-        sizes = ", ".join(parse_options(request.form.get("sizes")))
-        channel_id = request.form.get("channel_id", type=int)
-        if channel_id:
-            redirect_to = url_for("shop", channel=channel_id)
+        f = request.form
+        title = f.get("title", "").strip()[:80]
+        description = f.get("description", "").strip()[:1500]
+        brand = f.get("brand", "").strip()[:40]
+        price = to_int_or_none(f.get("price"), 1)
+        old_price = to_int_or_none(f.get("old_price"), 1)
+        if price and old_price and old_price <= price:
+            old_price = None
+        stock = to_int_or_none(f.get("stock"), 0, 1_000_000)
+        category = f.get("category", "").strip()
+        sub = f.get("subcategory", "").strip()
+        if not catalog.valid_category(category):
+            category, sub = "other", ""
+        elif sub and not catalog.valid_category(category, sub):
+            sub = ""
+        system = catalog.size_system_for(category, sub)
+        colors = ", ".join(catalog.clean_colors(f.getlist("colors")))
+        sizes = ", ".join(catalog.clean_sizes(system, f.getlist("sizes"), f.get("custom_sizes", "")))
+        channel_id = f.get("channel_id", type=int)
+        if channel_id and member_role(conn, channel_id, me) not in ("owner", "admin"):
+            channel_id = None
+        status = "hidden" if f.get("hidden") else "active"
 
-        if not is_business(conn, me):
-            conn.close()
-            flash(tr("business_required"))
-            return redirect(redirect_to)
-        if channel_id:
-            ch = group_row(conn, channel_id)
-            if not ch or member_role(conn, channel_id, me) not in ("owner", "admin"):
-                conn.close()
-                flash(tr("shop_channel_forbidden"))
-                return redirect(redirect_to)
-        if not title or price <= 0:
+        if len(title) < 2 or not price:
             conn.close()
             flash(tr("product_invalid"))
-            return redirect(redirect_to)
-
-        files = [f for f in (request.files.getlist("images") + request.files.getlist("image")) if f and f.filename]
-        saved = []
-        for f in files[:6]:
-            if allowed_file(f.filename):
-                try:
-                    saved.append(save_image_to_db(conn, f))
-                except Exception:
-                    pass
-        cur = conn.execute(
-            """INSERT INTO products
-               (seller_username, seller_avatar, title, description, price, image_file, created_at, channel_id, colors, sizes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (me, session["avatar_letter"], title, description, price, saved[0] if saved else None,
-             datetime.now().strftime("%d.%m %H:%M"), channel_id or None, colors, sizes),
-        )
-        pid = cur.lastrowid
-        for i, name in enumerate(saved):
+            return redirect(request.url)
+        keep = list(media)
+        for name in f.getlist("remove_media"):
+            if name in keep:
+                keep.remove(name)
+                delete_image_from_db(conn, name)
+        new_files = [x for x in request.files.getlist("images") if x and x.filename and allowed_file(x.filename)]
+        for x in new_files[: max(0, 8 - len(keep))]:
+            try:
+                keep.append(save_image_to_db(conn, x))
+            except Exception:
+                pass
+        main = keep[0] if keep else None
+        if product:
+            conn.execute(
+                """UPDATE products SET title = ?, description = ?, brand = ?, price = ?, old_price = ?, stock = ?, category = ?,
+                          subcategory = ?, colors = ?, sizes = ?, channel_id = ?, status = ?, image_file = ? WHERE id = ?""",
+                (title, description, brand, price, old_price, stock, category, sub, colors, sizes, channel_id, status, main, product["id"]))
+            pid = product["id"]
+            conn.execute("DELETE FROM product_media WHERE product_id = ?", (pid,))
+        else:
+            cur = conn.execute(
+                """INSERT INTO products (seller_username, seller_avatar, title, description, brand, price, old_price, stock, category,
+                          subcategory, colors, sizes, channel_id, status, image_file, created_at, created_ts)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (me, session["avatar_letter"], title, description, brand, price, old_price, stock, category, sub, colors, sizes,
+                 channel_id, status, main, datetime.now().strftime("%d.%m %H:%M"), int(time.time())))
+            pid = cur.lastrowid
+        for i, name in enumerate(keep):
             conn.execute("INSERT INTO product_media (product_id, filename, position) VALUES (?, ?, ?)", (pid, name, i))
         conn.commit()
         conn.close()
-        return redirect(redirect_to)
+        flash(tr("product_saved"))
+        return redirect(url_for("product_page", product_id=pid))
 
-    page = max(request.args.get("page", 1, type=int) or 1, 1)
-    q = request.args.get("q", "").strip()
-    channel_id = request.args.get("channel", type=int)
-    channel = group_row(conn, channel_id) if channel_id else None
-    where, params = [], []
-    if channel:
-        where.append("p.channel_id = ?")
-        params.append(channel["id"])
-    if q:
-        where.append("(LOWER(p.title) LIKE LOWER(?) OR LOWER(COALESCE(p.description, '')) LIKE LOWER(?))")
-        params += [f"%{q}%", f"%{q}%"]
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-    rows = product_card_rows(conn, where_sql, params, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE)
-    has_more = len(rows) > PAGE_SIZE
-    products = rows[:PAGE_SIZE]
-    cart_count = conn.execute(
-        "SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ?", (me,)
-    ).fetchone()["c"]
-    me_row = conn.execute("SELECT account_type, business_name, phone FROM users WHERE username = ?", (me,)).fetchone()
-    my_channels = conn.execute(
-        """SELECT g.id, g.name FROM groups g JOIN group_members m ON m.group_id = g.id
-           WHERE m.username = ? AND m.role IN ('owner', 'admin') AND g.kind = 'channel' ORDER BY g.name""",
-        (me,),
-    ).fetchall()
-    can_add = True
-    if channel:
-        can_add = member_role(conn, channel["id"], me) in ("owner", "admin")
+    if product:
+        p = dict(product)
+        p["colors_list"] = [c.strip() for c in (product["colors"] or "").split(",") if c.strip()]
+        sel_sizes = [c.strip() for c in (product["sizes"] or "").split(",") if c.strip()]
+        system = catalog.size_system_for(product["category"] or "", product["subcategory"] or "")
+        known = set(catalog.SIZE_SYSTEMS.get(system, []))
+        p["sizes_list"] = [s for s in sel_sizes if s in known]
+        p["custom_sizes"] = ", ".join(s for s in sel_sizes if s not in known)
+    else:
+        p = {"title": "", "description": "", "brand": "", "price": "", "old_price": "", "stock": "", "category": "",
+             "subcategory": "", "colors_list": [], "sizes_list": [], "custom_sizes": "", "channel_id": preset_channel,
+             "status": "active"}
+    cart_count = cart_count_for(conn, me)
     conn.close()
-
     return render_template(
-        "shop.html",
-        username=me,
-        avatar_letter=session["avatar_letter"],
-        products=products,
-        page=page,
-        has_more=has_more,
-        cart_count=cart_count,
-        q=q,
-        channel=channel,
-        can_add=can_add,
-        is_business=bool(me_row and me_row["account_type"] == "business"),
-        business_name=(me_row["business_name"] if me_row else "") or "",
-        my_phone=(me_row["phone"] if me_row else "") or "",
-        my_channels=my_channels,
-        active="shop",
+        "store_product_form.html", username=me, avatar_letter=session["avatar_letter"], store=store, p=p,
+        editing=bool(product), media=media, channels=channels, cart_count=cart_count,
+        catalog_json=catalog.catalog_payload(current_lang()), shop_tab="store", store_tab="products", active="shop",
     )
 
 
+# ----- Mahsulot sahifasi -----
 @app.route("/product/<int:product_id>")
 def product_page(product_id):
     if "user_id" not in session:
@@ -2428,31 +2978,42 @@ def product_page(product_id):
         conn.close()
         return redirect(url_for("shop"))
     p = dict(rows[0])
+    role = member_role(conn, p["channel_id"], me) if p["channel_id"] else None
+    mine = p["seller_username"] == me
+    if p["status"] != "active" and not (mine or g.is_admin or role in ("owner", "admin")):
+        conn.close()
+        flash(tr("product_unavailable"))
+        return redirect(url_for("shop"))
+    if not mine:
+        conn.execute("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = ?", (product_id,))
+        conn.commit()
     media = [r["filename"] for r in conn.execute(
         "SELECT filename FROM product_media WHERE product_id = ? ORDER BY position, id", (product_id,)).fetchall()]
     if not media and p["image_file"]:
         media = [p["image_file"]]
-    seller = conn.execute("SELECT username, nickname, avatar_letter, avatar_file, business_name, last_seen_ts, country, region, district "
-                          "FROM users WHERE username = ?", (p["seller_username"],)).fetchone()
-    more = product_card_rows(conn, "WHERE p.seller_username = ? AND p.id != ?", (p["seller_username"], product_id), 6, 0)
-    role = member_role(conn, p["channel_id"], me) if p["channel_id"] else None
-    cart_count = conn.execute("SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ?", (me,)).fetchone()["c"]
+    store = get_store(conn, p["seller_username"])
+    seller = conn.execute("SELECT username, nickname, avatar_letter, avatar_file, last_seen_ts FROM users WHERE username = ?",
+                          (p["seller_username"],)).fetchone()
+    store_more = product_card_rows(conn, "WHERE p.seller_username = ? AND p.id != ? AND p.status = 'active'",
+                                   (p["seller_username"], product_id), 6, 0)
+    related = []
+    if p["category"]:
+        related = product_card_rows(conn, "WHERE p.category = ? AND p.id != ? AND p.seller_username != ? AND p.status = 'active'",
+                                    (p["category"], product_id, p["seller_username"]), 6, 0)
+    cart_count = cart_count_for(conn, me)
     conn.close()
+    stock = p["stock"]
     return render_template(
-        "product.html",
-        username=me,
-        avatar_letter=session["avatar_letter"],
-        p=p,
-        media=media,
-        colors=parse_options(p["colors"]),
-        sizes=parse_options(p["sizes"]),
-        seller=seller,
-        seller_location=user_location_text(seller) if seller else "",
-        more=more,
-        is_mine=p["seller_username"] == me,
-        can_delete=p["seller_username"] == me or g.is_admin or role in ("owner", "admin"),
-        cart_count=cart_count,
-        active="shop",
+        "product.html", username=me, avatar_letter=session["avatar_letter"], p=p, media=media,
+        colors=catalog.display_options(p["colors"], "color", current_lang()),
+        sizes=catalog.display_options(p["sizes"], "size", current_lang()),
+        size_system_label=catalog.size_system_name(catalog.size_system_for(p["category"] or "", p["subcategory"] or ""), current_lang()),
+        store=store, seller=seller, store_more=store_more, related=related,
+        place=place_text(store["country"], store["region"], store["district"]) if store else "",
+        is_mine=mine, can_delete=mine or g.is_admin or role in ("owner", "admin"),
+        out_of_stock=(stock is not None and stock <= 0), stock=stock,
+        discount=(round((p["old_price"] - p["price"]) * 100 / p["old_price"]) if p["old_price"] and p["old_price"] > p["price"] else 0),
+        cart_count=cart_count, shop_tab="home", active="shop",
     )
 
 
@@ -2489,7 +3050,16 @@ def delete_product_everything(conn, product):
 
 
 def cart_total_count(conn, me):
-    return conn.execute("SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ?", (me,)).fetchone()["c"]
+    return cart_count_for(conn, me)
+
+
+def cart_qty_of_product(conn, me, product_id):
+    return conn.execute("SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ? AND product_id = ?",
+                        (me, product_id)).fetchone()["c"]
+
+
+def stock_error(stock):
+    return tr("cart_stock_limit").replace("{n}", str(max(int(stock), 0)))
 
 
 @app.route("/api/cart/add/<int:product_id>", methods=["POST"])
@@ -2500,9 +3070,9 @@ def api_cart_add(product_id):
     data = request.get_json(silent=True) or {}
     conn = get_db()
     p = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not p:
+    if not p or p["status"] != "active":
         conn.close()
-        return jsonify({"ok": False}), 404
+        return jsonify({"ok": False, "message": tr("product_unavailable")}), 404
     if p["seller_username"] == me:
         conn.close()
         return jsonify({"ok": False, "message": tr("cart_own_product")}), 400
@@ -2520,6 +3090,9 @@ def api_cart_add(product_id):
         qty = max(1, min(99, int(data.get("qty") or 1)))
     except (TypeError, ValueError):
         qty = 1
+    if p["stock"] is not None and cart_qty_of_product(conn, me, product_id) + qty > p["stock"]:
+        conn.close()
+        return jsonify({"ok": False, "message": stock_error(p["stock"]) if p["stock"] > 0 else tr("product_out_of_stock")}), 400
     existing = conn.execute(
         "SELECT id, qty FROM cart_lines WHERE username = ? AND product_id = ? AND color = ? AND size = ?",
         (me, product_id, color, size),
@@ -2530,7 +3103,7 @@ def api_cart_add(product_id):
         conn.execute("INSERT INTO cart_lines (username, product_id, qty, color, size) VALUES (?, ?, ?, ?, ?)",
                      (me, product_id, qty, color, size))
     conn.commit()
-    count = cart_total_count(conn, me)
+    count = cart_count_for(conn, me)
     conn.close()
     return jsonify({"ok": True, "cart_count": count})
 
@@ -2542,19 +3115,26 @@ def api_cart_qty(line_id):
     me = session["username"]
     data = request.get_json(silent=True) or {}
     conn = get_db()
-    line = conn.execute("SELECT id, qty FROM cart_lines WHERE id = ? AND username = ?", (line_id, me)).fetchone()
+    line = conn.execute("SELECT id, qty, product_id FROM cart_lines WHERE id = ? AND username = ?", (line_id, me)).fetchone()
     if not line:
         conn.close()
         return jsonify({"ok": False}), 404
     try:
-        qty = max(1, min(99, line["qty"] + int(data.get("delta") or 0)))
+        delta = int(data.get("delta") or 0)
     except (TypeError, ValueError):
-        qty = line["qty"]
+        delta = 0
+    qty = max(1, min(99, line["qty"] + delta))
+    message = ""
+    if delta > 0:
+        p = conn.execute("SELECT stock FROM products WHERE id = ?", (line["product_id"],)).fetchone()
+        if p and p["stock"] is not None and cart_qty_of_product(conn, me, line["product_id"]) + (qty - line["qty"]) > p["stock"]:
+            qty = line["qty"]
+            message = stock_error(p["stock"]) if p["stock"] > 0 else tr("product_out_of_stock")
     conn.execute("UPDATE cart_lines SET qty = ? WHERE id = ?", (qty, line_id))
     conn.commit()
-    count = cart_total_count(conn, me)
+    count = cart_count_for(conn, me)
     conn.close()
-    return jsonify({"ok": True, "qty": qty, "cart_count": count})
+    return jsonify({"ok": True, "qty": qty, "cart_count": count, "message": message})
 
 
 @app.route("/api/cart/remove/<int:cart_id>", methods=["POST"])
@@ -2564,25 +3144,27 @@ def api_cart_remove(cart_id):
     conn = get_db()
     conn.execute("DELETE FROM cart_lines WHERE id = ? AND username = ?", (cart_id, session["username"]))
     conn.commit()
-    count = cart_total_count(conn, session["username"])
+    count = cart_count_for(conn, session["username"])
     conn.close()
     return jsonify({"ok": True, "cart_count": count})
 
 
 def cart_groups(conn, me):
-    """Savatdagi mahsulotlar sotuvchilar bo'yicha guruhlanadi."""
+    """Savatdagi mahsulotlar do'konlar bo'yicha guruhlanadi."""
     lines = conn.execute(
-        """SELECT cl.id AS line_id, cl.qty, cl.color, cl.size, p.id AS product_id, p.title, p.price, p.image_file,
-                  p.seller_username, u.business_name, u.nickname
+        """SELECT cl.id AS line_id, cl.qty, cl.color, cl.size, p.id AS product_id, p.title, p.price, p.image_file, p.stock, p.status,
+                  p.seller_username, COALESCE(s.name, u.business_name, u.nickname, p.seller_username) AS store_name,
+                  s.handle AS store_handle, s.logo_file AS store_logo
            FROM cart_lines cl JOIN products p ON p.id = cl.product_id
            LEFT JOIN users u ON u.username = p.seller_username
+           LEFT JOIN stores s ON s.username = p.seller_username
            WHERE cl.username = ? ORDER BY p.seller_username, cl.id""",
         (me,),
     ).fetchall()
     groups_ = {}
     for l in lines:
         gr = groups_.setdefault(l["seller_username"], {
-            "seller": l["seller_username"], "name": l["business_name"] or l["nickname"] or l["seller_username"],
+            "seller": l["seller_username"], "name": l["store_name"], "handle": l["store_handle"], "logo": l["store_logo"],
             "lines": [], "total": 0,
         })
         gr["lines"].append(l)
@@ -2598,17 +3180,13 @@ def cart():
     conn = get_db()
     groups_ = cart_groups(conn, me)
     u = conn.execute("SELECT country, region, district, phone FROM users WHERE username = ?", (me,)).fetchone()
+    cart_count = cart_count_for(conn, me)
     conn.close()
     total = sum(gr["total"] for gr in groups_)
     return render_template(
-        "cart.html",
-        username=me,
-        avatar_letter=session["avatar_letter"],
-        groups=groups_,
-        total=total,
-        addr=dict(u) if u else {},
-        countries=locations.country_list(current_lang()),
-        active="shop",
+        "cart.html", username=me, avatar_letter=session["avatar_letter"], groups=groups_, total=total,
+        addr=dict(u) if u else {}, countries=locations.country_list(current_lang()),
+        cart_count=cart_count, shop_tab="cart", active="shop",
     )
 
 
@@ -2616,10 +3194,18 @@ def fmt_money(n):
     return "{:,}".format(int(n)).replace(",", " ")
 
 
+def send_order_dm(conn, sender, receiver, text):
+    conn.execute(
+        "INSERT INTO private_messages (sender, receiver, content, image_file, media_kind, duration, created_at, created_ts, is_read) "
+        "VALUES (?, ?, ?, NULL, 'order', NULL, ?, ?, 0)",
+        (sender, receiver, text[:1800], datetime.now().strftime("%H:%M"), int(time.time())),
+    )
+
+
 @app.route("/checkout", methods=["POST"])
 def checkout():
-    """Buyurtma: har bir sotuvchiga uning mahsulotlari bo'yicha alohida buyurtma va chatga xabar yuboriladi.
-    To'lov hozircha online emas - sotuvchi bilan chatda kelishiladi."""
+    """Buyurtma: har bir do'konga uning mahsulotlari bo'yicha alohida buyurtma va chatga xabar yuboriladi.
+    To'lov hozircha online emas - do'kon bilan chatda kelishiladi."""
     if "user_id" not in session:
         return redirect(url_for("login"))
     me = session["username"]
@@ -2627,6 +3213,7 @@ def checkout():
     region = request.form.get("region", "").strip()
     district = request.form.get("district", "").strip()
     address = request.form.get("address", "").strip()[:200]
+    note = request.form.get("note", "").strip()[:300]
     phone = normalize_phone(request.form.get("phone"))
 
     conn = get_db()
@@ -2642,34 +3229,57 @@ def checkout():
         error = tr("order_location_required")
     elif not phone:
         error = tr("phone_invalid")
+    if not error:  # mavjudlik va ombor qoldig'i
+        totals = {}
+        for gr in groups_:
+            for l in gr["lines"]:
+                totals[l["product_id"]] = totals.get(l["product_id"], 0) + l["qty"]
+                if l["status"] != "active":
+                    error = tr("cart_item_unavailable").replace("{name}", l["title"])
+                    break
+            if error:
+                break
+        if not error:
+            for gr in groups_:
+                for l in gr["lines"]:
+                    if l["stock"] is not None and totals[l["product_id"]] > l["stock"]:
+                        error = tr("cart_item_unavailable").replace("{name}", l["title"])
+                        break
+                if error:
+                    break
     if error:
         conn.close()
         flash(error)
         return redirect(url_for("cart"))
 
     lang = current_lang()
-    first_seller = None
     sent = 0
     for gr in groups_:
         seller = gr["seller"]
         if is_blocked_between(conn, me, seller):
             continue
         cur = conn.execute(
-            "INSERT INTO orders (buyer, seller, total, country, region, district, address, phone, status, created_ts) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
-            (me, seller, gr["total"], country, region, district, address, phone, int(time.time())),
+            "INSERT INTO orders (buyer, seller, total, country, region, district, address, phone, note, status, created_ts, updated_ts) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)",
+            (me, seller, gr["total"], country, region, district, address, phone, note, int(time.time()), int(time.time())),
         )
         oid = cur.lastrowid
         lines_txt = []
         for l in gr["lines"]:
             conn.execute(
-                "INSERT INTO order_items (order_id, product_id, title, price, qty, color, size) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (oid, l["product_id"], l["title"], l["price"], l["qty"], l["color"], l["size"]),
+                "INSERT INTO order_items (order_id, product_id, title, price, qty, color, size, image_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (oid, l["product_id"], l["title"], l["price"], l["qty"], l["color"], l["size"], l["image_file"]),
             )
-            opts = " · ".join(x for x in (l["color"], l["size"]) if x)
+            conn.execute(
+                "UPDATE products SET sold = COALESCE(sold, 0) + ?, stock = CASE WHEN stock IS NULL THEN NULL ELSE stock - ? END WHERE id = ?",
+                (l["qty"], l["qty"], l["product_id"]),
+            )
+            opts = " · ".join(x for x in (catalog.color_name(l["color"], lang) if l["color"] else "",
+                                          catalog.size_label(l["size"], lang) if l["size"] else "") if x)
             lines_txt.append(f"• {l['title']}" + (f" ({opts})" if opts else "") +
                              f" × {l['qty']} — {fmt_money(l['price'] * l['qty'])} {tr('currency_sum')}")
-        place = ", ".join(x for x in (locations.country_name(country, lang), region, district) if x)
+            conn.execute("DELETE FROM cart_lines WHERE id = ?", (l["line_id"],))
+        place = place_text(country, region, district, lang)
         text = "\n".join([
             f"🛒 {tr('order_title')} #{oid}",
             *lines_txt,
@@ -2677,17 +3287,10 @@ def checkout():
             f"📍 {place}",
             *([f"🏠 {address}"] if address else []),
             f"📞 {phone}",
-        ])[:1800]
-        conn.execute(
-            "INSERT INTO private_messages (sender, receiver, content, image_file, media_kind, duration, created_at, created_ts, is_read) "
-            "VALUES (?, ?, ?, NULL, 'order', NULL, ?, ?, 0)",
-            (me, seller, text, datetime.now().strftime("%H:%M"), int(time.time())),
-        )
-        for l in gr["lines"]:
-            conn.execute("DELETE FROM cart_lines WHERE id = ?", (l["line_id"],))
+            *([f"💬 {note}"] if note else []),
+        ])
+        send_order_dm(conn, me, seller, text)
         sent += 1
-        first_seller = first_seller or seller
-    # manzil va telefonni keyingi buyurtmalar uchun eslab qolamiz
     conn.execute("UPDATE users SET country = COALESCE(NULLIF(country, ''), ?), region = COALESCE(NULLIF(region, ''), ?), "
                  "district = COALESCE(NULLIF(district, ''), ?), phone = COALESCE(NULLIF(phone, ''), ?) WHERE username = ?",
                  (country, region, district, phone, me))
@@ -2698,9 +3301,108 @@ def checkout():
         flash(tr("chat_blocked_msg"))
         return redirect(url_for("cart"))
     flash(tr("order_sent"))
-    if sent == 1:
-        return redirect(url_for("dm", other_username=first_seller))
-    return redirect(url_for("shaxsiy", f="dm"))
+    return redirect(url_for("orders"))
+
+
+# ----- Buyurtmalar -----
+def orders_with_items(conn, where_sql, params, limit=60):
+    rows = conn.execute(
+        f"""SELECT o.*, COALESCE(s.name, us.business_name, us.nickname, o.seller) AS store_name, s.handle AS store_handle,
+                   s.logo_file AS store_logo, COALESCE(ub.nickname, o.buyer) AS buyer_name, ub.avatar_letter AS buyer_letter,
+                   ub.avatar_file AS buyer_avatar
+            FROM orders o LEFT JOIN stores s ON s.username = o.seller
+            LEFT JOIN users us ON us.username = o.seller LEFT JOIN users ub ON ub.username = o.buyer
+            {where_sql} ORDER BY o.id DESC LIMIT ?""", (*params, limit)).fetchall()
+    ids = [r["id"] for r in rows]
+    items = {}
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        for it in conn.execute(f"SELECT * FROM order_items WHERE order_id IN ({marks}) ORDER BY id", tuple(ids)).fetchall():
+            items.setdefault(it["order_id"], []).append(it)
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["items"] = items.get(r["id"], [])
+        d["place"] = place_text(r["country"], r["region"], r["district"])
+        d["ago"] = time_ago(r["created_ts"], "")
+        out.append(d)
+    return out
+
+
+@app.route("/orders")
+def orders():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    rows = orders_with_items(conn, "WHERE o.buyer = ?", (me,))
+    my_store = get_store(conn, me)
+    cart_count = cart_count_for(conn, me)
+    conn.close()
+    return render_template("orders.html", username=me, avatar_letter=session["avatar_letter"], orders=rows,
+                           my_store=my_store, cart_count=cart_count, shop_tab="orders", active="shop")
+
+
+@app.route("/store/orders")
+def store_orders():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    store = require_store(conn, me)
+    if not store:
+        return redirect(url_for("store_open"))
+    st = request.args.get("st", "all")
+    if st in ORDER_STATUSES:
+        rows = orders_with_items(conn, "WHERE o.seller = ? AND o.status = ?", (me, st))
+    else:
+        st = "all"
+        rows = orders_with_items(conn, "WHERE o.seller = ?", (me,))
+    counts = {r["status"]: r["n"] for r in conn.execute(
+        "SELECT status, COUNT(*) AS n FROM orders WHERE seller = ? GROUP BY status", (me,)).fetchall()}
+    conn.close()
+    return render_template("store_orders.html", username=me, avatar_letter=session["avatar_letter"], store=store,
+                           orders=rows, st=st, counts=counts, total_count=sum(counts.values()),
+                           shop_tab="store", store_tab="orders", active="shop")
+
+
+SELLER_FLOW = {"new": ("confirmed", "cancelled"), "confirmed": ("shipped", "cancelled"), "shipped": ("delivered",)}
+
+
+@app.route("/api/orders/<int:order_id>/status", methods=["POST"])
+def api_order_status(order_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    new = ((request.get_json(silent=True) or {}).get("status") or "").strip()
+    if new not in ORDER_STATUSES:
+        return jsonify({"ok": False}), 400
+    conn = get_db()
+    o = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+    if not o or me not in (o["buyer"], o["seller"]):
+        conn.close()
+        return jsonify({"ok": False}), 404
+    if me == o["seller"]:
+        allowed = SELLER_FLOW.get(o["status"], ())
+    else:
+        allowed = ("cancelled",) if o["status"] == "new" else ()
+    if new not in allowed:
+        conn.close()
+        return jsonify({"ok": False, "message": tr("order_status_forbidden")}), 400
+    conn.execute("UPDATE orders SET status = ?, updated_ts = ? WHERE id = ?", (new, int(time.time()), order_id))
+    if new == "cancelled":
+        for it in conn.execute("SELECT product_id, qty FROM order_items WHERE order_id = ?", (order_id,)).fetchall():
+            if it["product_id"]:
+                conn.execute(
+                    "UPDATE products SET stock = CASE WHEN stock IS NULL THEN NULL ELSE stock + ? END, "
+                    "sold = CASE WHEN COALESCE(sold, 0) >= ? THEN sold - ? ELSE 0 END WHERE id = ?",
+                    (it["qty"], it["qty"], it["qty"], it["product_id"]))
+    other = o["buyer"] if me == o["seller"] else o["seller"]
+    send_order_dm(conn, me, other, f"📦 {tr('order_title')} #{order_id}: {tr('order_status_' + new)}")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "status": new, "label": tr("order_status_" + new)})
+
 
 
 @app.route("/people")
@@ -3217,8 +3919,9 @@ def user_profile(target_username):
         me,
     )
     products = conn.execute(
-        "SELECT * FROM products WHERE seller_username = ? ORDER BY id DESC LIMIT 20", (target_username,)
+        "SELECT * FROM products WHERE seller_username = ? AND status = 'active' ORDER BY id DESC LIMIT 20", (target_username,)
     ).fetchall()
+    target_store = get_store(conn, target_username)
     presence = presence_info(conn, me, target_username, None, target["last_seen_ts"])
     contacts_count = conn.execute("SELECT COUNT(*) AS c FROM contacts WHERE username = ?", (target_username,)).fetchone()["c"]
     conn.close()
@@ -3237,7 +3940,8 @@ def user_profile(target_username):
         presence=presence,
         contacts_count=contacts_count,
         location_text=user_location_text(target),
-        is_business=target["account_type"] == "business",
+        is_business=bool(target_store),
+        store=target_store,
         active="people",
     )
 
@@ -4435,10 +5139,12 @@ def profile():
     user_row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
     contacts_count = conn.execute("SELECT COUNT(*) AS c FROM contacts WHERE username = ?", (username,)).fetchone()["c"]
     feed_new = feed_new_counts(conn, username)
+    my_store = get_store(conn, username)
     conn.close()
 
     return render_template(
         "profile.html",
+        store=my_store,
         username=username,
         avatar_letter=session["avatar_letter"],
         avatar_file=session.get("avatar_file"),
@@ -4447,8 +5153,8 @@ def profile():
         nickname=user_row["nickname"] if user_row else None,
         bio=(user_row["bio"] or "") if user_row else "",
         location_text=user_location_text(user_row) if user_row else "",
-        is_business=bool(user_row and user_row["account_type"] == "business"),
-        business_name=(user_row["business_name"] or "") if user_row else "",
+        is_business=bool(my_store),
+        business_name=(my_store["name"] if my_store else ""),
         contacts_count=contacts_count,
         feed_new=feed_new,
         active="profile",
@@ -4464,11 +5170,12 @@ def profile_edit():
     conn = get_db()
     u = conn.execute("SELECT * FROM users WHERE username = ?", (me,)).fetchone()
 
+    my_store = get_store(conn, me)
+
     def render_form(nickname, form=None):
         data = form or {
             "bio": u["bio"] or "", "phone": u["phone"] or "", "country": u["country"] or "",
             "region": u["region"] or "", "district": u["district"] or "",
-            "account_type": u["account_type"] or "personal", "business_name": u["business_name"] or "",
         }
         return render_template(
             "profile_edit.html",
@@ -4477,6 +5184,7 @@ def profile_edit():
             avatar_file=session.get("avatar_file"),
             nickname=nickname,
             data=data,
+            store=my_store,
             countries=locations.country_list(current_lang()),
         )
 
@@ -4488,10 +5196,7 @@ def profile_edit():
         country = request.form.get("country", "").strip()
         region = request.form.get("region", "").strip()
         district = request.form.get("district", "").strip()
-        account_type = "business" if request.form.get("account_type") == "business" else "personal"
-        business_name = request.form.get("business_name", "").strip()[:40]
-        form = {"bio": bio, "phone": phone_raw, "country": country, "region": region, "district": district,
-                "account_type": account_type, "business_name": business_name}
+        form = {"bio": bio, "phone": phone_raw, "country": country, "region": region, "district": district}
         error = None
         if nickname:
             if not NICK_RE.match(nickname):
@@ -4506,11 +5211,6 @@ def profile_edit():
             error = tr("phone_invalid")
         if not error and not locations.is_valid(country, region, district):
             error = tr("order_location_required")
-        if not error and account_type == "business":
-            if not business_name:
-                error = tr("business_name_required")
-            elif not (phone or u["phone"]):
-                error = tr("phone_invalid")
         if error:
             conn.close()
             flash(error)
@@ -4525,9 +5225,8 @@ def profile_edit():
             conn.execute("UPDATE users SET nickname = ? WHERE username = ?", (nickname, me))
             session["nickname"] = nickname
         conn.execute(
-            "UPDATE users SET bio = ?, phone = ?, country = ?, region = ?, district = ?, account_type = ?, business_name = ? WHERE username = ?",
-            (bio, phone or (u["phone"] if account_type == "business" else ""), country, region, district,
-             account_type, business_name if account_type == "business" else (u["business_name"] or ""), me),
+            "UPDATE users SET bio = ?, phone = ?, country = ?, region = ?, district = ? WHERE username = ?",
+            (bio, phone, country, region, district, me),
         )
         conn.commit()
         conn.close()

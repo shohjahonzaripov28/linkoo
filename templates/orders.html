@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.shoptab_orders }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  {% from '_shop_macros.html' import shop_tabs, order_card with context %}
+  <div class="glass-card feed-card shop-card">
+    <div class="chat-header">
+      <a href="{{ url_for('shop') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.shoptab_orders }}</h1>
+      <a href="{{ url_for('cart') }}" class="cart-link">{{ icon('cart', 22) }}{% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
+    </div>
+    {{ shop_tabs(shop_tab, cart_count) }}
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <div class="orders-list">
+      {% if orders|length == 0 %}{{ empty_state('box', t.orders_empty) }}{% endif %}
+      {% for o in orders %}{{ order_card(o, 'buyer') }}{% endfor %}
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

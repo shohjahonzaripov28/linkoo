@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ store.name }} - Linko</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  {% from '_shop_macros.html' import product_card, shop_tabs with context %}
+  <div class="glass-card feed-card shop-card">
+    <div class="chat-header">
+      <a href="{{ url_for('stores') }}" class="back-link">←</a>
+      <h1 style="font-size:18px;">{{ store.name }}</h1>
+      <a href="{{ url_for('cart') }}" class="cart-link">{{ icon('cart', 22) }}{% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <div class="storefront">
+      <div class="store-banner"{% if store.banner_file %} style="background-image:url('{{ url_for('media', filename=store.banner_file) }}')"{% endif %}></div>
+      <div class="store-head">
+        <div class="store-logo">
+          {% if store.logo_file %}<img class="avatar-circle" src="{{ url_for('media', filename=store.logo_file) }}" alt="">{% else %}<div class="avatar-circle">{{ store.name[:1]|upper }}</div>{% endif %}
+        </div>
+        <div class="store-title">
+          <h2>{{ store.name }} <span class="biz-badge">{{ icon('store', 12) }} {{ t.business_badge }}</span></h2>
+          <div class="store-handle">@{{ store.handle }}</div>
+        </div>
+      </div>
+      {% if store.description %}<p class="store-desc">{{ store.description }}</p>{% endif %}
+      <div class="store-info">
+        {% if place or store.address %}<span>{{ icon('pin', 14) }} {{ place }}{% if store.address %}{% if place %}, {% endif %}{{ store.address }}{% endif %}</span>{% endif %}
+        {% if store.hours %}<span>{{ icon('bell', 14) }} {{ store.hours }}</span>{% endif %}
+        {% if store.category %}<span>{{ cat_icon(store.category) }} {{ cat_name(store.category) }}</span>{% endif %}
+      </div>
+      <div class="hero-stats">
+        <div><b>{{ stats.n }}</b><span>{{ t.product_unit }}</span></div>
+        <div><b>{{ stats.sold }}</b><span>{{ t.store_sold }}</span></div>
+        <div><b>{{ since }}</b><span>{{ t.store_since }}</span></div>
+      </div>
+      <div class="store-actions">
+        {% if owner %}
+          <a class="btn-primary hero-btn" href="{{ url_for('store_manage') }}">{{ icon('dashboard', 16) }} {{ t.store_manage }}</a>
+          <a class="btn-primary hero-btn secondary-btn" href="{{ url_for('store_product_form') }}">{{ icon('plus', 16) }} {{ t.shop_add_title }}</a>
+        {% else %}
+          <a class="btn-primary hero-btn" href="{{ url_for('dm', other_username=store.username) }}">{{ icon('chat', 16) }} {{ t.store_write }}</a>
+          {% if store.phone %}<a class="btn-primary hero-btn secondary-btn" href="tel:{{ store.phone }}">{{ icon('phone', 16) }} {{ t.store_call }}</a>{% endif %}
+        {% endif %}
+        {% if store.telegram %}<a class="icon-link" target="_blank" rel="noopener" href="https://t.me/{{ store.telegram }}" aria-label="Telegram">{{ icon('send', 18) }}</a>{% endif %}
+        {% if store.instagram %}<a class="icon-link" target="_blank" rel="noopener" href="https://instagram.com/{{ store.instagram }}" aria-label="Instagram">{{ icon('camera', 18) }}</a>{% endif %}
+      </div>
+    </div>
+
+    <form method="GET" class="shop-search">
+      <div class="home-search">
+        {{ icon('search', 18) }}
+        {% if f.cat %}<input type="hidden" name="cat" value="{{ f.cat }}">{% endif %}
+        <input type="search" name="q" value="{{ f.q }}" placeholder="{{ t.shop_search }}" enterkeyhint="search">
+      </div>
+      <select name="sort" class="sort-select" onchange="this.form.submit()" aria-label="{{ t.filter_sort }}">
+        <option value="new" {% if f.sort == 'new' %}selected{% endif %}>{{ t.sort_new }}</option>
+        <option value="popular" {% if f.sort == 'popular' %}selected{% endif %}>{{ t.sort_popular }}</option>
+        <option value="cheap" {% if f.sort == 'cheap' %}selected{% endif %}>{{ t.sort_cheap }}</option>
+        <option value="expensive" {% if f.sort == 'expensive' %}selected{% endif %}>{{ t.sort_expensive }}</option>
+      </select>
+    </form>
+
+    {% if chips|length > 1 %}
+    <div class="chip-row">
+      <a class="chip{% if not f.cat %} active{% endif %}" href="{{ url_for('store_page', handle=store.handle, q=f.q or None, sort=f.sort if f.sort != 'new' else None) }}">{{ t.filter_all }}</a>
+      {% for c in chips %}<a class="chip{% if f.cat == c.id %} active{% endif %}" href="{{ url_for('store_page', handle=store.handle, cat=c.id, q=f.q or None, sort=f.sort if f.sort != 'new' else None) }}">{{ cat_icon(c.id) }} {{ cat_name(c.id) }} · {{ c.n }}</a>{% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="shop-grid">
+      {% if products|length == 0 %}{{ empty_state('shop', t.no_products_empty) }}{% endif %}
+      {% for p in products %}{{ product_card(p, username, owner) }}{% endfor %}
+      {% if has_more %}<a class="load-more" href="{{ url_for('store_page', handle=store.handle, page=page+1, **url_args) }}">{{ t.load_more }}</a>{% endif %}
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

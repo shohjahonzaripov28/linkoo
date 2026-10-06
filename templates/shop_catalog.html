@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.shoptab_catalog }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  {% from '_shop_macros.html' import shop_tabs with context %}
+  <div class="glass-card feed-card shop-card">
+    <div class="chat-header">
+      <a href="{{ url_for('shop') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.shoptab_catalog }}</h1>
+      <a href="{{ url_for('cart') }}" class="cart-link">{{ icon('cart', 22) }}{% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
+    </div>
+    {{ shop_tabs(shop_tab, cart_count) }}
+
+    <div class="catalog-list">
+      {% for c in cats %}
+      <details class="catalog-item"{% if loop.first %} open{% endif %}>
+        <summary>
+          <span class="cat-ico big">{{ cat_icon(c.id) }}</span>
+          <span class="cat-title"><b>{{ c.name }}</b><small>{{ c.count }} {{ t.product_unit }}</small></span>
+          <span class="cat-chevron">{{ icon('chevron', 18) }}</span>
+        </summary>
+        <div class="catalog-subs">
+          <a class="sub-link all" href="{{ url_for('shop', cat=c.id) }}">{{ t.filter_all }} <span>{{ c.count }}</span></a>
+          {% for s in c.subs %}
+          <a class="sub-link" href="{{ url_for('shop', cat=c.id, sub=s.id) }}">{{ s.name }} <span>{{ s.count }}</span></a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

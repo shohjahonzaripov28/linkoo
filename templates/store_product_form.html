@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.product_form_edit if editing else t.shop_add_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  {% from '_shop_macros.html' import swatch with context %}
+  <div class="glass-card feed-card shop-card narrow">
+    <div class="chat-header">
+      <a href="{{ url_for('store_manage') }}" class="back-link">←</a>
+      <h1 style="font-size:19px;">{{ t.product_form_edit if editing else t.shop_add_title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <form method="POST" enctype="multipart/form-data" id="pf" class="product-form" autocomplete="off">
+      <div class="pf-section">
+        <div class="pf-label">{{ t.pf_photos }} <small>{{ t.pf_photos_hint }}</small></div>
+        <div class="pf-media" id="pf-media">
+          {% for m in media %}
+          <div class="pm-item" data-existing="{{ m }}">
+            <img src="{{ url_for('media', filename=m) }}" alt="">
+            <button type="button" class="pm-x" aria-label="{{ t.delete }}">✕</button>
+          </div>
+          {% endfor %}
+          <label class="pm-add" id="pm-add">{{ icon('camera', 22) }}<span>{{ t.add_photos_label }}</span>
+            <input type="file" id="pf-files" name="images" accept="image/*" multiple hidden>
+          </label>
+        </div>
+      </div>
+
+      <div class="field"><label>{{ t.pf_title }}</label>
+        <input type="text" name="title" value="{{ p.title }}" maxlength="80" required placeholder="{{ t.product_name_placeholder }}"></div>
+      <div class="field"><label>{{ t.pf_brand }}</label>
+        <input type="text" name="brand" value="{{ p.brand or '' }}" maxlength="40" placeholder="Nike, Samsung..."></div>
+
+      <div class="pf-section">
+        <div class="pf-label">{{ t.pf_category }}</div>
+        <div class="field"><select name="category" id="pf-cat"></select></div>
+        <div class="field" id="pf-sub-wrap" hidden><select name="subcategory" id="pf-sub"></select></div>
+      </div>
+
+      <div class="pf-row">
+        <div class="field"><label>{{ t.pf_price }} ({{ t.currency_sum }})</label>
+          <input type="text" inputmode="numeric" class="money-input" name="price" value="{{ p.price }}" required placeholder="250 000"></div>
+        <div class="field"><label>{{ t.pf_old_price }}</label>
+          <input type="text" inputmode="numeric" class="money-input" name="old_price" value="{{ p.old_price or '' }}" placeholder="300 000"></div>
+      </div>
+      <div class="field"><label>{{ t.pf_stock }}</label>
+        <input type="text" inputmode="numeric" name="stock" value="{{ '' if p.stock is none else p.stock }}" placeholder="{{ t.pf_stock_ph }}"></div>
+
+      <div class="pf-section">
+        <div class="pf-label">{{ t.product_color }} <small>{{ t.pf_colors_hint }}</small></div>
+        <div class="color-grid">
+          {% for c in catalog_json.colors %}
+          <label class="color-opt">
+            <input type="checkbox" name="colors" value="{{ c.id }}" {% if c.id in p.colors_list %}checked{% endif %}>
+            <span class="color-chip">{{ swatch(c.hex, 16) }} {{ c.name }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="pf-section" id="pf-sizes-wrap">
+        <div class="pf-label"><span id="pf-size-title">{{ t.product_size }}</span> <small>{{ t.pf_sizes_hint }}</small>
+          <button type="button" class="link-btn" id="pf-size-all">{{ t.pf_select_all }}</button></div>
+        <div class="size-grid" id="pf-sizes"></div>
+        <div class="field" style="margin-top:8px;"><input type="text" name="custom_sizes" value="{{ p.custom_sizes }}" maxlength="120" placeholder="{{ t.pf_custom_sizes }}"></div>
+      </div>
+
+      <div class="field"><label>{{ t.description_placeholder }}</label>
+        <textarea name="description" rows="4" maxlength="1500" placeholder="{{ t.pf_desc_ph }}">{{ p.description or '' }}</textarea></div>
+
+      {% if channels %}
+      <div class="field"><label>{{ t.pf_channel }}</label>
+        <select name="channel_id">
+          <option value="">{{ t.product_general_shop }}</option>
+          {% for c in channels %}<option value="{{ c.id }}" {% if p.channel_id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+        </select></div>
+      {% endif %}
+
+      <div class="settings-row pref-row" style="cursor:default;">
+        <div class="settings-row-label">{{ icon('eye-off', 18) }} {{ t.pf_hidden }}<small>{{ t.pf_hidden_hint }}</small></div>
+        <label class="switch"><input type="checkbox" name="hidden" value="1" {% if p.status == 'hidden' %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+
+      <button type="submit" class="btn-primary" id="pf-submit" style="margin-top:14px;">{{ t.save if editing else t.sell_btn }}</button>
+    </form>
+  </div>
+
+  <script type="application/json" id="catalog-data">{{ catalog_json|tojson }}</script>
+  <script type="application/json" id="pf-init">{{ {"category": p.category or "", "subcategory": p.subcategory or "", "sizes": p.sizes_list, "all": t.pf_select_all, "none": t.pf_select_none}|tojson }}</script>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

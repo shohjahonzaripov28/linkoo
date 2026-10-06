@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.store_settings_title if editing else t.store_open_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  {% from '_shop_macros.html' import store_tabs with context %}
+  <div class="glass-card feed-card shop-card narrow">
+    <div class="chat-header">
+      <a href="{{ url_for('store_manage') if editing else url_for('shop') }}" class="back-link">←</a>
+      <h1 style="font-size:19px;">{{ t.store_settings_title if editing else t.store_open_title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+    {% if editing %}{{ store_tabs('settings') }}{% endif %}
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+    {% if error %}<div class="flash">{{ error }}</div>{% endif %}
+
+    {% if not editing %}
+    <div class="biz-intro">{{ icon('store', 28) }}<p>{{ t.business_intro }}</p></div>
+    {% endif %}
+
+    <form method="POST" enctype="multipart/form-data" class="store-form" id="store-form" autocomplete="off">
+      <div class="sf-brand">
+        <label class="sf-banner" id="banner-box"{% if data.banner_file %} style="background-image:url('{{ url_for('media', filename=data.banner_file) }}')"{% endif %}>
+          <input type="file" name="banner" accept="image/*" hidden>
+          <span class="sf-pick">{{ icon('image', 18) }} {{ t.store_banner }}</span>
+        </label>
+        <label class="sf-logo" id="logo-box">
+          <input type="file" name="logo" accept="image/*" hidden>
+          {% if data.logo_file %}<img src="{{ url_for('media', filename=data.logo_file) }}" alt="">{% else %}<span class="sf-pick">{{ icon('camera', 20) }}</span>{% endif %}
+        </label>
+      </div>
+      <p class="hint-text center">{{ t.store_logo_hint }}</p>
+      {% if editing %}
+      <div class="sf-remove">
+        {% if data.banner_file %}<label class="check-row"><input type="checkbox" name="remove_banner" value="1"> {{ t.store_remove_banner }}</label>{% endif %}
+        {% if data.logo_file %}<label class="check-row"><input type="checkbox" name="remove_logo" value="1"> {{ t.store_remove_logo }}</label>{% endif %}
+      </div>
+      {% endif %}
+
+      <div class="field"><label>{{ t.business_name_label }}</label>
+        <input type="text" name="name" id="sf-name" value="{{ data.name }}" maxlength="40" required placeholder="Linko Shop"></div>
+      <div class="field"><label>{{ t.store_handle_label }}</label>
+        <div class="handle-input"><span>@</span><input type="text" name="handle" id="sf-handle" value="{{ data.handle }}" maxlength="30" autocapitalize="none" placeholder="linko_shop"></div>
+        <p class="hint-text">{{ t.store_handle_hint }}</p></div>
+      <div class="field"><label>{{ t.store_category_label }}</label>
+        <select name="category">
+          <option value="">{{ t.store_category_any }}</option>
+          {% for c in cats %}<option value="{{ c.id }}" {% if data.category == c.id %}selected{% endif %}>{{ cat_icon(c.id) }} {{ c.name }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>{{ t.store_desc_label }} <span class="count" id="desc-count">{{ (data.description or '')|length }}/300</span></label>
+        <textarea name="description" id="sf-desc" rows="3" maxlength="300" placeholder="{{ t.store_desc_ph }}">{{ data.description or '' }}</textarea></div>
+
+      <label class="section-title" style="display:block; margin:14px 0 6px;">{{ t.store_contacts }}</label>
+      <div class="field"><input type="tel" name="phone" value="{{ data.phone or '' }}" maxlength="20" required placeholder="{{ t.phone_label }} (+998...)"></div>
+      <div class="field"><input type="text" name="telegram" value="{{ data.telegram or '' }}" maxlength="32" autocapitalize="none" placeholder="Telegram (@username)"></div>
+      <div class="field"><input type="text" name="instagram" value="{{ data.instagram or '' }}" maxlength="32" autocapitalize="none" placeholder="Instagram (@username)"></div>
+      <div class="field"><input type="text" name="hours" value="{{ data.hours or '' }}" maxlength="60" placeholder="{{ t.store_hours_ph }}"></div>
+
+      <label class="section-title" style="display:block; margin:14px 0 6px;">{{ t.location_label }}</label>
+      <div data-geo data-required="1" data-region="{{ data.region or '' }}" data-district="{{ data.district or '' }}"
+           data-ph-region="{{ t.geo_pick_region }}" data-ph-district="{{ t.geo_pick_district }}">
+        <div class="field geo-country">
+          <select name="country" class="shop-input" required>
+            <option value="">{{ t.geo_pick_country }}</option>
+            {% for c in countries %}<option value="{{ c.code }}" {% if c.code == data.country %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field geo-region" hidden><select name="region" class="shop-input"></select></div>
+        <div class="field geo-district" hidden><select name="district" class="shop-input"></select></div>
+      </div>
+      <div class="field"><input type="text" name="address" value="{{ data.address or '' }}" maxlength="120" placeholder="{{ t.store_address_ph }}"></div>
+
+      <button type="submit" class="btn-primary" style="margin-top:14px;">{{ t.save if editing else t.business_open_btn }}</button>
+    </form>
+
+    {% if editing %}
+    <div class="danger-zone">
+      <button type="button" class="btn-primary danger-btn" id="store-delete" data-confirm-text="{{ t.store_delete_confirm }}">{{ icon('trash', 16) }} {{ t.store_delete }}</button>
+    </div>
+    {% endif %}
+  </div>
+
+  <script src="{{ url_for('static', filename='geo.js') }}"></script>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

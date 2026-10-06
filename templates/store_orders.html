@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.storetab_orders }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  {% from '_shop_macros.html' import shop_tabs, store_tabs, order_card with context %}
+  <div class="glass-card feed-card shop-card">
+    <div class="chat-header">
+      <a href="{{ url_for('shop') }}" class="back-link">←</a>
+      <h1 style="font-size:19px;">{{ t.store_manage }}</h1>
+      <a href="{{ url_for('store_page', handle=store.handle) }}" class="cart-link">{{ icon('eye', 22) }}</a>
+    </div>
+    {{ shop_tabs(shop_tab, 0) }}
+    {{ store_tabs(store_tab) }}
+
+    <div class="chip-row">
+      <a class="chip{% if st == 'all' %} active{% endif %}" href="{{ url_for('store_orders') }}">{{ t.filter_all }} · {{ total_count }}</a>
+      {% for s in ['new', 'confirmed', 'shipped', 'delivered', 'cancelled'] %}
+      <a class="chip{% if st == s %} active{% endif %}" href="{{ url_for('store_orders', st=s) }}">{{ t['order_status_' ~ s] }}{% if counts.get(s) %} · {{ counts[s] }}{% endif %}</a>
+      {% endfor %}
+    </div>
+
+    <div class="orders-list">
+      {% if orders|length == 0 %}{{ empty_state('box', t.orders_empty_seller) }}{% endif %}
+      {% for o in orders %}{{ order_card(o, 'seller') }}{% endfor %}
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='shop.js') }}"></script>
+  {% include 'navbar.html' %}
+</body>
+</html>

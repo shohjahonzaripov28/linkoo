@@ -15,7 +15,7 @@
     <span class="nav-label">{{ t.nav_shop }}</span>
   </a>
   <a href="{{ url_for('feed') }}" class="nav-item {% if active == 'feed' %}active{% endif %}">
-    <span class="nav-icon">{{ icon('feed', 22) }}</span>
+    <span class="nav-icon">{{ icon('feed', 22) }}<span class="nav-badge" id="nav-feed" {% if not feed_new_total %}style="display:none;"{% endif %}>{{ feed_new_total if feed_new_total < 100 else '99+' }}</span></span>
     <span class="nav-label">{{ t.nav_feed }}</span>
   </a>
   <a href="{{ url_for('profile') }}" class="nav-item {% if active == 'profile' %}active{% endif %}">
@@ -23,6 +23,8 @@
     <span class="nav-label">{{ t.nav_profile }}</span>
   </a>
 </nav>
+<script>window.LINKO_UI = {{ {"ok": t.ui_ok, "cancel": t.cancel, "net": t.err_network}|tojson }};</script>
+<script src="{{ url_for('static', filename='ui.js') }}"></script>
 <script>
   // Ko'p mediali postlarda "2/5" hisoblagichi
   document.addEventListener("scroll", function (e) {
@@ -124,6 +126,7 @@
 
     /* --- o'qilmagan xabarlar + qo'ng'iroq (har 4 soniyada) --- */
     var badge = document.getElementById("nav-unread");
+    var feedBadge = document.getElementById("nav-feed");
     var lastTotal = null, lastMsgId = null;
     function refresh() {
       fetch("/api/unread").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
@@ -131,6 +134,10 @@
         if (badge) {
           badge.textContent = d.total > 99 ? "99+" : d.total;
           badge.style.display = d.total > 0 ? "flex" : "none";
+        }
+        if (feedBadge) {
+          feedBadge.textContent = d.feed > 99 ? "99+" : d.feed;
+          feedBadge.style.display = d.feed > 0 ? "flex" : "none";
         }
         var onCallPage = location.pathname.indexOf("/call/") === 0;
         if (d.call && !onCallPage) showCall(d.call); else if (!d.call) hideCall();
