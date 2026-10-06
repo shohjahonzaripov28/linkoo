@@ -629,6 +629,16 @@ def api_unread():
     return jsonify({"total": total, "call": call, "latest": latest, "feed": feed})
 
 
+
+@app.url_defaults
+def static_cache_bust(endpoint, values):
+    """Telefon brauzeri eski style.css / shop.js ni ushlab qolmasin: fayl o'zgarganda havola ham o'zgaradi"""
+    if endpoint == "static" and "v" not in values and values.get("filename"):
+        try:
+            values["v"] = int(os.path.getmtime(os.path.join(app.static_folder, values["filename"])))
+        except OSError:
+            pass
+
 @app.context_processor
 def inject_translations():
     lang = current_lang()
