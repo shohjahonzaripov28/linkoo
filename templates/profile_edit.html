@@ -45,7 +45,7 @@
         <label>{{ t.nickname_label }}</label>
         <input type="text" name="nickname" value="{{ nickname }}" placeholder="@shoh_uz" maxlength="24" autocapitalize="none" autocomplete="off">
       </div>
-      <p style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:16px;">
+      <p style="font-size:12px; color:rgba(var(--fg),0.6); margin-bottom:16px;">
         {{ t.nick_rules }}
       </p>
 
@@ -72,13 +72,11 @@
         <div class="field geo-district" hidden><select name="district" class="shop-input"></select></div>
       </div>
 
-      <div class="settings-row pref-row biz-toggle" style="cursor:default;">
-        <div class="settings-row-label">{{ icon('store', 18) }} {{ t.business_account }}<small>{{ t.business_account_hint }}</small></div>
-        <label class="switch"><input type="checkbox" name="account_type" value="business" id="biz-sw" {% if data.account_type == 'business' %}checked{% endif %}><span class="slider"></span></label>
-      </div>
-      <div class="field" id="biz-field" {% if data.account_type != 'business' %}hidden{% endif %}>
-        <input type="text" name="business_name" value="{{ data.business_name }}" maxlength="40" placeholder="{{ t.business_name_label }}">
-      </div>
+      <a class="settings-row" href="{{ url_for('store_settings') if store else url_for('store_open') }}" style="margin-top:14px;">
+        <div class="settings-icon-badge">{{ icon('store', 18) }}</div>
+        <div class="settings-row-label">{{ t.business_account }}<small>{{ t.business_account_hint }}</small></div>
+        <span class="seller-go">{{ icon('chevron', 18) }}</span>
+      </a>
 
       <button type="submit" class="btn-primary" style="margin-top:12px;">{{ t.save }}</button>
     </form>
@@ -86,7 +84,6 @@
 
   <script src="{{ url_for('static', filename='geo.js') }}"></script>
   <script>
-    document.getElementById("biz-sw").addEventListener("change", function (e) { document.getElementById("biz-field").hidden = !e.target.checked; });
     var bio = document.getElementById("bio");
     bio.addEventListener("input", function () { document.getElementById("bio-count").textContent = bio.value.length + "/160"; });
   </script>

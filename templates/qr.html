@@ -23,7 +23,7 @@
 
     {% if qr_svg %}
     <div class="qr-box">{{ qr_svg|safe }}</div>
-    <p style="font-size:12px; text-align:center; color:rgba(255,255,255,0.65); padding:0 10px; margin-top:14px;">
+    <p style="font-size:12px; text-align:center; color:rgba(var(--fg),0.65); padding:0 10px; margin-top:14px;">
       {{ t.qr_note }}
     </p>
     <div class="qr-link-row">

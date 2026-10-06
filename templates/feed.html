@@ -10,9 +10,9 @@
   {% from '_icons.html' import icon, empty_state, render_media %}
   <div class="glass-card feed-card feed-v2">
     <div class="chat-header">
-      <a href="{{ url_for('feed') if single else url_for('dashboard') }}" class="back-link">←</a>
+      <a href="{{ url_for('feed') if (single or f == 'activity') else url_for('dashboard') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ t.feed_title }}</h1>
-      <div style="width:36px;"></div>
+      <button type="button" class="back-link theme-toggle" data-theme-toggle aria-label="{{ t.theme_title }}"><span class="ti-moon">{{ icon('moon', 20) }}</span><span class="ti-sun">{{ icon('sun', 20) }}</span></button>
     </div>
 
     {% with messages = get_flashed_messages() %}
@@ -20,25 +20,58 @@
     {% endwith %}
 
     {% if not single %}
-    <div class="feed-chips">
-      <a href="{{ url_for('feed') }}" class="chip {% if f == 'all' %}active{% endif %}">{{ t.chip_all }}</a>
-      <a href="{{ url_for('feed', f='friends') }}" class="chip {% if f == 'friends' %}active{% endif %}">{{ t.chip_friends }}</a>
-    </div>
+    <nav class="feed-tabs" aria-label="feed">
+      <a href="{{ url_for('feed') }}" class="{{ 'active' if f == 'all' }}">{{ t.chip_all }}</a>
+      <a href="{{ url_for('feed', f='friends') }}" class="{{ 'active' if f == 'friends' }}">{{ t.chip_friends }}</a>
+      <a href="{{ url_for('feed', f='activity') }}" class="{{ 'active' if f == 'activity' }}">{{ t.activity_title }}{% if feed_new_total and f != 'activity' %}<i class="tab-dot">{{ feed_new_total if feed_new_total < 100 else '99+' }}</i>{% endif %}</a>
+    </nav>
+    {% endif %}
 
+    {% if f != 'activity' and not single %}
+    <div class="compose-bar" id="compose-bar">
+      {% if my_avatar %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=my_avatar) }}" alt="">{% else %}<div class="avatar-circle tiny">{{ avatar_letter }}</div>{% endif %}
+      <button type="button" class="compose-input" id="compose-open">{{ t.feed_whats_new }}</button>
+      <button type="button" class="compose-photo" id="compose-photo" aria-label="{{ t.gallery_btn }}">{{ icon('image', 22) }}</button>
+    </div>
     <input type="file" id="input-gallery" accept="image/*,video/*" multiple hidden>
     <input type="file" id="input-cam-photo" accept="image/*" capture="environment" hidden>
     <input type="file" id="input-cam-video" accept="video/*" capture="environment" hidden>
     {% endif %}
 
+    {% if f == 'activity' %}
+    <div class="act-feed">
+      {% if not events %}{{ empty_state('feed', t.feed_empty_activity) }}{% endif %}
+      {% for group, title in ((new_events, t.feed_new_label), (old_events, t.feed_earlier)) %}
+      {% if group %}
+      <div class="act-group-title">{{ title }}</div>
+      {% for e in group %}
+      <a class="act-row{% if e.new %} is-new{% endif %}" href="{{ url_for('post_page', post_id=e.post_id) }}">
+        <span class="act-ava">
+          {% if e.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=e.avatar_file) }}" alt="">{% else %}<span class="avatar-circle small">{{ e.letter }}</span>{% endif %}
+          <i class="act-kind {{ e.kind }}">{{ icon('heart-fill' if e.kind == 'like' else 'comment', 11) }}</i>
+        </span>
+        <span class="act-main">
+          <span class="act-line"><b>@{{ e.display }}</b> {{ t.feed_act_liked if e.kind == 'like' else t.feed_act_commented }}{% if e.ago %} <em class="act-ago">{{ e.ago }}</em>{% endif %}</span>
+          {% if e.kind == 'comment' and e.text %}<span class="act-quote">{{ e.text }}</span>{% endif %}
+        </span>
+        {% if e.thumb %}<img class="act-thumb" src="{{ url_for('media', filename=e.thumb) }}" alt="" loading="lazy">{% else %}<span class="act-thumb ph">{{ icon('feed', 18) }}</span>{% endif %}
+        {% if e.new %}<i class="act-new-dot"></i>{% endif %}
+      </a>
+      {% endfor %}
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% else %}
     <div class="feed-list">
       {% if posts|length == 0 %}
         {{ empty_state('feed', t.no_posts_feed_empty) }}
       {% endif %}
 
       {% for post in posts %}
+      {% set has_media = post.media|length > 0 %}
       <article class="post-card" data-post-id="{{ post.id }}" data-owner="{{ 1 if post.is_owner else 0 }}">
         <div class="post-header">
-          <a href="{{ url_for('profile') if post.is_owner else url_for('user_profile', target_username=post.username) }}" class="post-avatar-link">
+          <a href="{{ url_for('profile') if post.is_owner else url_for('user_profile', target_username=post.username) }}" class="post-avatar-link ring">
             {% if post.avatar_file %}
               <img class="avatar-circle small" src="{{ url_for('media', filename=post.avatar_file) }}" alt="">
             {% else %}
@@ -61,28 +94,32 @@
           </div>
         </div>
 
-        {% if post.content %}
-        <div class="post-text">{{ post.content }}</div>
+        {% if post.content and not has_media %}
+        <div class="post-text solo dbl-like">{{ post.content }}</div>
         {% endif %}
 
         {{ render_media(post.media) }}
 
         <div class="post-actions">
-          <button type="button" class="act-btn like-btn {% if post.liked_by_me %}liked{% endif %}">
-            {{ icon('heart', 22) }}<span class="like-count">{{ post.like_count }}</span>
+          <button type="button" class="act-btn like-btn {% if post.liked_by_me %}liked{% endif %}" aria-label="{{ t.stat_likes }}">
+            <span class="ic-off">{{ icon('heart', 26) }}</span><span class="ic-on">{{ icon('heart-fill', 26) }}</span>
           </button>
-          <button type="button" class="act-btn comment-btn">
-            {{ icon('comment', 22) }}<span class="comment-count">{{ post.comment_count }}</span>
-          </button>
-          <button type="button" class="act-btn share-btn">
-            {{ icon('share', 22) }}<span class="share-count">{{ post.share_count }}</span>
-          </button>
+          <button type="button" class="act-btn comment-btn" aria-label="{{ t.activity_comments }}">{{ icon('comment', 25) }}</button>
+          <button type="button" class="act-btn share-btn" aria-label="share">{{ icon('share', 25) }}</button>
           <span class="act-spacer"></span>
-          <span class="act-views" title="{{ t.stat_views }}">{{ icon('eye', 18) }}<span class="views-count">{{ post.view_count }}</span></span>
+          <span class="act-views" title="{{ t.stat_views }}">{{ icon('eye', 17) }}<span class="views-count">{{ post.view_count }}</span></span>
           {% if post.is_owner or is_admin %}
-          <button type="button" class="stats-btn menu-stats">{{ icon('chart', 16) }} {{ t.stats_btn }}</button>
+          <button type="button" class="stats-btn menu-stats">{{ icon('chart', 16) }}</button>
           {% endif %}
         </div>
+
+        <div class="post-likes"><b class="like-count">{{ post.like_count }}</b> <span>{{ t.feed_likes_word }}</span><span class="share-line"> · <span class="share-count">{{ post.share_count }}</span> {{ t.stat_shares|lower }}</span></div>
+
+        {% if post.content and has_media %}
+        <div class="post-caption{% if post.content|length > 140 %} clamp{% endif %}"><a class="cap-author" href="{{ url_for('profile') if post.is_owner else url_for('user_profile', target_username=post.username) }}">@{{ post.display }}</a> <span class="caption-text">{{ post.content }}</span>{% if post.content|length > 140 %}<button type="button" class="cap-more">{{ t.feed_more }}</button>{% endif %}</div>
+        {% endif %}
+
+        <button type="button" class="view-comments">{% if post.comment_count %}{{ t.feed_view_comments.replace('{n}', post.comment_count|string) }}{% else %}{{ t.feed_add_comment }}{% endif %}<span class="comment-count" hidden>{{ post.comment_count }}</span></button>
 
         <div class="comments-panel" hidden>
           <div class="comments-list"></div>
@@ -101,13 +138,10 @@
       <a href="{{ url_for('feed', f=f) }}" class="load-more secondary">← {{ t.feed_title }}</a>
       {% endif %}
     </div>
+    {% endif %}
   </div>
 
-  {% if not single %}
-  <button type="button" class="fab" id="fab" aria-label="{{ t.new_post_title }}">{{ icon('plus', 28) }}</button>
-  {% endif %}
-
-  {% if not single %}
+  {% if not single and f != 'activity' %}
   <div class="modal-overlay sheet-overlay" id="composer-overlay" hidden>
     <div class="modal-card sheet-card">
       <div class="modal-head">
@@ -165,6 +199,10 @@
       copied: "{{ t.link_copied }}",
       noComments: "{{ t.no_comments }}",
       nobody: "{{ t.stat_nobody }}",
+      viewAll: "{{ t.feed_view_comments }}",
+      addComment: "{{ t.feed_add_comment }}",
+      less: "{{ t.feed_less }}",
+      more: "{{ t.feed_more }}",
     };
     const ME = "{{ username }}";
     const SINGLE = {{ 'true' if single else 'false' }};
@@ -276,7 +314,8 @@
       function closeComposer() { overlay.hidden = true; }
       document.getElementById("composer-close").addEventListener("click", closeComposer);
       overlay.addEventListener("click", (e) => { if (e.target === overlay) closeComposer(); });
-      document.getElementById("fab").addEventListener("click", () => inputs.gallery.click());
+      document.getElementById("compose-open").addEventListener("click", openComposer);
+      document.getElementById("compose-photo").addEventListener("click", () => inputs.gallery.click());
       // Galereya yopilsa (fayl tanlanmasa) - faqat matnli post yozish oynasi ochiladi
       inputs.gallery.addEventListener("cancel", openComposer);
       Object.values(inputs).forEach((input) => {
@@ -356,7 +395,14 @@
       }
       return row;
     }
-    function setCommentCount(card, n) { card.querySelector(".comment-count").textContent = n; }
+    function setCommentCount(card, n) {
+      card.querySelector(".comment-count").textContent = n;
+      const vc = card.querySelector(".view-comments");
+      if (vc) {
+        const label = n > 0 ? L.viewAll.replace("{n}", n) : L.addComment;
+        vc.firstChild.nodeType === 3 ? (vc.firstChild.nodeValue = label) : vc.insertBefore(document.createTextNode(label), vc.firstChild);
+      }
+    }
     function renderComments(card, comments) {
       const list = card.querySelector(".comments-list");
       list.innerHTML = "";
@@ -420,6 +466,55 @@
       } catch (e) { modal.hidden = true; toast(L.netError); }
     }
 
+    /* ---------------- Layk: Instagram uslubi ---------------- */
+    const liking = new Set();
+    async function toggleLike(card, btn, forceOn) {
+      const id = card.dataset.postId;
+      btn = btn || card.querySelector(".like-btn");
+      if (forceOn && btn.classList.contains("liked")) return;
+      if (liking.has(id)) return;
+      liking.add(id);
+      const wasLiked = btn.classList.contains("liked");
+      const countEl = card.querySelector(".like-count");
+      const prev = parseInt(countEl.textContent, 10) || 0;
+      // darhol (optimistik) ko'rsatamiz
+      btn.classList.toggle("liked", !wasLiked);
+      if (!wasLiked) { btn.classList.remove("pop"); void btn.offsetWidth; btn.classList.add("pop"); }
+      countEl.textContent = Math.max(0, prev + (wasLiked ? -1 : 1));
+      try {
+        const data = await postJSON(`/api/like/${id}`);
+        countEl.textContent = data.like_count;
+        btn.classList.toggle("liked", data.liked);
+      } catch (err) {
+        btn.classList.toggle("liked", wasLiked);
+        countEl.textContent = prev;
+        toast(L.netError);
+      }
+      liking.delete(id);
+    }
+    function heartBurst(host) {
+      const h = document.createElement("div");
+      h.className = "heart-burst";
+      h.innerHTML = '<svg viewBox="0 0 24 24" width="96" height="96" fill="currentColor"><path d="M12 20.5s-7.5-4.6-7.5-10.3A4.2 4.2 0 0 1 12 7.8a4.2 4.2 0 0 1 7.5 2.4c0 5.7-7.5 10.3-7.5 10.3Z"/></svg>';
+      host.appendChild(h);
+      setTimeout(() => h.remove(), 800);
+    }
+    // ikki marta bosish (telefonda ham, kompyuterda ham) -> layk
+    let lastTap = { t: 0, el: null };
+    function onDouble(host, card) {
+      heartBurst(host);
+      toggleLike(card, null, true);
+    }
+    document.addEventListener("click", (e) => {
+      const host = e.target.closest(".media-gallery, .dbl-like");
+      if (!host || e.target.closest("video, a, button")) return;
+      const card = host.closest(".post-card");
+      if (!card) return;
+      const now = Date.now();
+      if (lastTap.el === host && now - lastTap.t < 320) { lastTap = { t: 0, el: null }; onDouble(host, card); }
+      else lastTap = { t: now, el: host };
+    });
+
     document.addEventListener("click", async (e) => {
       const card = e.target.closest(".post-card");
 
@@ -449,7 +544,7 @@
       }
       if (e.target.closest(".menu-delete")) {
         card.querySelector(".post-menu").hidden = true;
-        if (!confirm(L.confirmDelete)) return;
+        if (!(await window.linkoConfirm(L.confirmDelete))) return;
         try {
           const data = await postJSON(`/api/posts/delete/${card.dataset.postId}`);
           if (data.ok) card.remove();
@@ -457,15 +552,15 @@
         return;
       }
       const likeBtn = e.target.closest(".like-btn");
-      if (likeBtn) {
-        try {
-          const data = await postJSON(`/api/like/${card.dataset.postId}`);
-          likeBtn.querySelector(".like-count").textContent = data.like_count;
-          likeBtn.classList.toggle("liked", data.liked);
-        } catch (err) { toast(L.netError); }
+      if (likeBtn) { toggleLike(card, likeBtn); return; }
+      const moreBtn = e.target.closest(".cap-more");
+      if (moreBtn) {
+        const cap = card.querySelector(".post-caption");
+        const open = cap.classList.toggle("clamp");
+        moreBtn.textContent = open ? L.more : L.less;
         return;
       }
-      if (e.target.closest(".comment-btn")) {
+      if (e.target.closest(".comment-btn") || e.target.closest(".view-comments")) {
         const panel = card.querySelector(".comments-panel");
         panel.hidden = !panel.hidden;
         if (!panel.hidden) {
@@ -478,7 +573,7 @@
       if (e.target.closest(".share-btn")) { sharePost(card); return; }
       const del = e.target.closest(".comment-del");
       if (del) {
-        if (!confirm(L.confirmDeleteComment)) return;
+        if (!(await window.linkoConfirm(L.confirmDeleteComment))) return;
         const item = del.closest(".comment-item");
         try {
           const data = await postJSON(`/api/comments/delete/${item.dataset.id}`);

@@ -25,6 +25,7 @@
         {{ icon('bell', 20) }}
         {% if pending_count > 0 %}<span class="notif-badge">{{ pending_count }}</span>{% endif %}
       </a>
+      <button type="button" class="settings-icon-inline theme-toggle" data-theme-toggle title="{{ t.theme_title }}" aria-label="{{ t.theme_title }}"><span class="ti-moon">{{ icon('moon', 20) }}</span><span class="ti-sun">{{ icon('sun', 20) }}</span></button>
       <a href="{{ url_for('qr_page') }}" class="settings-icon-inline" title="QR">
         {{ icon('qr', 20) }}
       </a>
@@ -37,6 +38,19 @@
       {{ icon('search', 18) }}
       <input type="text" name="q" placeholder="{{ t.search_placeholder }}">
     </form>
+
+    {% if feed_new.total %}
+    <a href="{{ url_for('feed', f='activity') }}" class="activity-banner">
+      <span class="banner-ico">{{ icon('heart-fill', 20) }}</span>
+      <span class="banner-text">
+        <b>{{ t.activity_banner_title }}</b>
+        <span>
+          {% if feed_new.likes %}❤ {{ feed_new.likes }} {{ t.activity_likes_word }}{% endif %}{% if feed_new.likes and feed_new.comments %} · {% endif %}{% if feed_new.comments %}💬 {{ feed_new.comments }} {{ t.activity_comments_word }}{% endif %}
+        </span>
+      </span>
+      <span class="chevron">{{ icon('chevron', 16) }}</span>
+    </a>
+    {% endif %}
 
     <p class="section-title">{{ t.main_sections }}</p>
     <div class="compact-grid">
@@ -53,11 +67,14 @@
       {% endif %}
       {% for u in recent_chats %}
       <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row {% if u.unread %}has-unread{% endif %}">
+        <span class="avatar-wrap">
         {% if u.avatar_file %}
           <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ u.avatar_letter }}</div>
         {% endif %}
+          {% if u.online %}<i class="presence-dot on"></i>{% endif %}
+        </span>
         <div class="person-main">
           <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
           <div class="person-sub">

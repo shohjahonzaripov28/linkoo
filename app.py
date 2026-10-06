@@ -867,6 +867,13 @@ def unique_handle(conn, base, exclude_username=None):
         handle = base[: 30 - len(suffix)] + suffix
 
 
+def ensure_v11_tables(conn):
+    """v11: layklarga vaqt belgisi (faollik ro'yxati tartibi uchun)."""
+    add_column_if_missing(conn, "likes", "created_ts", "BIGINT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_likes_post ON likes (post_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_post ON post_comments (post_id)")
+
+
 def ensure_v10_tables(conn):
     """v10: do'kon profillari, kategoriyalar katalogi, ombor, chegirma, buyurtma holatlari."""
     pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
@@ -1056,6 +1063,7 @@ def init_db_postgres():
     ensure_extra_tables(conn)
     ensure_v9_tables(conn)
     ensure_v10_tables(conn)
+    ensure_v11_tables(conn)
 
     conn.commit()
     conn.close()
@@ -1220,6 +1228,7 @@ def init_db_sqlite():
     ensure_extra_tables(conn)
     ensure_v9_tables(conn)
     ensure_v10_tables(conn)
+    ensure_v11_tables(conn)
 
     conn.commit()
     conn.close()
@@ -1544,6 +1553,10 @@ BRAND_HEAD = (
     '<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">'
     '<link rel="manifest" href="/manifest.webmanifest">'
     '<meta name="theme-color" content="#0f1226">'
+    '<script>(function(){try{var m=localStorage.getItem("linko_theme")||"dark";'
+    'if(m==="auto")m=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";'
+    'document.documentElement.setAttribute("data-theme",m==="light"?"light":"dark");}catch(e){}})();</script>'
+    '<script src="/static/theme.js" defer></script>'
 )
 
 
@@ -1933,8 +1946,21 @@ def feed():
         return redirect(url_for("feed"))
 
     page = max(request.args.get("page", 1, type=int) or 1, 1)
-    f = "friends" if request.args.get("f") == "friends" else "all"
+    f = request.args.get("f")
+    f = f if f in ("friends", "activity") else "all"
     conn = get_db()
+    if f == "activity":
+        events = build_activity(conn, me)
+        # ko'rildi deb belgilaymiz (yangi belgisi ketadi)
+        conn.execute("UPDATE users SET seen_like_id = (SELECT COALESCE(MAX(id), 0) FROM likes), "
+                     "seen_comment_id = (SELECT COALESCE(MAX(id), 0) FROM post_comments) WHERE username = ?", (me,))
+        conn.commit()
+        conn.close()
+        return render_template(
+            "feed.html", username=me, avatar_letter=session["avatar_letter"], posts=[], page=1, has_more=False,
+            f="activity", single=False, active="feed", events=events,
+            new_events=[e for e in events if e["new"]], old_events=[e for e in events if not e["new"]],
+        )
     if f == "friends":
         rows = conn.execute(
             """SELECT * FROM posts
@@ -1949,19 +1975,61 @@ def feed():
         ).fetchall()
     has_more = len(rows) > PAGE_SIZE
     cards = build_post_cards(conn, rows[:PAGE_SIZE], me)
+    me_row = conn.execute("SELECT avatar_file, nickname FROM users WHERE username = ?", (me,)).fetchone()
     conn.close()
 
     return render_template(
         "feed.html",
         username=me,
         avatar_letter=session["avatar_letter"],
+        my_avatar=(me_row["avatar_file"] if me_row else None),
         posts=cards,
         page=page,
         has_more=has_more,
         f=f,
         single=False,
         active="feed",
+        events=[], new_events=[], old_events=[],
     )
+
+
+def build_activity(conn, me, limit=60):
+    """Postlarimga bosilgan layklar va yozilgan izohlar - yagona vaqt ro'yxati (Instagram 'Faollik' kabi)."""
+    u = conn.execute("SELECT seen_like_id, seen_comment_id FROM users WHERE username = ?", (me,)).fetchone()
+    seen_l, seen_c = ((u["seen_like_id"] or 0), (u["seen_comment_id"] or 0)) if u else (0, 0)
+    events = []
+    for r in conn.execute(
+        """SELECT l.id, l.post_id, l.username, l.created_ts, u.nickname, u.avatar_letter, u.avatar_file, p.image_file
+           FROM likes l JOIN posts p ON p.id = l.post_id LEFT JOIN users u ON u.username = l.username
+           WHERE p.username = ? AND l.username != ? ORDER BY l.id DESC LIMIT ?""", (me, me, limit)).fetchall():
+        events.append({"kind": "like", "id": r["id"], "post_id": r["post_id"], "username": r["username"],
+                       "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
+                       "avatar_file": r["avatar_file"], "text": "", "ts": r["created_ts"] or 0, "when": "",
+                       "thumb": r["image_file"], "new": r["id"] > seen_l})
+    for r in conn.execute(
+        """SELECT c.id, c.post_id, c.username, c.content, c.created_at, c.created_ts, u.nickname, u.avatar_letter, u.avatar_file, p.image_file
+           FROM post_comments c JOIN posts p ON p.id = c.post_id LEFT JOIN users u ON u.username = c.username
+           WHERE p.username = ? AND c.username != ? ORDER BY c.id DESC LIMIT ?""", (me, me, limit)).fetchall():
+        events.append({"kind": "comment", "id": r["id"], "post_id": r["post_id"], "username": r["username"],
+                       "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
+                       "avatar_file": r["avatar_file"], "text": (r["content"] or "")[:160], "ts": r["created_ts"] or 0,
+                       "when": r["created_at"] or "", "thumb": r["image_file"], "new": r["id"] > seen_c})
+    events.sort(key=lambda e: (e["ts"], e["id"]), reverse=True)
+    events = events[:limit]
+    # postning birinchi rasmi (kichik rasm uchun)
+    pids = list({e["post_id"] for e in events})
+    thumbs = {}
+    if pids:
+        marks = ",".join("?" for _ in pids)
+        for r in conn.execute(
+            f"SELECT post_id, filename, kind FROM post_media WHERE post_id IN ({marks}) ORDER BY position, id", tuple(pids)
+        ).fetchall():
+            if r["post_id"] not in thumbs and r["kind"] == "image":
+                thumbs[r["post_id"]] = r["filename"]
+    for e in events:
+        e["thumb"] = thumbs.get(e["post_id"]) or e["thumb"]
+        e["ago"] = time_ago(e["ts"], e["when"]) if e["ts"] else e["when"]
+    return events
 
 
 @app.route("/post/<int:post_id>")
@@ -2315,8 +2383,8 @@ def api_like(post_id):
         liked = False
     else:
         conn.execute(
-            "INSERT INTO likes (post_id, username) VALUES (?, ?)",
-            (post_id, session["username"]),
+            "INSERT INTO likes (post_id, username, created_ts) VALUES (?, ?, ?)",
+            (post_id, session["username"], int(time.time())),
         )
         liked = True
 
@@ -5645,71 +5713,8 @@ def api_ai_send():
 
 @app.route("/feed/activity")
 def feed_activity():
-    """Postlarimdagi layk va izohlar: kim layk bosgan, kim izoh yozgan."""
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-    me = session["username"]
-    conn = get_db()
-    u = conn.execute("SELECT seen_like_id, seen_comment_id FROM users WHERE username = ?", (me,)).fetchone()
-    seen_l, seen_c = (u["seen_like_id"] or 0, u["seen_comment_id"] or 0) if u else (0, 0)
-
-    posts = conn.execute("SELECT id, content, image_file, created_at, created_ts FROM posts WHERE username = ? ORDER BY id DESC LIMIT 60", (me,)).fetchall()
-    ids = [p["id"] for p in posts]
-    likes_by_post, comments_by_post, thumbs = {}, {}, {}
-    if ids:
-        marks = ",".join("?" for _ in ids)
-        for r in conn.execute(
-            f"""SELECT l.id, l.post_id, l.username, u.nickname, u.avatar_letter, u.avatar_file FROM likes l
-                LEFT JOIN users u ON u.username = l.username
-                WHERE l.post_id IN ({marks}) AND l.username != ? ORDER BY l.id DESC""",
-            (*ids, me),
-        ).fetchall():
-            likes_by_post.setdefault(r["post_id"], []).append({
-                "username": r["username"], "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
-                "avatar_file": r["avatar_file"], "new": r["id"] > seen_l, "id": r["id"]})
-        for r in conn.execute(
-            f"""SELECT c.id, c.post_id, c.username, c.content, c.created_at, u.nickname, u.avatar_letter, u.avatar_file FROM post_comments c
-                LEFT JOIN users u ON u.username = c.username
-                WHERE c.post_id IN ({marks}) AND c.username != ? ORDER BY c.id DESC""",
-            (*ids, me),
-        ).fetchall():
-            comments_by_post.setdefault(r["post_id"], []).append({
-                "username": r["username"], "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
-                "avatar_file": r["avatar_file"], "text": r["content"], "when": r["created_at"], "new": r["id"] > seen_c, "id": r["id"]})
-        for r in conn.execute(
-            f"SELECT post_id, filename, kind FROM post_media WHERE post_id IN ({marks}) ORDER BY position, id", tuple(ids)
-        ).fetchall():
-            if r["post_id"] not in thumbs and r["kind"] == "image":
-                thumbs[r["post_id"]] = r["filename"]
-    cards = []
-    for p in posts:
-        lk, cm = likes_by_post.get(p["id"], []), comments_by_post.get(p["id"], [])
-        if not lk and not cm:
-            continue
-        cards.append({
-            "id": p["id"], "text": (p["content"] or "")[:90], "thumb": thumbs.get(p["id"]) or p["image_file"],
-            "ago": time_ago(p["created_ts"], p["created_at"]),
-            "likes": lk, "comments": cm,
-            "new_likes": sum(1 for x in lk if x["new"]), "new_comments": sum(1 for x in cm if x["new"]),
-            "sort": (sum(1 for x in lk if x["new"]) + sum(1 for x in cm if x["new"]), p["id"]),
-        })
-    cards.sort(key=lambda c: c["sort"], reverse=True)
-    totals = feed_new_counts(conn, me)
-    # ko'rildi deb belgilaymiz
-    conn.execute("UPDATE users SET seen_like_id = (SELECT COALESCE(MAX(id), 0) FROM likes), "
-                 "seen_comment_id = (SELECT COALESCE(MAX(id), 0) FROM post_comments) WHERE username = ?", (me,))
-    conn.commit()
-    conn.close()
-    return render_template(
-        "feed_activity.html",
-        username=me,
-        avatar_letter=session["avatar_letter"],
-        cards=cards,
-        new_likes=totals["likes"],
-        new_comments=totals["comments"],
-        tab=("comments" if request.args.get("tab") == "comments" else "likes"),
-        active="feed",
-    )
+    """Eski havola: faollik endi feed ichida (Faollik tabi)."""
+    return redirect(url_for("feed", f="activity"))
 
 
 @app.route("/logout")

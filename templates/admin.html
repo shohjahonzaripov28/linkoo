@@ -35,7 +35,7 @@
             <div class="avatar-circle small">{{ u.avatar_letter }}</div>
           {% endif %}
           <div class="person-main">
-            <a href="{{ url_for('user_profile', target_username=u.username) }}" class="person-name" style="color:#fff; text-decoration:none;">@{{ u.nickname if u.nickname else u.username }}</a>
+            <a href="{{ url_for('user_profile', target_username=u.username) }}" class="person-name" style="color:var(--text); text-decoration:none;">@{{ u.nickname if u.nickname else u.username }}</a>
             <div class="person-sub">{{ u.username }}
               {% if u.is_admin_user %} · <span class="admin-chip">{{ t.admin_badge }}</span>{% endif %}
               <span class="blocked-tag" {% if not u.blocked_id %}style="display:none;"{% endif %}> · <span class="admin-chip danger">{{ t.blocked_label }}</span></span>
@@ -106,7 +106,7 @@
     document.querySelectorAll(".admin-block-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const isBlocked = btn.dataset.blocked === "1";
-        if (!isBlocked && !confirm(confirmBlockText)) return;
+        if (!isBlocked && !(await window.linkoConfirm(confirmBlockText))) return;
         btn.disabled = true;
         try {
           const res = await fetch(`/api/admin/${isBlocked ? "unblock" : "block"}/${btn.dataset.user}`, { method: "POST" });
@@ -122,7 +122,7 @@
 
     document.querySelectorAll(".admin-del-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        if (!confirm(confirmDeleteItem)) return;
+        if (!(await window.linkoConfirm(confirmDeleteItem))) return;
         const url = btn.dataset.kind === "posts" ? `/api/posts/delete/${btn.dataset.id}` : `/api/products/delete/${btn.dataset.id}`;
         try {
           const res = await fetch(url, { method: "POST" });

@@ -37,9 +37,14 @@
         <div><b>{{ products|length }}</b><span>{{ t.product_unit }}</span></div>
         <div><b>{{ contacts_count }}</b><span>{{ t.nav_contacts }}</span></div>
       </div>
+      <a class="profile-store-card" href="{{ url_for('store_manage') }}">
+        {% if store and store.logo_file %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=store.logo_file) }}" alt="">{% else %}<span class="psc-ico">{{ icon('store', 18) }}</span>{% endif %}
+        <div><b>{{ store.name if store else t.profile_open_store }}</b><small>{{ ('@' ~ store.handle) if store else t.profile_open_store_hint }}</small></div>
+        <span class="seller-go">{{ icon('chevron', 18) }}</span>
+      </a>
       <div class="hero-actions">
         <a href="{{ url_for('profile_edit') }}" class="btn-primary hero-btn">{{ icon('edit', 16) }} {{ t.edit_profile_title }}</a>
-        <a href="{{ url_for('feed_activity') }}" class="btn-primary hero-btn secondary-btn">{{ icon('heart', 16) }} {{ t.activity_title }}{% if feed_new.total %}<span class="notif-badge inline">{{ feed_new.total }}</span>{% endif %}</a>
+        <a href="{{ url_for('feed', f='activity') }}" class="btn-primary hero-btn secondary-btn">{{ icon('heart', 16) }} {{ t.activity_title }}{% if feed_new.total %}<span class="notif-badge inline">{{ feed_new.total }}</span>{% endif %}</a>
       </div>
     </div>
 
