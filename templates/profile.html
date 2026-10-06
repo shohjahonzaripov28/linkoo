@@ -15,19 +15,33 @@
       <a href="{{ url_for('settings_page') }}" class="back-link" title="{{ t.open_settings }}">{{ icon('settings', 22) }}</a>
     </div>
 
-    <div class="profile-avatar-wrap">
-      {% if avatar_file %}
-        <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="" style="margin-bottom:8px;">
-      {% else %}
-        <div class="avatar-circle" style="margin-bottom:8px;">{{ avatar_letter }}</div>
-      {% endif %}
-      <a href="{{ url_for('profile_edit') }}" class="edit-pencil">✏️</a>
+    <div class="profile-hero">
+      <div class="hero-cover"></div>
+      <div class="hero-avatar">
+        {% if avatar_file %}
+          <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="">
+        {% else %}
+          <div class="avatar-circle">{{ avatar_letter }}</div>
+        {% endif %}
+        <a href="{{ url_for('profile_edit') }}" class="edit-pencil" aria-label="{{ t.edit_profile_title }}">{{ icon('edit', 16) }}</a>
+      </div>
+      <h1 class="hero-name">{{ nickname if nickname else username }}
+        {% if is_business %}<span class="biz-badge">{{ icon('store', 12) }} {{ t.business_badge }}</span>{% endif %}
+      </h1>
+      <div class="hero-nick">@{{ username }}</div>
+      {% if is_business and business_name %}<div class="hero-biz">{{ business_name }}</div>{% endif %}
+      {% if bio %}<p class="hero-bio">{{ bio }}</p>{% endif %}
+      {% if location_text %}<div class="hero-loc">{{ icon('pin', 14) }} {{ location_text }}</div>{% endif %}
+      <div class="hero-stats">
+        <div><b>{{ posts|length }}</b><span>{{ t.post_unit }}</span></div>
+        <div><b>{{ products|length }}</b><span>{{ t.product_unit }}</span></div>
+        <div><b>{{ contacts_count }}</b><span>{{ t.nav_contacts }}</span></div>
+      </div>
+      <div class="hero-actions">
+        <a href="{{ url_for('profile_edit') }}" class="btn-primary hero-btn">{{ icon('edit', 16) }} {{ t.edit_profile_title }}</a>
+        <a href="{{ url_for('feed_activity') }}" class="btn-primary hero-btn secondary-btn">{{ icon('heart', 16) }} {{ t.activity_title }}{% if feed_new.total %}<span class="notif-badge inline">{{ feed_new.total }}</span>{% endif %}</a>
+      </div>
     </div>
-    <h1 style="font-size:22px; text-align:center;">@{{ nickname if nickname else username }}</h1>
-    {% if nickname %}
-    <p class="subtitle" style="margin-bottom:2px;">{{ username }}</p>
-    {% endif %}
-    <p class="subtitle" style="margin-bottom:20px;">{{ posts|length }} {{ t.post_unit }} &nbsp;·&nbsp; {{ products|length }} {{ t.product_unit }}</p>
 
     <div class="profile-tabs">
       <button class="tab-btn active" data-tab="posts-tab">{{ t.posts_tab }}</button>
@@ -47,17 +61,17 @@
       {% endfor %}
     </div>
 
-    <div id="products-tab" class="feed-list tab-panel" style="display:none;">
+    <div id="products-tab" class="shop-grid tab-panel" style="display:none;">
       {% if products|length == 0 %}
         {{ empty_state('shop', t.no_products_yet) }}
       {% endif %}
       {% for p in products %}
       <div class="product-card">
-        {% if p.image_file %}
-        <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">
-        {% endif %}
+        <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-media">
+          {% if p.image_file %}<img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">{% else %}<div class="product-image product-noimg">{{ icon('shop', 30) }}</div>{% endif %}
+        </a>
         <div class="product-info">
-          <div class="product-title">{{ p.title }}</div>
+          <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-title">{{ p.title }}</a>
           <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
         </div>
       </div>
@@ -71,7 +85,7 @@
         document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
         document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
         btn.classList.add("active");
-        document.getElementById(btn.dataset.tab).style.display = "flex";
+        document.getElementById(btn.dataset.tab).style.display = (btn.dataset.tab === "products-tab" ? "grid" : "flex");
       });
     });
   </script>

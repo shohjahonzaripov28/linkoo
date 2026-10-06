@@ -1,6 +1,5 @@
-{# "Chatlar" ichidagi 3 bo'lim: Guruh, Shaxsiy, Kontakt #}
+{# "Chatlar" ichidagi 2 bo'lim: Chatlar (shaxsiy, guruh, kanal) va Kontaktlar #}
 <div class="chat-tabs">
-  <a href="{{ url_for('groups_list') }}" class="chat-tab {% if active == 'groups' %}active{% endif %}">{{ t.nav_groups }}</a>
-  <a href="{{ url_for('shaxsiy') }}" class="chat-tab {% if active == 'shaxsiy' %}active{% endif %}">{{ t.nav_personal }}</a>
+  <a href="{{ url_for('shaxsiy') }}" class="chat-tab {% if active in ('shaxsiy', 'groups') %}active{% endif %}">{{ t.nav_chats }}</a>
   <a href="{{ url_for('people') }}" class="chat-tab {% if active == 'people' %}active{% endif %}">{{ t.nav_contacts }}</a>
 </div>

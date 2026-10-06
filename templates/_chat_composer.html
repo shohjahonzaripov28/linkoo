@@ -1,6 +1,20 @@
 {# Chat yozish paneli (shaxsiy va guruh chatlarida bir xil): matn, rasm, stiker/emoji, ovozli va video xabar, reply #}
 {% from '_icons.html' import icon %}
+{% set _member = is_member if is_member is defined else True %}
+{% set _can_post = can_post if can_post is defined else True %}
 <div id="messages" class="messages-box wp-{{ prefs.wallpaper }}"></div>
+
+{% if not _can_post %}
+<div class="readonly-bar">
+  {% if not _member %}
+    <button type="button" class="btn-primary join-btn" id="join-btn">{{ t.channel_join }}</button>
+  {% else %}
+    <span>{{ t.channel_readonly }}</span>
+  {% endif %}
+</div>
+{% endif %}
+
+<div id="composer-wrap" {% if not _can_post %}hidden{% endif %}>
 
 <div id="reply-bar" class="reply-bar" hidden>
   <span class="reply-bar-ico">{{ icon('reply', 18) }}</span>
@@ -54,6 +68,15 @@
   </div>
 </div>
 
+</div>
+
+<div class="modal-overlay sheet-overlay" id="lang-sheet" hidden>
+  <div class="modal-card sheet-card lang-card">
+    <div class="action-preview">{{ t.translate_to }}</div>
+    <div id="lang-list" class="lang-list"></div>
+  </div>
+</div>
+
 <div class="modal-overlay sheet-overlay" id="action-sheet" hidden>
   <div class="modal-card sheet-card action-card">
     <div class="action-preview" id="action-preview"></div>
@@ -69,6 +92,9 @@
 <script type="application/json" id="chat-cfg">
 {{ {
   "enterToSend": prefs.enter_to_send,
+  "canPost": _can_post,
+  "langs": translate_langs.items()|list,
+  "defaultLang": (prefs.translate_lang if prefs.translate_lang != 'auto' else lang),
   "shrinkImages": prefs.shrink_images,
   "t": {
     "reply": t.msg_reply, "translating": t.msg_translating, "translateSame": t.translate_same,
@@ -76,7 +102,7 @@
     "micDenied": t.mic_denied, "camDenied": t.camera_denied, "net": t.err_network, "upload": t.upload_failed,
     "voice": t.msg_voice, "vnote": t.msg_video_note, "sticker": t.msg_sticker, "photo": t.photo_msg,
     "callAudio": t.call_audio, "callVideo": t.call_video, "callMissed": t.call_missed, "callDeclined": t.call_declined,
-    "confirmDelete": t.confirm_delete_post
+    "confirmDelete": t.confirm_delete_post, "translate": t.msg_translate, "order": t.order_title
   }
 }|tojson }}
 </script>

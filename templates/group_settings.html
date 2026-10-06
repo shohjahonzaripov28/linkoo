@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ group.name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  {% set is_channel = group.kind == 'channel' %}
+  {% set is_owner = role == 'owner' or is_admin %}
+  {% set is_manager = role in ('owner', 'admin') or is_admin %}
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('group_chat', group_id=group.id) }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.group_settings }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <div class="group-hero">
+      {% if group.avatar_file %}
+        <img class="avatar-circle" src="{{ url_for('media', filename=group.avatar_file) }}" alt="">
+      {% else %}
+        <div class="avatar-circle {{ 'is-channel' if is_channel }}">{{ group.avatar_letter }}</div>
+      {% endif %}
+      <h2>{{ group.name }}</h2>
+      <p class="subtitle" style="margin:0;">
+        {{ icon('megaphone' if is_channel else 'groups', 14) }}
+        {{ t.kind_channel if is_channel else t.kind_group }} · {{ members|length }} {{ t.channel_subscribers if is_channel else t.group_members_word }}
+      </p>
+      {% if group.description %}<p class="group-desc">{{ group.description }}</p>{% endif %}
+      <div class="group-role-chip">{{ t['role_' ~ role] if role else '' }}</div>
+    </div>
+
+    <div class="settings-list pref-list">
+      <div class="settings-row pref-row" style="cursor:default;">
+        <div class="settings-row-label">{{ t.chat_mute }}</div>
+        <label class="switch"><input type="checkbox" id="mute-sw" {% if chat_muted %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+      {% if is_channel %}
+      <a class="settings-row" href="{{ url_for('shop', channel=group.id) }}">
+        <div class="settings-icon-badge">{{ icon('store', 18) }}</div>
+        <div class="settings-row-label">{{ t.channel_shop }}</div>
+        <span class="settings-row-value">{{ product_count }}</span>
+      </a>
+      {% endif %}
+    </div>
+
+    {% if is_manager %}
+    <p class="section-title">{{ t.group_edit_title }}</p>
+    <form id="group-form" class="pw-form">
+      <input type="text" name="name" class="shop-input" value="{{ group.name }}" maxlength="60" required>
+      <textarea class="field-ta" name="description" rows="2" maxlength="300" placeholder="{{ t.group_description_placeholder }}">{{ group.description or '' }}</textarea>
+      <label class="file-label"><span id="avatar-label">📷 {{ t.group_change_photo }}</span>
+        <input type="file" name="avatar" accept="image/*" style="display:none;">
+      </label>
+      {% if group.avatar_file %}
+      <label class="check-row"><input type="checkbox" name="remove_avatar" value="1"> {{ t.remove_photo_btn }}</label>
+      {% endif %}
+      {% if is_owner %}
+      <div class="settings-row pref-row" style="cursor:default;">
+        <div class="settings-row-label">{{ t.group_public }}<small>{{ t.group_public_hint }}</small></div>
+        <label class="switch"><input type="checkbox" name="is_public" value="1" {% if group.is_public %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+      {% if not is_channel %}
+      <div class="settings-row pref-row" style="cursor:default;">
+        <div class="settings-row-label">{{ t.group_post_mode }}</div>
+        <select name="post_mode" class="pref-select">
+          <option value="all" {% if group.post_mode != 'admins' %}selected{% endif %}>{{ t.post_mode_all }}</option>
+          <option value="admins" {% if group.post_mode == 'admins' %}selected{% endif %}>{{ t.post_mode_admins }}</option>
+        </select>
+      </div>
+      {% endif %}
+      {% endif %}
+      <div class="flash" id="group-msg" hidden></div>
+      <button type="submit" class="btn-primary">{{ t.save_btn }}</button>
+    </form>
+
+    <p class="section-title">{{ t.group_invite_link }}</p>
+    <div class="invite-box">
+      <input type="text" id="invite-link" readonly value="{{ invite_link }}">
+      <button type="button" class="mini-btn" id="copy-link">{{ icon('copy', 14) }} {{ t.msg_copy }}</button>
+    </div>
+    {% endif %}
+
+    <p class="section-title">{{ t.group_members_title }} ({{ members|length }})</p>
+    {% if is_manager and candidates %}
+    <div class="settings-list">
+      <details class="add-members">
+        <summary>{{ icon('user-plus', 18) }} {{ t.group_add_members }}</summary>
+        <div class="feed-list member-pick">
+          {% for u in candidates %}
+          <label class="person-row" style="cursor:pointer;">
+            <input type="checkbox" class="add-cb" value="{{ u.username }}" style="width:18px; height:18px;">
+            {% if u.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">{% else %}<div class="avatar-circle small">{{ u.avatar_letter }}</div>{% endif %}
+            <div class="person-name">{{ u.nickname or u.username }}</div>
+          </label>
+          {% endfor %}
+        </div>
+        <button type="button" class="btn-primary" id="add-members-btn" style="margin-top:10px;">{{ t.group_add_btn }}</button>
+      </details>
+    </div>
+    {% endif %}
+    <div class="feed-list" id="member-list">
+      {% for m in members %}
+      <div class="person-row member-row" data-user="{{ m.username }}" data-role="{{ m.role }}">
+        <a href="{{ url_for('user_profile', target_username=m.username) if m.username != username else url_for('profile') }}" class="discover-main">
+          {% if m.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=m.avatar_file) }}" alt="">{% else %}<div class="avatar-circle small">{{ m.avatar_letter }}</div>{% endif %}
+          <div class="person-main">
+            <div class="person-name">{{ m.nickname or m.username }}{% if m.username == username %} <small>({{ t.you_label }})</small>{% endif %}</div>
+            <div class="person-sub">{{ t['role_' ~ m.role] if m.role in ('owner', 'admin') else '' }}</div>
+          </div>
+        </a>
+        {% if m.username != username and m.role != 'owner' %}
+        <div class="member-actions">
+          {% if is_owner %}
+            <button type="button" class="mini-btn role-btn" data-role="{{ 'member' if m.role == 'admin' else 'admin' }}">{{ t.role_remove_admin if m.role == 'admin' else t.role_make_admin }}</button>
+          {% endif %}
+          {% if is_manager and (m.role != 'admin' or is_owner) %}
+            <button type="button" class="mini-btn danger kick-btn">{{ t.group_kick }}</button>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="danger-zone">
+      {% if is_owner and members|length > 1 %}
+      <button type="button" class="btn-primary secondary-btn" id="transfer-btn">{{ t.group_transfer }}</button>
+      {% endif %}
+      {% if role and role != 'owner' %}
+      <button type="button" class="btn-primary danger-btn" id="leave-btn">{{ t.group_leave }}</button>
+      {% endif %}
+      {% if is_owner %}
+      <button type="button" class="btn-primary danger-btn" id="delete-btn">{{ t.group_delete }}</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="modal-overlay sheet-overlay" id="transfer-sheet" hidden>
+    <div class="modal-card sheet-card action-card">
+      <div class="action-preview">{{ t.group_transfer_pick }}</div>
+      {% for m in members %}{% if m.username != username %}
+      <button type="button" class="action-item transfer-item" data-user="{{ m.username }}"><span>{{ m.nickname or m.username }}</span></button>
+      {% endif %}{% endfor %}
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var gid = {{ group.id }};
+      var net = "{{ t.err_network }}";
+      function post(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { d._ok = r.ok; return d; }); });
+      }
+      function fail(d) { alert((d && d.message) || net); }
+
+      document.getElementById("mute-sw").addEventListener("change", function (e) {
+        post("/api/mute", { key: "g:" + gid, muted: e.target.checked });
+      });
+
+      var form = document.getElementById("group-form");
+      if (form) {
+        var fi = form.querySelector('input[type=file]');
+        fi.addEventListener("change", function () { if (fi.files[0]) document.getElementById("avatar-label").textContent = "✅ " + fi.files[0].name; });
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          var fd = new FormData(form);
+          ["is_public"].forEach(function (k) { var cb = form.querySelector('[name="' + k + '"]'); if (cb && !cb.checked) { fd.set(k, "0"); } });
+          fetch("/api/groups/" + gid + "/update", { method: "POST", body: fd })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) { if (res.ok && res.d.ok) location.reload(); else fail(res.d); })
+            .catch(function () { alert(net); });
+        });
+        document.getElementById("copy-link").addEventListener("click", function () {
+          var inp = document.getElementById("invite-link"); inp.select();
+          (navigator.clipboard ? navigator.clipboard.writeText(inp.value) : Promise.reject()).catch(function () { document.execCommand("copy"); });
+          this.textContent = "✓";
+        });
+      }
+
+      var addBtn = document.getElementById("add-members-btn");
+      if (addBtn) addBtn.addEventListener("click", function () {
+        var names = Array.prototype.map.call(document.querySelectorAll(".add-cb:checked"), function (c) { return c.value; });
+        if (!names.length) return;
+        post("/api/groups/" + gid + "/members/add", { usernames: names }).then(function (d) { if (d.ok) location.reload(); else fail(d); });
+      });
+
+      document.getElementById("member-list").addEventListener("click", function (e) {
+        var row = e.target.closest(".member-row"); if (!row) return;
+        var user = row.dataset.user;
+        if (e.target.closest(".role-btn")) {
+          post("/api/groups/" + gid + "/role", { username: user, role: e.target.closest(".role-btn").dataset.role }).then(function (d) { if (d.ok) location.reload(); else fail(d); });
+        } else if (e.target.closest(".kick-btn")) {
+          if (!confirm("{{ t.group_kick_confirm }}")) return;
+          post("/api/groups/" + gid + "/kick", { username: user }).then(function (d) { if (d.ok) location.reload(); else fail(d); });
+        }
+      });
+
+      var tb = document.getElementById("transfer-btn"), ts = document.getElementById("transfer-sheet");
+      if (tb) {
+        tb.addEventListener("click", function () { ts.hidden = false; });
+        ts.addEventListener("click", function (e) {
+          if (e.target === ts) { ts.hidden = true; return; }
+          var it = e.target.closest(".transfer-item"); if (!it) return;
+          if (!confirm("{{ t.group_transfer_confirm }}")) return;
+          post("/api/groups/" + gid + "/transfer", { username: it.dataset.user }).then(function (d) { if (d.ok) location.reload(); else fail(d); });
+        });
+      }
+      var lv = document.getElementById("leave-btn");
+      if (lv) lv.addEventListener("click", function () {
+        if (!confirm("{{ t.group_leave_confirm }}")) return;
+        post("/api/groups/" + gid + "/leave").then(function (d) { if (d.ok) location.href = "/shaxsiy"; else fail(d); });
+      });
+      var dl = document.getElementById("delete-btn");
+      if (dl) dl.addEventListener("click", function () {
+        if (!confirm("{{ t.group_delete_confirm }}")) return;
+        post("/api/groups/" + gid + "/delete").then(function (d) { if (d.ok) location.href = "/shaxsiy"; else fail(d); });
+      });
+    })();
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>

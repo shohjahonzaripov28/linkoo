@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ p.title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  <div class="glass-card feed-card product-page">
+    <div class="chat-header">
+      <a href="{{ url_for('shop', channel=p.channel_id) if p.channel_id else url_for('shop') }}" class="back-link">←</a>
+      <h1 style="font-size:18px;">{{ t.product_title }}</h1>
+      <a href="{{ url_for('cart') }}" class="cart-link">
+        {{ icon('cart', 22) }}
+        {% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
+      </a>
+    </div>
+
+    <div class="gallery">
+      {% if media %}
+      <div class="media-track">
+        {% for m in media %}<img src="{{ url_for('media', filename=m) }}" alt="{{ p.title }}">{% endfor %}
+      </div>
+      {% if media|length > 1 %}<span class="media-counter" data-total="{{ media|length }}">1/{{ media|length }}</span>{% endif %}
+      {% else %}
+      <div class="gallery-empty">{{ icon('shop', 48) }}</div>
+      {% endif %}
+    </div>
+
+    <h2 class="product-name">{{ p.title }}</h2>
+    <div class="product-price big">{{ "{:,}".format(p.price).replace(",", " ") }} <small>{{ t.currency_sum }}</small></div>
+    {% if p.channel_name %}
+    <a class="product-chip" href="{{ url_for('shop', channel=p.channel_id) }}">{{ icon('megaphone', 13) }} {{ p.channel_name }}</a>
+    {% endif %}
+
+    {% if p.description %}<p class="product-description">{{ p.description }}</p>{% endif %}
+
+    {% if not is_mine %}
+    {% if colors %}
+    <div class="opt-group" id="color-group">
+      <div class="opt-label">{{ t.product_color }}</div>
+      <div class="opt-chips">{% for c in colors %}<button type="button" class="opt-chip" data-v="{{ c }}">{{ c }}</button>{% endfor %}</div>
+    </div>
+    {% endif %}
+    {% if sizes %}
+    <div class="opt-group" id="size-group">
+      <div class="opt-label">{{ t.product_size }}</div>
+      <div class="opt-chips">{% for c in sizes %}<button type="button" class="opt-chip" data-v="{{ c }}">{{ c }}</button>{% endfor %}</div>
+    </div>
+    {% endif %}
+    <div class="opt-group">
+      <div class="opt-label">{{ t.product_qty }}</div>
+      <div class="qty-stepper">
+        <button type="button" id="qty-minus" aria-label="-">{{ icon('minus', 16) }}</button>
+        <span id="qty-val">1</span>
+        <button type="button" id="qty-plus" aria-label="+">{{ icon('plus', 16) }}</button>
+      </div>
+    </div>
+    <div class="flash" id="prod-msg" hidden></div>
+    <button type="button" class="btn-primary" id="add-cart">{{ icon('cart', 18) }} {{ t.add_to_cart_btn }}</button>
+    {% endif %}
+
+    {% if seller %}
+    <a class="seller-card" href="{{ url_for('user_profile', target_username=seller.username) if not is_mine else url_for('profile') }}">
+      {% if seller.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=seller.avatar_file) }}" alt="">{% else %}<div class="avatar-circle small">{{ seller.avatar_letter }}</div>{% endif %}
+      <div class="person-main">
+        <div class="person-name">{{ icon('store', 14) }} {{ seller.business_name or seller.nickname or seller.username }}</div>
+        <div class="person-sub">@{{ seller.nickname or seller.username }}{% if seller_location %} · {{ seller_location }}{% endif %}</div>
+      </div>
+    </a>
+    {% if not is_mine %}
+    <a href="{{ url_for('dm', other_username=seller.username) }}" class="btn-primary secondary-btn" style="display:block; text-align:center; text-decoration:none;">{{ t.product_contact_seller }}</a>
+    {% endif %}
+    {% endif %}
+
+    {% if can_delete %}
+    <button type="button" class="btn-primary danger-btn" id="del-product" style="margin-top:10px;">🗑️ {{ t.delete }}</button>
+    {% endif %}
+
+    {% if more %}
+    <p class="section-title">{{ t.product_more }}</p>
+    <div class="shop-grid">
+      {% for m in more %}
+      <div class="product-card">
+        <a href="{{ url_for('product_page', product_id=m.id) }}" class="product-media">
+          {% if m.image_file %}<img class="product-image" src="{{ url_for('media', filename=m.image_file) }}" alt="" loading="lazy">{% else %}<div class="product-image product-noimg">{{ icon('shop', 30) }}</div>{% endif %}
+        </a>
+        <div class="product-info">
+          <a href="{{ url_for('product_page', product_id=m.id) }}" class="product-title">{{ m.title }}</a>
+          <div class="product-price">{{ "{:,}".format(m.price).replace(",", " ") }} <small>{{ t.currency_sum }}</small></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    (function () {
+      var net = "{{ t.err_network }}";
+      var sel = { color: "", size: "" }, qty = 1;
+      document.querySelectorAll(".opt-group").forEach(function (g) {
+        g.addEventListener("click", function (e) {
+          var chip = e.target.closest(".opt-chip"); if (!chip) return;
+          g.querySelectorAll(".opt-chip").forEach(function (c) { c.classList.remove("active"); });
+          chip.classList.add("active");
+          if (g.id === "color-group") sel.color = chip.dataset.v; else if (g.id === "size-group") sel.size = chip.dataset.v;
+        });
+      });
+      var q = document.getElementById("qty-val");
+      var mi = document.getElementById("qty-minus"), pl = document.getElementById("qty-plus");
+      if (mi) { mi.addEventListener("click", function () { qty = Math.max(1, qty - 1); q.textContent = qty; }); pl.addEventListener("click", function () { qty = Math.min(99, qty + 1); q.textContent = qty; }); }
+
+      var add = document.getElementById("add-cart"), msg = document.getElementById("prod-msg");
+      if (add) add.addEventListener("click", function () {
+        msg.hidden = true;
+        fetch("/api/cart/add/{{ p.id }}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ color: sel.color, size: sel.size, qty: qty }) })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+            if (!res.ok) { msg.textContent = res.d.message || net; msg.hidden = false; return; }
+            var badge = document.querySelector(".cart-badge"), link = document.querySelector(".cart-link");
+            if (!badge) { badge = document.createElement("span"); badge.className = "cart-badge"; link.appendChild(badge); }
+            badge.textContent = res.d.cart_count;
+            add.classList.add("done"); add.innerHTML = "✓ {{ t.added_to_cart }}";
+            setTimeout(function () { location.href = "/cart"; }, 650);
+          }).catch(function () { msg.textContent = net; msg.hidden = false; });
+      });
+
+      var del = document.getElementById("del-product");
+      if (del) del.addEventListener("click", function () {
+        if (!confirm("{{ t.confirm_delete_product }}")) return;
+        fetch("/api/products/delete/{{ p.id }}", { method: "POST" }).then(function (r) { if (!r.ok) throw 0; location.href = "/shop"; }).catch(function () { alert(net); });
+      });
+    })();
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>

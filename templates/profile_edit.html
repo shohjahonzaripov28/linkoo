@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% from '_icons.html' import icon %}
   <div class="glass-card">
     <div class="chat-header">
       <a href="{{ url_for('profile') }}" class="back-link">←</a>
@@ -47,10 +48,48 @@
       <p style="font-size:12px; color:rgba(255,255,255,0.6); margin-bottom:16px;">
         {{ t.nick_rules }}
       </p>
-      <button type="submit" class="btn-primary">{{ t.save }}</button>
+
+      <div class="field">
+        <label>{{ t.bio_label }} <span class="count" id="bio-count">{{ data.bio|length }}/160</span></label>
+        <textarea name="bio" id="bio" rows="3" maxlength="160" placeholder="{{ t.bio_placeholder }}">{{ data.bio }}</textarea>
+      </div>
+
+      <div class="field">
+        <label>{{ t.phone_label }}</label>
+        <input type="tel" name="phone" value="{{ data.phone }}" placeholder="+998 90 123 45 67" maxlength="20" autocomplete="tel">
+      </div>
+
+      <label class="section-title" style="display:block; margin:14px 0 6px;">{{ t.location_label }}</label>
+      <div data-geo data-region="{{ data.region }}" data-district="{{ data.district }}"
+           data-ph-region="{{ t.geo_pick_region }}" data-ph-district="{{ t.geo_pick_district }}">
+        <div class="field geo-country">
+          <select name="country" class="shop-input">
+            <option value="">{{ t.geo_pick_country }}</option>
+            {% for c in countries %}<option value="{{ c.code }}" {% if c.code == data.country %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field geo-region" hidden><select name="region" class="shop-input"></select></div>
+        <div class="field geo-district" hidden><select name="district" class="shop-input"></select></div>
+      </div>
+
+      <div class="settings-row pref-row biz-toggle" style="cursor:default;">
+        <div class="settings-row-label">{{ icon('store', 18) }} {{ t.business_account }}<small>{{ t.business_account_hint }}</small></div>
+        <label class="switch"><input type="checkbox" name="account_type" value="business" id="biz-sw" {% if data.account_type == 'business' %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+      <div class="field" id="biz-field" {% if data.account_type != 'business' %}hidden{% endif %}>
+        <input type="text" name="business_name" value="{{ data.business_name }}" maxlength="40" placeholder="{{ t.business_name_label }}">
+      </div>
+
+      <button type="submit" class="btn-primary" style="margin-top:12px;">{{ t.save }}</button>
     </form>
   </div>
 
+  <script src="{{ url_for('static', filename='geo.js') }}"></script>
+  <script>
+    document.getElementById("biz-sw").addEventListener("change", function (e) { document.getElementById("biz-field").hidden = !e.target.checked; });
+    var bio = document.getElementById("bio");
+    bio.addEventListener("input", function () { document.getElementById("bio-count").textContent = bio.value.length + "/160"; });
+  </script>
   {% include 'navbar.html' %}
 </body>
 </html>

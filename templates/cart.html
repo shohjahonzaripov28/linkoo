@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% from '_icons.html' import icon, empty_state %}
   <div class="glass-card feed-card">
     <div class="chat-header">
       <a href="{{ url_for('shop') }}" class="back-link">←</a>
@@ -15,53 +16,100 @@
     </div>
 
     {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        {% for message in messages %}
-          <div class="flash">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
     {% endwith %}
 
-    <div class="feed-list">
-      {% if items|length == 0 %}
-        <p class="empty-feed">{{ t.cart_empty }}</p>
-      {% endif %}
-
-      {% for item in items %}
-      <div class="cart-item">
-        {% if item.image_file %}
-        <img class="cart-item-image" src="{{ url_for('media', filename=item.image_file) }}" alt="{{ item.title }}">
-        {% endif %}
-        <div class="cart-item-info">
-          <div class="product-title">{{ item.title }}</div>
-          <div class="product-price">{{ "{:,}".format(item.price).replace(",", " ") }} {{ t.currency_sum }} x {{ item.quantity }}</div>
+    {% if groups|length == 0 %}
+      {{ empty_state('shop', t.cart_empty) }}
+      <a href="{{ url_for('shop') }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">{{ t.shop_title }}</a>
+    {% else %}
+    <div id="cart-wrap">
+      {% for gr in groups %}
+      <div class="cart-group" data-seller="{{ gr.seller }}">
+        <div class="cart-seller">{{ icon('store', 16) }} <a href="{{ url_for('user_profile', target_username=gr.seller) }}">{{ gr.name }}</a></div>
+        {% for l in gr.lines %}
+        <div class="cart-line" data-line="{{ l.line_id }}" data-price="{{ l.price }}">
+          <a href="{{ url_for('product_page', product_id=l.product_id) }}" class="cart-thumb">
+            {% if l.image_file %}<img src="{{ url_for('media', filename=l.image_file) }}" alt="">{% else %}<span>{{ icon('shop', 22) }}</span>{% endif %}
+          </a>
+          <div class="cart-line-main">
+            <a href="{{ url_for('product_page', product_id=l.product_id) }}" class="cart-line-title">{{ l.title }}</a>
+            {% if l.color or l.size %}<div class="cart-line-opts">{{ [l.color, l.size]|select|join(' · ') }}</div>{% endif %}
+            <div class="cart-line-price">{{ "{:,}".format(l.price).replace(",", " ") }} {{ t.currency_sum }}</div>
+          </div>
+          <div class="cart-line-side">
+            <button type="button" class="line-remove" aria-label="{{ t.delete }}">{{ icon('trash', 16) }}</button>
+            <div class="qty-stepper small">
+              <button type="button" class="qty-btn" data-d="-1">{{ icon('minus', 14) }}</button>
+              <span class="qty-val">{{ l.qty }}</span>
+              <button type="button" class="qty-btn" data-d="1">{{ icon('plus', 14) }}</button>
+            </div>
+          </div>
         </div>
-        <button class="remove-btn" data-cart-id="{{ item.cart_id }}">✕</button>
+        {% endfor %}
+        <div class="cart-subtotal">{{ t.order_total }}: <b class="sub-val">{{ "{:,}".format(gr.total).replace(",", " ") }}</b> {{ t.currency_sum }}</div>
       </div>
       {% endfor %}
     </div>
 
-    {% if items|length > 0 %}
-    <div class="cart-total">
-      <span>{{ t.total_label }}</span>
-      <span>{{ "{:,}".format(total).replace(",", " ") }} {{ t.currency_sum }}</span>
-    </div>
-    <form method="POST" action="{{ url_for('checkout') }}">
-      <button type="submit" class="btn-primary">{{ t.checkout_btn }}</button>
+    <form method="POST" action="{{ url_for('checkout') }}" class="checkout-form" id="checkout-form">
+      <p class="section-title">{{ t.order_delivery_title }}</p>
+      <div data-geo data-required="1" data-region="{{ addr.region or '' }}" data-district="{{ addr.district or '' }}"
+           data-ph-region="{{ t.geo_pick_region }}" data-ph-district="{{ t.geo_pick_district }}">
+        <div class="field geo-country">
+          <select name="country" class="shop-input" required>
+            <option value="">{{ t.geo_pick_country }}</option>
+            {% for c in countries %}<option value="{{ c.code }}" {% if c.code == addr.country %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field geo-region" hidden><select name="region" class="shop-input"></select></div>
+        <div class="field geo-district" hidden><select name="district" class="shop-input"></select></div>
+      </div>
+      <input type="text" name="address" class="shop-input" maxlength="200" placeholder="{{ t.order_address_ph }}">
+      <input type="tel" name="phone" class="shop-input" maxlength="20" required placeholder="{{ t.phone_label }} (+998...)" value="{{ addr.phone or '' }}">
+      <p class="hint-text">{{ t.order_hint }}</p>
+      <div class="cart-total">
+        <span>{{ t.cart_total }}</span>
+        <b id="grand-total">{{ "{:,}".format(total).replace(",", " ") }}</b> {{ t.currency_sum }}
+      </div>
+      <button type="submit" class="btn-primary" id="order-btn">{{ icon('send', 18) }} {{ t.order_place_btn }}</button>
     </form>
     {% endif %}
   </div>
 
+  <script src="{{ url_for('static', filename='geo.js') }}"></script>
   <script>
-    document.querySelectorAll(".remove-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const cartId = btn.dataset.cartId;
-        await fetch(`/api/cart/remove/${cartId}`, { method: "POST" });
-        location.reload();
+    (function () {
+      var wrap = document.getElementById("cart-wrap"); if (!wrap) return;
+      var net = "{{ t.err_network }}";
+      function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " "); }
+      function recalc() {
+        var grand = 0;
+        wrap.querySelectorAll(".cart-group").forEach(function (g) {
+          var sub = 0;
+          g.querySelectorAll(".cart-line").forEach(function (l) { sub += (+l.dataset.price) * (+l.querySelector(".qty-val").textContent); });
+          g.querySelector(".sub-val").textContent = fmt(sub); grand += sub;
+          if (!g.querySelector(".cart-line")) g.remove();
+        });
+        document.getElementById("grand-total").textContent = fmt(grand);
+        if (!wrap.querySelector(".cart-group")) location.reload();
+      }
+      function post(url, body) { return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then(function (r) { if (!r.ok) throw 0; return r.json(); }); }
+      wrap.addEventListener("click", function (e) {
+        var line = e.target.closest(".cart-line"); if (!line) return;
+        var id = line.dataset.line;
+        if (e.target.closest(".line-remove")) {
+          post("/api/cart/remove/" + id).then(function () { line.remove(); recalc(); }).catch(function () { alert(net); });
+        } else if (e.target.closest(".qty-btn")) {
+          post("/api/cart/qty/" + id, { delta: +e.target.closest(".qty-btn").dataset.d })
+            .then(function (d) { line.querySelector(".qty-val").textContent = d.qty; recalc(); }).catch(function () { alert(net); });
+        }
       });
-    });
+      document.getElementById("checkout-form").addEventListener("submit", function () {
+        var b = document.getElementById("order-btn"); b.disabled = true; b.innerHTML = '<span class="spinner"></span>';
+      });
+    })();
   </script>
-
   {% include 'navbar.html' %}
 </body>
 </html>

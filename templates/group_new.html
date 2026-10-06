@@ -3,36 +3,57 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Linko - {{ t.new_group }}</title>
+  <title>Linko - {{ t.new_channel if kind == 'channel' else t.new_group }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   {% from '_icons.html' import icon %}
   <div class="glass-card feed-card">
     <div class="chat-header">
-      <a href="{{ url_for('groups_list') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">{{ t.new_group }}</h1>
+      <a href="{{ url_for('shaxsiy') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.new_channel if kind == 'channel' else t.new_group }}</h1>
       <div style="width:36px;"></div>
     </div>
 
-    <form method="POST" class="new-post-form">
-      <input type="text" name="name" class="shop-input" placeholder="{{ t.group_name_placeholder }}" required style="margin-bottom:14px;">
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
 
-      <p style="font-size:13px; color:rgba(255,255,255,0.7); margin-bottom:8px;">{{ t.select_members }}</p>
-      <div class="feed-list" style="max-height:220px; overflow-y:auto;">
+    <div class="kind-switch">
+      <a href="{{ url_for('group_new', kind='group') }}" class="chip {% if kind == 'group' %}active{% endif %}">{{ icon('groups', 16) }} {{ t.kind_group }}</a>
+      <a href="{{ url_for('group_new', kind='channel') }}" class="chip {% if kind == 'channel' %}active{% endif %}">{{ icon('megaphone', 16) }} {{ t.kind_channel }}</a>
+    </div>
+    <p class="hint-text">{{ t.channel_about if kind == 'channel' else t.group_about }}</p>
+
+    <form method="POST" class="new-post-form">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <input type="text" name="name" class="shop-input" placeholder="{{ t.channel_name_placeholder if kind == 'channel' else t.group_name_placeholder }}" maxlength="60" required>
+      <textarea class="field-ta" name="description" rows="2" maxlength="300" placeholder="{{ t.group_description_placeholder }}"></textarea>
+
+      <div class="settings-row pref-row" style="cursor:default;">
+        <div class="settings-row-label">{{ t.group_public }}<small>{{ t.group_public_hint }}</small></div>
+        <label class="switch"><input type="checkbox" name="is_public" value="1" {% if kind == 'channel' %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+
+      <p class="section-title" style="margin-top:14px;">{{ t.select_members }}</p>
+      <div class="feed-list member-pick">
         {% if users|length == 0 %}
-          <p class="empty-feed">{{ t.no_other_users }}</p>
+          <p class="empty-feed">{{ t.no_contacts_to_add }}</p>
         {% endif %}
         {% for u in users %}
         <label class="person-row" style="cursor:pointer;">
           <input type="checkbox" name="members" value="{{ u.username }}" style="width:18px; height:18px;">
-          <div class="avatar-circle small">{{ u.avatar_letter }}</div>
-          <div class="person-name">{{ u.username }}</div>
+          {% if u.avatar_file %}
+            <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
+          {% else %}
+            <div class="avatar-circle small">{{ u.avatar_letter }}</div>
+          {% endif %}
+          <div class="person-name">{{ u.nickname or u.username }}</div>
         </label>
         {% endfor %}
       </div>
 
-      <button type="submit" class="btn-primary" style="margin-top:16px;">{{ t.create_group_btn }}</button>
+      <button type="submit" class="btn-primary" style="margin-top:16px;">{{ t.create_channel_btn if kind == 'channel' else t.create_group_btn }}</button>
     </form>
   </div>
 

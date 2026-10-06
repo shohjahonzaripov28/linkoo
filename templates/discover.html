@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.discover_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  <div class="glass-card feed-card">
+    <div class="chat-header">
+      <a href="{{ url_for('shaxsiy') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.discover_title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <form method="GET" class="home-search" style="margin-bottom:12px;">
+      {{ icon('search', 18) }}
+      <input type="text" name="q" value="{{ q }}" placeholder="{{ t.discover_search }}">
+    </form>
+
+    <div class="feed-list">
+      {% if results|length == 0 %}
+        {{ empty_state('groups', t.discover_empty) }}
+      {% endif %}
+      {% for r in results %}
+      <div class="person-row">
+        <a href="{{ url_for('group_chat', group_id=r.id) }}" class="discover-main">
+          {% if r.avatar_file %}
+            <img class="avatar-circle small" src="{{ url_for('media', filename=r.avatar_file) }}" alt="">
+          {% else %}
+            <div class="avatar-circle small {{ 'is-channel' if r.kind == 'channel' }}">{{ r.avatar_letter }}</div>
+          {% endif %}
+          <div class="person-main">
+            <div class="person-name">{{ r.name }}</div>
+            <div class="person-sub">{{ r.members }} {{ t.channel_subscribers if r.kind == 'channel' else t.group_members_word }}{% if r.description %} · {{ r.description }}{% endif %}</div>
+          </div>
+        </a>
+        {% if r.joined %}
+          <a class="mini-btn" href="{{ url_for('group_chat', group_id=r.id) }}">{{ t.open_btn }}</a>
+        {% else %}
+          <button type="button" class="mini-btn join-mini" data-id="{{ r.id }}">{{ t.channel_join }}</button>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll(".join-mini").forEach(function (b) {
+      b.addEventListener("click", function () {
+        b.disabled = true;
+        fetch("/api/groups/" + b.dataset.id + "/join", { method: "POST" })
+          .then(function (r) { if (!r.ok) throw 0; location.href = "/groups/" + b.dataset.id; })
+          .catch(function () { b.disabled = false; alert("{{ t.err_network }}"); });
+      });
+    });
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>

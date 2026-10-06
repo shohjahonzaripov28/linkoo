@@ -141,6 +141,7 @@ app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("RENDER"))
 
 # ---------- Tillar (i18n) - barcha matnlar translations.py faylida ----------
 from translations import LANG_NAMES, TRANSLATIONS
+import locations
 
 def current_lang():
     lang = session.get("lang", "uz")
@@ -224,6 +225,14 @@ def is_safe_next(path):
 
 
 
+# Tarjima uchun tillar (o'z nomi bilan)
+TRANSLATE_LANGS = {
+    "uz": "O'zbekcha", "ru": "Русский", "en": "English", "zh": "中文", "tr": "Türkçe", "ar": "العربية",
+    "ko": "한국어", "ja": "日本語", "es": "Español", "de": "Deutsch", "fr": "Français", "hi": "हिन्दी",
+    "kk": "Қазақша", "ky": "Кыргызча", "tg": "Тоҷикӣ", "fa": "فارسی", "az": "Azərbaycanca", "uk": "Українська",
+}
+
+
 # ---------- Foydalanuvchi sozlamalari ----------
 PREF_DEFAULTS = {
     "allow_requests": "everyone",   # kontakt so'rovlarini kim yubora oladi
@@ -238,13 +247,16 @@ PREF_DEFAULTS = {
     "wallpaper": "default",
     "translate_lang": "auto",
     "shrink_images": True,
+    "show_online": "everyone",      # online / oxirgi marta ko'rinishini kim ko'ra oladi
+    "read_receipts": True,          # "o'qildi" belgisini ko'rsatish
 }
 PREF_CHOICES = {
     "allow_requests": ("everyone", "nobody"),
     "who_can_message": ("everyone", "contacts"),
     "font_size": ("small", "medium", "large"),
     "wallpaper": ("default", "blue", "green", "sunset"),
-    "translate_lang": ("auto", "uz", "ru", "zh", "en"),
+    "translate_lang": ("auto",) + tuple(TRANSLATE_LANGS),
+    "show_online": ("everyone", "nobody"),
 }
 
 
@@ -347,7 +359,7 @@ def validate_session_user():
 
     conn = get_db()
     row = conn.execute(
-        """SELECT u.id, u.username, u.avatar_letter, u.nickname, u.avatar_file, u.is_admin, b.id AS blocked_id
+        """SELECT u.id, u.username, u.avatar_letter, u.nickname, u.avatar_file, u.is_admin, u.last_seen_ts, b.id AS blocked_id
            FROM users u LEFT JOIN blocked_users b ON b.username = u.username
            WHERE u.username = ?""",
         (session.get("username", ""),),
@@ -377,6 +389,10 @@ def validate_session_user():
             conn.commit()
     else:
         start_session_record(conn, row["username"])  # eski sessiyalar uchun yozuv yaratamiz
+        conn.commit()
+
+    if now - int(row["last_seen_ts"] or 0) >= 20:  # online holati
+        conn.execute("UPDATE users SET last_seen_ts = ? WHERE id = ?", (now, row["id"]))
         conn.commit()
 
     session.permanent = True  # 1 yil avtomatik kirish
@@ -416,7 +432,7 @@ def get_conversations(conn, me, limit=50):
     last_msgs = {
         r["id"]: r
         for r in conn.execute(
-            f"SELECT id, sender, content, image_file, media_kind, created_at FROM private_messages WHERE id IN ({marks})",
+            f"SELECT id, sender, content, image_file, media_kind, created_at, created_ts FROM private_messages WHERE id IN ({marks})",
             tuple(ids),
         ).fetchall()
     }
@@ -425,10 +441,11 @@ def get_conversations(conn, me, limit=50):
     users = {
         r["username"]: r
         for r in conn.execute(
-            f"SELECT username, avatar_letter, avatar_file, nickname FROM users WHERE username IN ({nmarks})",
+            f"SELECT username, avatar_letter, avatar_file, nickname, last_seen_ts FROM users WHERE username IN ({nmarks})",
             tuple(names),
         ).fetchall()
     }
+    peer_prefs = bulk_prefs(conn, names)
 
     result = []
     for p in pairs:
@@ -444,7 +461,13 @@ def get_conversations(conn, me, limit=50):
             text = "🎥 " + tr("msg_video_note")
         elif mk == "call":
             text = "📞 " + tr("call_title")
+        elif mk == "order":
+            text = "🛒 " + tr("order_title")
+        pres = presence_info(conn, me, u["username"], peer_prefs.get(u["username"]), u["last_seen_ts"])
         result.append({
+            "kind": "dm",
+            "ts": int(m["created_ts"] or 0) if m else 0,
+            "online": bool(pres and pres["online"]),
             "username": u["username"],
             "avatar_letter": u["avatar_letter"],
             "avatar_file": u["avatar_file"],
@@ -458,10 +481,101 @@ def get_conversations(conn, me, limit=50):
     return result
 
 
+def muted_keys(conn, me):
+    try:
+        return {r["chat_key"] for r in conn.execute("SELECT chat_key FROM chat_mutes WHERE username = ?", (me,)).fetchall()}
+    except Exception:
+        return set()
+
+
+def group_unread_map(conn, me):
+    """{group_id: o'qilmagan xabarlar soni} (o'zimniki hisobga olinmaydi)."""
+    rows = conn.execute(
+        """SELECT gm.group_id AS gid, COUNT(*) AS c FROM group_messages gm
+           JOIN group_members m ON m.group_id = gm.group_id AND m.username = ?
+           WHERE gm.id > COALESCE(m.last_read_id, 0) AND gm.username != ?
+           GROUP BY gm.group_id""",
+        (me, me),
+    ).fetchall()
+    return {r["gid"]: r["c"] for r in rows}
+
+
 def count_unread(conn, me):
-    return conn.execute(
-        "SELECT COUNT(*) AS c FROM private_messages WHERE receiver = ? AND is_read = 0", (me,)
+    """Menyudagi qizil raqam: shaxsiy + guruh/kanal xabarlari (ovozsiz qilingan chatlar hisobga olinmaydi)."""
+    muted = muted_keys(conn, me)
+    total = 0
+    for r in conn.execute(
+        "SELECT sender, COUNT(*) AS c FROM private_messages WHERE receiver = ? AND is_read = 0 GROUP BY sender", (me,)
+    ).fetchall():
+        if "dm:" + r["sender"] not in muted:
+            total += r["c"]
+    for gid, c in group_unread_map(conn, me).items():
+        if "g:%s" % gid not in muted:
+            total += c
+    return total
+
+
+def bulk_prefs(conn, names):
+    names = list(set(names))
+    out = {n: dict(PREF_DEFAULTS) for n in names}
+    if not names:
+        return out
+    marks = ",".join("?" for _ in names)
+    for r in conn.execute(f"SELECT username, data FROM user_settings WHERE username IN ({marks})", tuple(names)).fetchall():
+        try:
+            saved = json.loads(r["data"] or "{}")
+        except Exception:
+            continue
+        for k, v in saved.items():
+            if k in PREF_DEFAULTS and type(v) == type(PREF_DEFAULTS[k]):
+                if k in PREF_CHOICES and v not in PREF_CHOICES[k]:
+                    continue
+                out[r["username"]][k] = v
+    return out
+
+
+ONLINE_WINDOW = 45  # soniya
+
+
+def presence_text(ts):
+    ts = int(ts or 0)
+    if not ts:
+        return {"online": False, "text": tr("last_seen_long_ago")}
+    if int(time.time()) - ts < ONLINE_WINDOW:
+        return {"online": True, "text": tr("status_online")}
+    return {"online": False, "text": tr("last_seen_at").replace("{t}", time_ago(ts))}
+
+
+def presence_info(conn, viewer, username, prefs=None, last_seen_ts=None):
+    """Online / oxirgi marta (maxfiylik sozlamasini hisobga olib). Yashirin bo'lsa None."""
+    if viewer == username:
+        return {"online": True, "text": tr("status_online")}
+    if prefs is None:
+        prefs = get_prefs(conn, username)
+    if prefs["show_online"] == "nobody":
+        return None
+    if last_seen_ts is None:
+        row = conn.execute("SELECT last_seen_ts FROM users WHERE username = ?", (username,)).fetchone()
+        last_seen_ts = row["last_seen_ts"] if row else 0
+    return presence_text(last_seen_ts)
+
+
+# ---------- Yangi layk va izohlar (feed faolligi) ----------
+def feed_new_counts(conn, me):
+    u = conn.execute("SELECT seen_like_id, seen_comment_id FROM users WHERE username = ?", (me,)).fetchone()
+    if not u:
+        return {"likes": 0, "comments": 0, "total": 0}
+    likes = conn.execute(
+        """SELECT COUNT(*) AS c FROM likes l JOIN posts p ON p.id = l.post_id
+           WHERE p.username = ? AND l.username != ? AND l.id > ?""",
+        (me, me, u["seen_like_id"] or 0),
     ).fetchone()["c"]
+    comments = conn.execute(
+        """SELECT COUNT(*) AS c FROM post_comments c JOIN posts p ON p.id = c.post_id
+           WHERE p.username = ? AND c.username != ? AND c.id > ?""",
+        (me, me, u["seen_comment_id"] or 0),
+    ).fetchone()["c"]
+    return {"likes": likes, "comments": comments, "total": likes + comments}
 
 
 @app.route("/api/unread")
@@ -477,10 +591,15 @@ def api_unread():
         expire_calls(conn)
         call = incoming_call_for(conn, me)
         if total:
-            row = conn.execute(
-                "SELECT id, sender, content, media_kind FROM private_messages WHERE receiver = ? AND is_read = 0 ORDER BY id DESC LIMIT 1",
+            muted = muted_keys(conn, me)
+            row = None
+            for cand in conn.execute(
+                "SELECT id, sender, content, media_kind FROM private_messages WHERE receiver = ? AND is_read = 0 ORDER BY id DESC LIMIT 8",
                 (me,),
-            ).fetchone()
+            ).fetchall():
+                if "dm:" + cand["sender"] not in muted:
+                    row = cand
+                    break
             if row:
                 prefs = get_prefs(conn, me)
                 mk = row["media_kind"]
@@ -491,29 +610,39 @@ def api_unread():
                     text = "🎥 " + tr("msg_video_note")
                 elif mk == "call":
                     text = "📞 " + tr("call_title")
+                elif mk == "order":
+                    text = "🛒 " + tr("order_title")
                 elif mk == "image" or (mk is None and not text):
                     text = "📷 " + tr("photo_msg")
                 latest = {"id": row["id"], "from": row["sender"], "text": text[:80] if prefs["notif_preview"] else ""}
     except Exception:
         call = None
+    feed = 0
+    try:
+        feed = feed_new_counts(conn, me)["total"]
+    except Exception:
+        feed = 0
     conn.close()
-    return jsonify({"total": total, "call": call, "latest": latest})
+    return jsonify({"total": total, "call": call, "latest": latest, "feed": feed})
 
 
 @app.context_processor
 def inject_translations():
     lang = current_lang()
     unread_total = 0
+    feed_new_total = 0
     prefs = dict(PREF_DEFAULTS)
     if "user_id" in session and request.endpoint not in OPEN_ENDPOINTS:
         try:
             conn = get_db()
             unread_total = count_unread(conn, session["username"])
+            feed_new_total = feed_new_counts(conn, session["username"])["total"]
             prefs = get_prefs(conn, session["username"])
             conn.close()
         except Exception:
             unread_total = 0
     return dict(t=TRANSLATIONS[lang], lang=lang, langs=LANG_NAMES, unread_total=unread_total, prefs=prefs,
+                feed_new_total=feed_new_total, translate_langs=TRANSLATE_LANGS,
                 is_admin=getattr(g, "is_admin", False),
                 google_client_id=GOOGLE_CLIENT_ID)
 
@@ -634,6 +763,72 @@ def ensure_extra_tables(conn):
         "CREATE INDEX IF NOT EXISTS idx_calls_callee ON calls (callee, status)",
         "CREATE INDEX IF NOT EXISTS idx_call_signals_call ON call_signals (call_id, to_user, id)",
         "CREATE INDEX IF NOT EXISTS idx_user_blocks_blocker ON user_blocks (blocker)",
+    ):
+        conn.execute(stmt)
+
+
+def column_exists(conn, table, column):
+    if USE_POSTGRES:
+        return bool(conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?", (table, column)
+        ).fetchone())
+    return column in [row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+
+
+def ensure_v9_tables(conn):
+    """v9: guruh/kanal rollari, o'qildi/online, feed faolligi, bio, biznes akkaunt, do'kon, buyurtmalar."""
+    pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    first_seen = not column_exists(conn, "users", "seen_like_id")
+    first_read = not column_exists(conn, "group_members", "last_read_id")
+    for col, typ in (("bio", "TEXT"), ("last_seen_ts", "BIGINT"), ("account_type", "TEXT DEFAULT 'personal'"),
+                     ("business_name", "TEXT"), ("phone", "TEXT"), ("country", "TEXT"), ("region", "TEXT"),
+                     ("district", "TEXT"), ("seen_like_id", "INTEGER DEFAULT 0"), ("seen_comment_id", "INTEGER DEFAULT 0")):
+        add_column_if_missing(conn, "users", col, typ)
+    for col, typ in (("kind", "TEXT DEFAULT 'group'"), ("description", "TEXT"), ("avatar_file", "TEXT"),
+                     ("is_public", "INTEGER DEFAULT 0"), ("invite_code", "TEXT"), ("post_mode", "TEXT DEFAULT 'all'")):
+        add_column_if_missing(conn, "groups", col, typ)
+    add_column_if_missing(conn, "group_members", "role", "TEXT DEFAULT 'member'")
+    add_column_if_missing(conn, "group_members", "last_read_id", "INTEGER DEFAULT 0")
+    for table in ("private_messages", "group_messages"):
+        add_column_if_missing(conn, table, "created_ts", "BIGINT")
+    add_column_if_missing(conn, "products", "channel_id", "INTEGER")
+    add_column_if_missing(conn, "products", "colors", "TEXT")
+    add_column_if_missing(conn, "products", "sizes", "TEXT")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS product_media (
+        id {pk}, product_id INTEGER NOT NULL, filename TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS cart_lines (
+        id {pk}, username TEXT NOT NULL, product_id INTEGER NOT NULL, qty INTEGER NOT NULL DEFAULT 1,
+        color TEXT NOT NULL DEFAULT '', size TEXT NOT NULL DEFAULT '', UNIQUE(username, product_id, color, size))""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS orders (
+        id {pk}, buyer TEXT NOT NULL, seller TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0,
+        country TEXT, region TEXT, district TEXT, address TEXT, phone TEXT, status TEXT NOT NULL DEFAULT 'new',
+        created_ts BIGINT NOT NULL)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS order_items (
+        id {pk}, order_id INTEGER NOT NULL, product_id INTEGER, title TEXT NOT NULL, price INTEGER NOT NULL,
+        qty INTEGER NOT NULL, color TEXT, size TEXT)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS chat_mutes (
+        id {pk}, username TEXT NOT NULL, chat_key TEXT NOT NULL, UNIQUE(username, chat_key))""")
+    # Guruh yaratuvchisi - ega
+    conn.execute(
+        """UPDATE group_members SET role = 'owner'
+           WHERE (role IS NULL OR role = 'member')
+             AND username = (SELECT created_by FROM groups WHERE groups.id = group_members.group_id)"""
+    )
+    conn.execute("UPDATE group_members SET role = 'member' WHERE role IS NULL")
+    if first_seen:  # eski layk/izohlar "yangi" hisoblanmasin
+        conn.execute("UPDATE users SET seen_like_id = (SELECT COALESCE(MAX(id), 0) FROM likes), "
+                     "seen_comment_id = (SELECT COALESCE(MAX(id), 0) FROM post_comments)")
+    if first_read:  # eski guruh xabarlari o'qilmagan bo'lib ko'rinmasin
+        conn.execute("UPDATE group_members SET last_read_id = "
+                     "COALESCE((SELECT MAX(id) FROM group_messages WHERE group_id = group_members.group_id), 0)")
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS idx_product_media_product ON product_media (product_id)",
+        "CREATE INDEX IF NOT EXISTS idx_cart_lines_user ON cart_lines (username)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders (seller)",
+        "CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members (username)",
+        "CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages (group_id, id)",
+        "CREATE INDEX IF NOT EXISTS idx_products_channel ON products (channel_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_invite ON groups (invite_code)",
     ):
         conn.execute(stmt)
 
@@ -787,6 +982,7 @@ def init_db_postgres():
     ensure_feed_tables(conn)
     ensure_google_columns(conn)
     ensure_extra_tables(conn)
+    ensure_v9_tables(conn)
 
     conn.commit()
     conn.close()
@@ -949,6 +1145,7 @@ def init_db_sqlite():
     ensure_feed_tables(conn)
     ensure_google_columns(conn)
     ensure_extra_tables(conn)
+    ensure_v9_tables(conn)
 
     conn.commit()
     conn.close()
@@ -1178,6 +1375,23 @@ def delete_user_everything(conn, username):
     """Foydalanuvchining barcha ma'lumotlarini butunlay o'chiradi."""
     for post in conn.execute("SELECT * FROM posts WHERE username = ?", (username,)).fetchall():
         delete_post_everything(conn, post)
+    # u egasi bo'lgan guruh/kanallar: boshqa a'zo bo'lsa egalik o'tadi, bo'lmasa o'chadi
+    for gm in conn.execute("SELECT group_id FROM group_members WHERE username = ? AND role = 'owner'", (username,)).fetchall():
+        gid = gm["group_id"]
+        heir = conn.execute(
+            """SELECT username FROM group_members WHERE group_id = ? AND username != ?
+               ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, id LIMIT 1""",
+            (gid, username),
+        ).fetchone()
+        if heir:
+            conn.execute("UPDATE group_members SET role = 'owner' WHERE group_id = ? AND username = ?", (gid, heir["username"]))
+            conn.execute("UPDATE groups SET created_by = ? WHERE id = ?", (heir["username"], gid))
+        else:
+            delete_group_everything(conn, gid)
+    conn.execute("DELETE FROM chat_mutes WHERE username = ?", (username,))
+    conn.execute("DELETE FROM cart_lines WHERE username = ?", (username,))
+    conn.execute("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE buyer = ? OR seller = ?)", (username, username))
+    conn.execute("DELETE FROM orders WHERE buyer = ? OR seller = ?", (username, username))
     for table in ("post_comments", "post_views", "post_shares", "likes", "cart_items", "group_members"):
         conn.execute(f"DELETE FROM {table} WHERE username = ?", (username,))
     # postlardagi boshqa izohlar o'chmaydi, faqat foydalanuvchining o'zinikilari
@@ -1193,10 +1407,8 @@ def delete_user_everything(conn, username):
         delete_image_from_db(conn, row["image_file"])
     conn.execute("DELETE FROM group_messages WHERE username = ?", (username,))
     conn.execute("DELETE FROM messages WHERE username = ?", (username,))
-    for prod in conn.execute("SELECT id, image_file FROM products WHERE seller_username = ?", (username,)).fetchall():
-        conn.execute("DELETE FROM cart_items WHERE product_id = ?", (prod["id"],))
-        delete_image_from_db(conn, prod["image_file"])
-    conn.execute("DELETE FROM products WHERE seller_username = ?", (username,))
+    for prod in conn.execute("SELECT * FROM products WHERE seller_username = ?", (username,)).fetchall():
+        delete_product_everything(conn, prod)
     conn.execute("DELETE FROM contact_requests WHERE from_username = ? OR to_username = ?", (username, username))
     conn.execute("DELETE FROM contacts WHERE username = ? OR contact_username = ?", (username, username))
     conn.execute("DELETE FROM blocked_users WHERE username = ?", (username,))
@@ -1349,10 +1561,12 @@ def dashboard():
     ).fetchone()["c"]
 
     recent_chats = get_conversations(conn, me, limit=4)
+    feed_new = feed_new_counts(conn, me)
     conn.close()
 
     return render_template(
         "dashboard.html",
+        feed_new=feed_new,
         username=me,
         avatar_letter=session["avatar_letter"],
         avatar_file=session.get("avatar_file"),
@@ -1879,26 +2093,6 @@ def api_post_delete(post_id):
     return jsonify({"ok": True})
 
 
-@app.route("/api/products/delete/<int:product_id>", methods=["POST"])
-def api_product_delete(product_id):
-    if "user_id" not in session:
-        return jsonify({"error": "kirish kerak"}), 401
-
-    conn = get_db()
-    product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not product or (product["seller_username"] != session["username"] and not g.is_admin):
-        conn.close()
-        return jsonify({"error": "ruxsat yo'q"}), 403
-
-    if product["image_file"]:
-        delete_image_from_db(conn, product["image_file"])
-    conn.execute("DELETE FROM cart_items WHERE product_id = ?", (product_id,))
-    conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
-    conn.commit()
-    conn.close()
-    return jsonify({"ok": True})
-
-
 # ---------------- ADMIN ----------------
 
 @app.route("/admin")
@@ -2032,160 +2226,479 @@ def api_like(post_id):
     return jsonify({"liked": liked, "like_count": like_count})
 
 
+# ---------- Biznes akkaunt, do'kon, savat va buyurtmalar ----------
+def normalize_phone(raw):
+    p = re.sub(r"[\s\-()]", "", (raw or "").strip())
+    return p if re.match(r"^\+?\d{7,15}$", p) else ""
+
+
+def parse_options(text):
+    seen, out = set(), []
+    for part in re.split(r"[,;\n]", text or ""):
+        v = part.strip()[:20]
+        if v and v.lower() not in seen:
+            seen.add(v.lower())
+            out.append(v)
+    return out[:12]
+
+
+def user_location_text(u, lang=None):
+    lang = lang or current_lang()
+    parts = []
+    for v in (u["district"], u["region"]):
+        if v:
+            parts.append(v)
+    if u["country"]:
+        parts.append(locations.country_name(u["country"], lang))
+    return ", ".join(parts)
+
+
+def is_business(conn, username):
+    r = conn.execute("SELECT account_type FROM users WHERE username = ?", (username,)).fetchone()
+    return bool(r and r["account_type"] == "business")
+
+
+@app.route("/api/geo/countries")
+def api_geo_countries():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    return jsonify({"countries": locations.country_list(current_lang())})
+
+
+@app.route("/api/geo/regions")
+def api_geo_regions():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    return jsonify({"regions": locations.region_list(request.args.get("country", ""))})
+
+
+@app.route("/api/geo/districts")
+def api_geo_districts():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    return jsonify({"districts": locations.district_list(request.args.get("country", ""), request.args.get("region", ""))})
+
+
+@app.route("/api/business/enable", methods=["POST"])
+def api_business_enable():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    data = request.get_json(silent=True) or {}
+    name = (data.get("business_name") or "").strip()[:40]
+    phone = normalize_phone(data.get("phone"))
+    if not name:
+        return jsonify({"ok": False, "message": tr("business_name_required")}), 400
+    if not phone:
+        return jsonify({"ok": False, "message": tr("phone_invalid")}), 400
+    conn = get_db()
+    conn.execute("UPDATE users SET account_type = 'business', business_name = ?, phone = ? WHERE username = ?",
+                 (name, phone, session["username"]))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+def product_card_rows(conn, where_sql, params, limit, offset):
+    return conn.execute(
+        f"""SELECT p.*, u.business_name AS seller_business, u.nickname AS seller_nick, gr.name AS channel_name
+            FROM products p
+            LEFT JOIN users u ON u.username = p.seller_username
+            LEFT JOIN groups gr ON gr.id = p.channel_id
+            {where_sql} ORDER BY p.id DESC LIMIT ? OFFSET ?""",
+        (*params, limit, offset),
+    ).fetchall()
+
+
 @app.route("/shop", methods=["GET", "POST"])
 def shop():
     if "user_id" not in session:
         return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
 
     if request.method == "POST":
-        title = request.form.get("title", "").strip()
-        description = request.form.get("description", "").strip()
-        price_raw = request.form.get("price", "").strip()
-        image_file = request.files.get("image")
-        image_filename = None
-
+        redirect_to = url_for("shop")
+        title = request.form.get("title", "").strip()[:80]
+        description = request.form.get("description", "").strip()[:1000]
         try:
-            price = int(price_raw)
+            price = int(re.sub(r"\D", "", request.form.get("price", "")) or 0)
         except ValueError:
             price = 0
+        colors = ", ".join(parse_options(request.form.get("colors")))
+        sizes = ", ".join(parse_options(request.form.get("sizes")))
+        channel_id = request.form.get("channel_id", type=int)
+        if channel_id:
+            redirect_to = url_for("shop", channel=channel_id)
 
-        conn = get_db()
+        if not is_business(conn, me):
+            conn.close()
+            flash(tr("business_required"))
+            return redirect(redirect_to)
+        if channel_id:
+            ch = group_row(conn, channel_id)
+            if not ch or member_role(conn, channel_id, me) not in ("owner", "admin"):
+                conn.close()
+                flash(tr("shop_channel_forbidden"))
+                return redirect(redirect_to)
+        if not title or price <= 0:
+            conn.close()
+            flash(tr("product_invalid"))
+            return redirect(redirect_to)
 
-        if image_file and image_file.filename and allowed_file(image_file.filename):
-            image_filename = save_image_to_db(conn, image_file)
-
-        if title and price > 0:
-            conn.execute(
-                """INSERT INTO products
-                   (seller_username, seller_avatar, title, description, price, image_file, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    session["username"],
-                    session["avatar_letter"],
-                    title,
-                    description,
-                    price,
-                    image_filename,
-                    datetime.now().strftime("%d.%m %H:%M"),
-                ),
-            )
-            conn.commit()
+        files = [f for f in (request.files.getlist("images") + request.files.getlist("image")) if f and f.filename]
+        saved = []
+        for f in files[:6]:
+            if allowed_file(f.filename):
+                try:
+                    saved.append(save_image_to_db(conn, f))
+                except Exception:
+                    pass
+        cur = conn.execute(
+            """INSERT INTO products
+               (seller_username, seller_avatar, title, description, price, image_file, created_at, channel_id, colors, sizes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (me, session["avatar_letter"], title, description, price, saved[0] if saved else None,
+             datetime.now().strftime("%d.%m %H:%M"), channel_id or None, colors, sizes),
+        )
+        pid = cur.lastrowid
+        for i, name in enumerate(saved):
+            conn.execute("INSERT INTO product_media (product_id, filename, position) VALUES (?, ?, ?)", (pid, name, i))
+        conn.commit()
         conn.close()
+        return redirect(redirect_to)
 
-        return redirect(url_for("shop"))
-
-    conn = get_db()
     page = max(request.args.get("page", 1, type=int) or 1, 1)
-    rows = conn.execute(
-        "SELECT * FROM products ORDER BY id DESC LIMIT ? OFFSET ?",
-        (PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
-    ).fetchall()
+    q = request.args.get("q", "").strip()
+    channel_id = request.args.get("channel", type=int)
+    channel = group_row(conn, channel_id) if channel_id else None
+    where, params = [], []
+    if channel:
+        where.append("p.channel_id = ?")
+        params.append(channel["id"])
+    if q:
+        where.append("(LOWER(p.title) LIKE LOWER(?) OR LOWER(COALESCE(p.description, '')) LIKE LOWER(?))")
+        params += [f"%{q}%", f"%{q}%"]
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = product_card_rows(conn, where_sql, params, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE)
     has_more = len(rows) > PAGE_SIZE
     products = rows[:PAGE_SIZE]
     cart_count = conn.execute(
-        "SELECT COALESCE(SUM(quantity), 0) as c FROM cart_items WHERE username = ?",
-        (session["username"],),
+        "SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ?", (me,)
     ).fetchone()["c"]
+    me_row = conn.execute("SELECT account_type, business_name, phone FROM users WHERE username = ?", (me,)).fetchone()
+    my_channels = conn.execute(
+        """SELECT g.id, g.name FROM groups g JOIN group_members m ON m.group_id = g.id
+           WHERE m.username = ? AND m.role IN ('owner', 'admin') AND g.kind = 'channel' ORDER BY g.name""",
+        (me,),
+    ).fetchall()
+    can_add = True
+    if channel:
+        can_add = member_role(conn, channel["id"], me) in ("owner", "admin")
     conn.close()
 
     return render_template(
         "shop.html",
-        username=session["username"],
+        username=me,
         avatar_letter=session["avatar_letter"],
         products=products,
         page=page,
         has_more=has_more,
         cart_count=cart_count,
+        q=q,
+        channel=channel,
+        can_add=can_add,
+        is_business=bool(me_row and me_row["account_type"] == "business"),
+        business_name=(me_row["business_name"] if me_row else "") or "",
+        my_phone=(me_row["phone"] if me_row else "") or "",
+        my_channels=my_channels,
         active="shop",
     )
+
+
+@app.route("/product/<int:product_id>")
+def product_page(product_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    rows = product_card_rows(conn, "WHERE p.id = ?", (product_id,), 1, 0)
+    if not rows:
+        conn.close()
+        return redirect(url_for("shop"))
+    p = dict(rows[0])
+    media = [r["filename"] for r in conn.execute(
+        "SELECT filename FROM product_media WHERE product_id = ? ORDER BY position, id", (product_id,)).fetchall()]
+    if not media and p["image_file"]:
+        media = [p["image_file"]]
+    seller = conn.execute("SELECT username, nickname, avatar_letter, avatar_file, business_name, last_seen_ts, country, region, district "
+                          "FROM users WHERE username = ?", (p["seller_username"],)).fetchone()
+    more = product_card_rows(conn, "WHERE p.seller_username = ? AND p.id != ?", (p["seller_username"], product_id), 6, 0)
+    role = member_role(conn, p["channel_id"], me) if p["channel_id"] else None
+    cart_count = conn.execute("SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ?", (me,)).fetchone()["c"]
+    conn.close()
+    return render_template(
+        "product.html",
+        username=me,
+        avatar_letter=session["avatar_letter"],
+        p=p,
+        media=media,
+        colors=parse_options(p["colors"]),
+        sizes=parse_options(p["sizes"]),
+        seller=seller,
+        seller_location=user_location_text(seller) if seller else "",
+        more=more,
+        is_mine=p["seller_username"] == me,
+        can_delete=p["seller_username"] == me or g.is_admin or role in ("owner", "admin"),
+        cart_count=cart_count,
+        active="shop",
+    )
+
+
+@app.route("/api/products/delete/<int:product_id>", methods=["POST"])
+def api_product_delete(product_id):
+    if "user_id" not in session:
+        return jsonify({"error": "kirish kerak"}), 401
+
+    conn = get_db()
+    product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not product:
+        conn.close()
+        return jsonify({"error": "ruxsat yo'q"}), 403
+    role = member_role(conn, product["channel_id"], session["username"]) if product["channel_id"] else None
+    if product["seller_username"] != session["username"] and not g.is_admin and role not in ("owner", "admin"):
+        conn.close()
+        return jsonify({"error": "ruxsat yo'q"}), 403
+    delete_product_everything(conn, product)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+def delete_product_everything(conn, product):
+    names = {r["filename"] for r in conn.execute("SELECT filename FROM product_media WHERE product_id = ?", (product["id"],)).fetchall()}
+    if product["image_file"]:
+        names.add(product["image_file"])
+    for n in names:
+        delete_image_from_db(conn, n)
+    conn.execute("DELETE FROM product_media WHERE product_id = ?", (product["id"],))
+    conn.execute("DELETE FROM cart_lines WHERE product_id = ?", (product["id"],))
+    conn.execute("DELETE FROM cart_items WHERE product_id = ?", (product["id"],))
+    conn.execute("DELETE FROM products WHERE id = ?", (product["id"],))
+
+
+def cart_total_count(conn, me):
+    return conn.execute("SELECT COALESCE(SUM(qty), 0) AS c FROM cart_lines WHERE username = ?", (me,)).fetchone()["c"]
 
 
 @app.route("/api/cart/add/<int:product_id>", methods=["POST"])
 def api_cart_add(product_id):
     if "user_id" not in session:
         return jsonify({"error": "kirish kerak"}), 401
-
+    me = session["username"]
+    data = request.get_json(silent=True) or {}
     conn = get_db()
+    p = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not p:
+        conn.close()
+        return jsonify({"ok": False}), 404
+    if p["seller_username"] == me:
+        conn.close()
+        return jsonify({"ok": False, "message": tr("cart_own_product")}), 400
+    colors, sizes = parse_options(p["colors"]), parse_options(p["sizes"])
+    color = (data.get("color") or "").strip()
+    size = (data.get("size") or "").strip()
+    if (colors and color not in colors) or (sizes and size not in sizes):
+        conn.close()
+        return jsonify({"ok": False, "need_options": True, "message": tr("cart_choose_options")}), 400
+    if not colors:
+        color = ""
+    if not sizes:
+        size = ""
+    try:
+        qty = max(1, min(99, int(data.get("qty") or 1)))
+    except (TypeError, ValueError):
+        qty = 1
     existing = conn.execute(
-        "SELECT id, quantity FROM cart_items WHERE username = ? AND product_id = ?",
-        (session["username"], product_id),
+        "SELECT id, qty FROM cart_lines WHERE username = ? AND product_id = ? AND color = ? AND size = ?",
+        (me, product_id, color, size),
     ).fetchone()
-
     if existing:
-        conn.execute(
-            "UPDATE cart_items SET quantity = quantity + 1 WHERE id = ?", (existing["id"],)
-        )
+        conn.execute("UPDATE cart_lines SET qty = ? WHERE id = ?", (min(99, existing["qty"] + qty), existing["id"]))
     else:
-        conn.execute(
-            "INSERT INTO cart_items (username, product_id, quantity) VALUES (?, ?, 1)",
-            (session["username"], product_id),
-        )
+        conn.execute("INSERT INTO cart_lines (username, product_id, qty, color, size) VALUES (?, ?, ?, ?, ?)",
+                     (me, product_id, qty, color, size))
     conn.commit()
-
-    cart_count = conn.execute(
-        "SELECT COALESCE(SUM(quantity), 0) as c FROM cart_items WHERE username = ?",
-        (session["username"],),
-    ).fetchone()["c"]
+    count = cart_total_count(conn, me)
     conn.close()
+    return jsonify({"ok": True, "cart_count": count})
 
-    return jsonify({"ok": True, "cart_count": cart_count})
 
-
-@app.route("/cart")
-def cart():
+@app.route("/api/cart/qty/<int:line_id>", methods=["POST"])
+def api_cart_qty(line_id):
     if "user_id" not in session:
-        return redirect(url_for("login"))
-
+        return jsonify({"error": "kirish kerak"}), 401
+    me = session["username"]
+    data = request.get_json(silent=True) or {}
     conn = get_db()
-    items = conn.execute(
-        """SELECT cart_items.id as cart_id, cart_items.quantity, products.*
-           FROM cart_items JOIN products ON cart_items.product_id = products.id
-           WHERE cart_items.username = ?""",
-        (session["username"],),
-    ).fetchall()
+    line = conn.execute("SELECT id, qty FROM cart_lines WHERE id = ? AND username = ?", (line_id, me)).fetchone()
+    if not line:
+        conn.close()
+        return jsonify({"ok": False}), 404
+    try:
+        qty = max(1, min(99, line["qty"] + int(data.get("delta") or 0)))
+    except (TypeError, ValueError):
+        qty = line["qty"]
+    conn.execute("UPDATE cart_lines SET qty = ? WHERE id = ?", (qty, line_id))
+    conn.commit()
+    count = cart_total_count(conn, me)
     conn.close()
-
-    total = sum(item["price"] * item["quantity"] for item in items)
-
-    return render_template(
-        "cart.html",
-        username=session["username"],
-        avatar_letter=session["avatar_letter"],
-        items=items,
-        total=total,
-        active="shop",
-    )
+    return jsonify({"ok": True, "qty": qty, "cart_count": count})
 
 
 @app.route("/api/cart/remove/<int:cart_id>", methods=["POST"])
 def api_cart_remove(cart_id):
     if "user_id" not in session:
         return jsonify({"error": "kirish kerak"}), 401
-
     conn = get_db()
-    conn.execute(
-        "DELETE FROM cart_items WHERE id = ? AND username = ?",
-        (cart_id, session["username"]),
-    )
+    conn.execute("DELETE FROM cart_lines WHERE id = ? AND username = ?", (cart_id, session["username"]))
     conn.commit()
+    count = cart_total_count(conn, session["username"])
     conn.close()
+    return jsonify({"ok": True, "cart_count": count})
 
-    return jsonify({"ok": True})
+
+def cart_groups(conn, me):
+    """Savatdagi mahsulotlar sotuvchilar bo'yicha guruhlanadi."""
+    lines = conn.execute(
+        """SELECT cl.id AS line_id, cl.qty, cl.color, cl.size, p.id AS product_id, p.title, p.price, p.image_file,
+                  p.seller_username, u.business_name, u.nickname
+           FROM cart_lines cl JOIN products p ON p.id = cl.product_id
+           LEFT JOIN users u ON u.username = p.seller_username
+           WHERE cl.username = ? ORDER BY p.seller_username, cl.id""",
+        (me,),
+    ).fetchall()
+    groups_ = {}
+    for l in lines:
+        gr = groups_.setdefault(l["seller_username"], {
+            "seller": l["seller_username"], "name": l["business_name"] or l["nickname"] or l["seller_username"],
+            "lines": [], "total": 0,
+        })
+        gr["lines"].append(l)
+        gr["total"] += l["price"] * l["qty"]
+    return list(groups_.values())
+
+
+@app.route("/cart")
+def cart():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    groups_ = cart_groups(conn, me)
+    u = conn.execute("SELECT country, region, district, phone FROM users WHERE username = ?", (me,)).fetchone()
+    conn.close()
+    total = sum(gr["total"] for gr in groups_)
+    return render_template(
+        "cart.html",
+        username=me,
+        avatar_letter=session["avatar_letter"],
+        groups=groups_,
+        total=total,
+        addr=dict(u) if u else {},
+        countries=locations.country_list(current_lang()),
+        active="shop",
+    )
+
+
+def fmt_money(n):
+    return "{:,}".format(int(n)).replace(",", " ")
 
 
 @app.route("/checkout", methods=["POST"])
 def checkout():
-    """Hozircha soxta/test to'lov - haqiqiy pul o'tkazilmaydi"""
+    """Buyurtma: har bir sotuvchiga uning mahsulotlari bo'yicha alohida buyurtma va chatga xabar yuboriladi.
+    To'lov hozircha online emas - sotuvchi bilan chatda kelishiladi."""
     if "user_id" not in session:
         return redirect(url_for("login"))
+    me = session["username"]
+    country = request.form.get("country", "").strip()
+    region = request.form.get("region", "").strip()
+    district = request.form.get("district", "").strip()
+    address = request.form.get("address", "").strip()[:200]
+    phone = normalize_phone(request.form.get("phone"))
 
     conn = get_db()
-    conn.execute("DELETE FROM cart_items WHERE username = ?", (session["username"],))
+    groups_ = cart_groups(conn, me)
+    error = None
+    if not groups_:
+        error = tr("cart_empty_error")
+    elif not country or not locations.is_valid(country, region, district):
+        error = tr("order_location_required")
+    elif locations.region_list(country) and not region:
+        error = tr("order_location_required")
+    elif region and locations.district_list(country, region) and not district:
+        error = tr("order_location_required")
+    elif not phone:
+        error = tr("phone_invalid")
+    if error:
+        conn.close()
+        flash(error)
+        return redirect(url_for("cart"))
+
+    lang = current_lang()
+    first_seller = None
+    sent = 0
+    for gr in groups_:
+        seller = gr["seller"]
+        if is_blocked_between(conn, me, seller):
+            continue
+        cur = conn.execute(
+            "INSERT INTO orders (buyer, seller, total, country, region, district, address, phone, status, created_ts) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
+            (me, seller, gr["total"], country, region, district, address, phone, int(time.time())),
+        )
+        oid = cur.lastrowid
+        lines_txt = []
+        for l in gr["lines"]:
+            conn.execute(
+                "INSERT INTO order_items (order_id, product_id, title, price, qty, color, size) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (oid, l["product_id"], l["title"], l["price"], l["qty"], l["color"], l["size"]),
+            )
+            opts = " · ".join(x for x in (l["color"], l["size"]) if x)
+            lines_txt.append(f"• {l['title']}" + (f" ({opts})" if opts else "") +
+                             f" × {l['qty']} — {fmt_money(l['price'] * l['qty'])} {tr('currency_sum')}")
+        place = ", ".join(x for x in (locations.country_name(country, lang), region, district) if x)
+        text = "\n".join([
+            f"🛒 {tr('order_title')} #{oid}",
+            *lines_txt,
+            f"{tr('order_total')}: {fmt_money(gr['total'])} {tr('currency_sum')}",
+            f"📍 {place}",
+            *([f"🏠 {address}"] if address else []),
+            f"📞 {phone}",
+        ])[:1800]
+        conn.execute(
+            "INSERT INTO private_messages (sender, receiver, content, image_file, media_kind, duration, created_at, created_ts, is_read) "
+            "VALUES (?, ?, ?, NULL, 'order', NULL, ?, ?, 0)",
+            (me, seller, text, datetime.now().strftime("%H:%M"), int(time.time())),
+        )
+        for l in gr["lines"]:
+            conn.execute("DELETE FROM cart_lines WHERE id = ?", (l["line_id"],))
+        sent += 1
+        first_seller = first_seller or seller
+    # manzil va telefonni keyingi buyurtmalar uchun eslab qolamiz
+    conn.execute("UPDATE users SET country = COALESCE(NULLIF(country, ''), ?), region = COALESCE(NULLIF(region, ''), ?), "
+                 "district = COALESCE(NULLIF(district, ''), ?), phone = COALESCE(NULLIF(phone, ''), ?) WHERE username = ?",
+                 (country, region, district, phone, me))
     conn.commit()
     conn.close()
 
-    flash("Buyurtmangiz qabul qilindi! (test rejimida, haqiqiy to'lov hali ulanmagan)")
-    return redirect(url_for("shop"))
+    if not sent:
+        flash(tr("chat_blocked_msg"))
+        return redirect(url_for("cart"))
+    flash(tr("order_sent"))
+    if sent == 1:
+        return redirect(url_for("dm", other_username=first_seller))
+    return redirect(url_for("shaxsiy", f="dm"))
 
 
 @app.route("/people")
@@ -2704,6 +3217,8 @@ def user_profile(target_username):
     products = conn.execute(
         "SELECT * FROM products WHERE seller_username = ? ORDER BY id DESC LIMIT 20", (target_username,)
     ).fetchall()
+    presence = presence_info(conn, me, target_username, None, target["last_seen_ts"])
+    contacts_count = conn.execute("SELECT COUNT(*) AS c FROM contacts WHERE username = ?", (target_username,)).fetchone()["c"]
     conn.close()
 
     return render_template(
@@ -2717,6 +3232,10 @@ def user_profile(target_username):
         target_is_admin=bool(target["is_admin"]) or target["username"].lower() in ADMIN_USERNAMES,
         posts=posts,
         products=products,
+        presence=presence,
+        contacts_count=contacts_count,
+        location_text=user_location_text(target),
+        is_business=target["account_type"] == "business",
         active="people",
     )
 
@@ -2731,10 +3250,14 @@ def dm(other_username):
         "SELECT * FROM users WHERE username = ?", (other_username,)
     ).fetchone()
     i_blocked = False
+    peer = None
+    muted = False
     if other:
         i_blocked = bool(conn.execute(
             "SELECT 1 FROM user_blocks WHERE blocker = ? AND blocked = ?", (session["username"], other["username"])
         ).fetchone())
+        peer = presence_info(conn, session["username"], other["username"], None, other["last_seen_ts"])
+        muted = ("dm:" + other["username"]) in muted_keys(conn, session["username"])
     conn.close()
 
     if not other:
@@ -2743,6 +3266,9 @@ def dm(other_username):
     return render_template(
         "dm.html",
         i_blocked=i_blocked,
+        peer=peer,
+        chat_muted=muted,
+        can_post=True,
         other_display=other["nickname"] or other["username"],
         username=session["username"],
         avatar_letter=session["avatar_letter"],
@@ -2785,7 +3311,7 @@ def save_chat_blob(conn, file_storage, kind):
     return name
 
 
-def serialize_chat_rows(conn, rows, table, author_col):
+def serialize_chat_rows(conn, rows, table, author_col, read_visible=False):
     """Xabarlar ro'yxatini JSON'ga tayyorlaydi (reply bilan birga)."""
     reply_ids = {r["reply_to"] for r in rows if r["reply_to"]}
     replies = {}
@@ -2809,6 +3335,7 @@ def serialize_chat_rows(conn, rows, table, author_col):
             "duration": r["duration"] or 0,
             "reply": replies.get(r["reply_to"]) if r["reply_to"] else None,
             "created_at": r["created_at"],
+            "read": bool(read_visible and table == "private_messages" and r["is_read"]),
         })
     return out
 
@@ -2866,7 +3393,7 @@ def api_dm_messages(other_username):
     me = session["username"]
     conn = get_db()
     rows = conn.execute(
-        """SELECT id, sender, receiver, content, image_file, media_kind, duration, reply_to, created_at FROM private_messages
+        """SELECT id, sender, receiver, content, image_file, media_kind, duration, reply_to, created_at, created_ts, is_read FROM private_messages
            WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
            ORDER BY id DESC LIMIT 100""",
         (me, other_username, other_username, me),
@@ -2878,9 +3405,11 @@ def api_dm_messages(other_username):
     )
     conn.commit()
     rows = list(reversed(rows))
-    messages = serialize_chat_rows(conn, rows, "private_messages", "sender")
+    peer_prefs = get_prefs(conn, other_username)
+    messages = serialize_chat_rows(conn, rows, "private_messages", "sender", read_visible=bool(peer_prefs["read_receipts"]))
+    peer = presence_info(conn, me, other_username, peer_prefs)
     conn.close()
-    return jsonify({"messages": messages, "me": me})
+    return jsonify({"messages": messages, "me": me, "peer": peer})
 
 
 @app.route("/api/dm/delete/<int:message_id>", methods=["POST"])
@@ -2930,14 +3459,146 @@ def api_dm_send(other_username):
     content, filename, kind, duration, reply_to = payload
 
     conn.execute(
-        "INSERT INTO private_messages (sender, receiver, content, image_file, media_kind, duration, reply_to, created_at, is_read) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
-        (me, other_username, content, filename, kind, duration, reply_to, datetime.now().strftime("%H:%M")),
+        "INSERT INTO private_messages (sender, receiver, content, image_file, media_kind, duration, reply_to, created_at, created_ts, is_read) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+        (me, other_username, content, filename, kind, duration, reply_to, datetime.now().strftime("%H:%M"), int(time.time())),
     )
     conn.commit()
     conn.close()
 
     return jsonify({"ok": True})
+
+
+# ---------- Guruhlar va kanallar ----------
+GROUP_ROLES = ("owner", "admin", "member")
+
+
+def group_row(conn, gid):
+    r = conn.execute("SELECT * FROM groups WHERE id = ?", (gid,)).fetchone()
+    return dict(r) if r else None
+
+
+def member_role(conn, gid, username):
+    r = conn.execute("SELECT role FROM group_members WHERE group_id = ? AND username = ?", (gid, username)).fetchone()
+    if not r:
+        return None
+    return r["role"] if r["role"] in GROUP_ROLES else "member"
+
+
+def group_member_count(conn, gid):
+    return conn.execute("SELECT COUNT(*) AS c FROM group_members WHERE group_id = ?", (gid,)).fetchone()["c"]
+
+
+def group_max_msg_id(conn, gid):
+    return conn.execute("SELECT COALESCE(MAX(id), 0) AS m FROM group_messages WHERE group_id = ?", (gid,)).fetchone()["m"]
+
+
+def group_can_post(group, role):
+    if role in ("owner", "admin"):
+        return True
+    if not role:
+        return False
+    return group.get("kind") != "channel" and (group.get("post_mode") or "all") == "all"
+
+
+def ensure_invite_code(conn, group):
+    if group.get("invite_code"):
+        return group["invite_code"]
+    for _ in range(5):
+        code = secrets.token_urlsafe(7).replace("-", "a").replace("_", "b")
+        try:
+            conn.execute("UPDATE groups SET invite_code = ? WHERE id = ?", (code, group["id"]))
+            conn.commit()
+            group["invite_code"] = code
+            return code
+        except Exception:
+            conn.rollback()
+    return ""
+
+
+def join_group(conn, gid, username, role="member"):
+    conn.execute(
+        "INSERT OR IGNORE INTO group_members (group_id, username, role, last_read_id) VALUES (?, ?, ?, ?)",
+        (gid, username, role, group_max_msg_id(conn, gid)),
+    )
+
+
+def delete_group_everything(conn, gid):
+    for row in conn.execute("SELECT image_file FROM group_messages WHERE group_id = ? AND image_file IS NOT NULL", (gid,)).fetchall():
+        delete_image_from_db(conn, row["image_file"])
+    g_ = conn.execute("SELECT avatar_file FROM groups WHERE id = ?", (gid,)).fetchone()
+    if g_ and g_["avatar_file"]:
+        delete_image_from_db(conn, g_["avatar_file"])
+    conn.execute("DELETE FROM group_messages WHERE group_id = ?", (gid,))
+    conn.execute("DELETE FROM group_members WHERE group_id = ?", (gid,))
+    conn.execute("DELETE FROM chat_mutes WHERE chat_key = ?", ("g:%s" % gid,))
+    conn.execute("UPDATE products SET channel_id = NULL WHERE channel_id = ?", (gid,))
+    conn.execute("DELETE FROM groups WHERE id = ?", (gid,))
+
+
+def group_preview(m):
+    if not m:
+        return ""
+    mk = m["media_kind"] or ("image" if m["image_file"] else "text")
+    if mk == "audio":
+        return "🎤 " + tr("msg_voice")
+    if mk == "video":
+        return "🎥 " + tr("msg_video_note")
+    if mk == "image":
+        return "📷 " + (m["content"] or tr("photo_msg"))
+    if mk == "order":
+        return "🛒 " + tr("order_title")
+    return (m["content"] or "")[:40]
+
+
+def get_all_chats(conn, me):
+    """Hamma chatlar bitta ro'yxatda: shaxsiy + guruhlar + kanallar (oxirgi faollik bo'yicha)."""
+    muted = muted_keys(conn, me)
+    items = get_conversations(conn, me, limit=100)
+    for it in items:
+        it["muted"] = ("dm:" + it["username"]) in muted
+    rows = conn.execute(
+        """SELECT g.id, g.name, g.avatar_letter, g.avatar_file, g.kind, m.role
+           FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.username = ?""",
+        (me,),
+    ).fetchall()
+    if rows:
+        gids = [r["id"] for r in rows]
+        marks = ",".join("?" for _ in gids)
+        last = {}
+        for m in conn.execute(
+            f"""SELECT gm.* FROM group_messages gm JOIN (
+                   SELECT group_id, MAX(id) AS mid FROM group_messages WHERE group_id IN ({marks}) GROUP BY group_id
+                ) x ON gm.id = x.mid""",
+            tuple(gids),
+        ).fetchall():
+            last[m["group_id"]] = m
+        counts = {r["group_id"]: r["c"] for r in conn.execute(
+            f"SELECT group_id, COUNT(*) AS c FROM group_members WHERE group_id IN ({marks}) GROUP BY group_id", tuple(gids)
+        ).fetchall()}
+        unread = group_unread_map(conn, me)
+        for r in rows:
+            m = last.get(r["id"])
+            prev = group_preview(m)
+            if m and r["kind"] != "channel" and m["username"] != me and prev:
+                prev = m["username"] + ": " + prev
+            items.append({
+                "kind": r["kind"] or "group",
+                "id": r["id"],
+                "name": r["name"],
+                "avatar_letter": r["avatar_letter"],
+                "avatar_file": r["avatar_file"],
+                "unread": unread.get(r["id"], 0),
+                "preview": prev,
+                "mine": bool(m and m["username"] == me and r["kind"] != "channel"),
+                "time": m["created_at"] if m else "",
+                "ts": int(m["created_ts"] or 0) if m else 0,
+                "members": counts.get(r["id"], 1),
+                "muted": ("g:%s" % r["id"]) in muted,
+                "has_image": False,
+            })
+    items.sort(key=lambda x: x["ts"], reverse=True)
+    return items
 
 
 @app.route("/shaxsiy")
@@ -2947,14 +3608,18 @@ def shaxsiy():
 
     me = session["username"]
     conn = get_db()
-    conversations = get_conversations(conn, me)
+    chats = get_all_chats(conn, me)
     conn.close()
+    flt = request.args.get("f", "all")
+    if flt not in ("all", "dm", "group", "channel"):
+        flt = "all"
 
     return render_template(
         "shaxsiy.html",
         username=me,
         avatar_letter=session["avatar_letter"],
-        conversations=conversations,
+        conversations=chats,
+        flt=flt,
         active="shaxsiy",
     )
 
@@ -2963,23 +3628,7 @@ def shaxsiy():
 def groups_list():
     if "user_id" not in session:
         return redirect(url_for("login"))
-
-    conn = get_db()
-    my_groups = conn.execute(
-        """SELECT groups.* FROM groups
-           JOIN group_members ON groups.id = group_members.group_id
-           WHERE group_members.username = ? ORDER BY groups.id DESC""",
-        (session["username"],),
-    ).fetchall()
-    conn.close()
-
-    return render_template(
-        "groups.html",
-        username=session["username"],
-        avatar_letter=session["avatar_letter"],
-        my_groups=my_groups,
-        active="groups",
-    )
+    return redirect(url_for("shaxsiy", f="group"))
 
 
 @app.route("/groups/new", methods=["GET", "POST"])
@@ -2987,44 +3636,50 @@ def group_new():
     if "user_id" not in session:
         return redirect(url_for("login"))
 
+    me = session["username"]
+    kind = request.values.get("kind", "group")
+    if kind not in ("group", "channel"):
+        kind = "group"
     conn = get_db()
 
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
+        name = request.form.get("name", "").strip()[:60]
+        description = request.form.get("description", "").strip()[:300]
         selected = request.form.getlist("members")
-
+        is_public = 1 if (request.form.get("is_public") == "1" or kind == "channel" and request.form.get("is_public") != "0") else 0
         if name:
             cur = conn.execute(
-                "INSERT INTO groups (name, avatar_letter, created_by, created_at) VALUES (?, ?, ?, ?)",
-                (name, name[0].upper(), session["username"], datetime.now().strftime("%d.%m %H:%M")),
+                "INSERT INTO groups (name, avatar_letter, created_by, created_at, kind, description, is_public, post_mode) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, name[0].upper(), me, datetime.now().strftime("%d.%m %H:%M"), kind, description, is_public,
+                 "admins" if kind == "channel" else "all"),
             )
             group_id = cur.lastrowid
-
-            conn.execute(
-                "INSERT OR IGNORE INTO group_members (group_id, username) VALUES (?, ?)",
-                (group_id, session["username"]),
-            )
+            join_group(conn, group_id, me, "owner")
             for member in selected:
-                conn.execute(
-                    "INSERT OR IGNORE INTO group_members (group_id, username) VALUES (?, ?)",
-                    (group_id, member),
-                )
+                u = conn.execute("SELECT username FROM users WHERE username = ?", (member,)).fetchone()
+                if u and u["username"] != me and not is_blocked_between(conn, me, u["username"]):
+                    join_group(conn, group_id, u["username"])
             conn.commit()
+            ensure_invite_code(conn, group_row(conn, group_id))
             conn.close()
             return redirect(url_for("group_chat", group_id=group_id))
+        flash(tr("group_name_required"))
 
     users = conn.execute(
-        "SELECT username, avatar_letter FROM users WHERE username != ? ORDER BY username",
-        (session["username"],),
+        """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file FROM contacts c
+           JOIN users u ON u.username = c.contact_username WHERE c.username = ? ORDER BY u.username""",
+        (me,),
     ).fetchall()
     conn.close()
 
     return render_template(
         "group_new.html",
-        username=session["username"],
+        username=me,
         avatar_letter=session["avatar_letter"],
         users=users,
-        active="groups",
+        kind=kind,
+        active="shaxsiy",
     )
 
 
@@ -3033,23 +3688,28 @@ def group_chat(group_id):
     if "user_id" not in session:
         return redirect(url_for("login"))
 
+    me = session["username"]
     conn = get_db()
-    group = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
-    is_member = conn.execute(
-        "SELECT 1 FROM group_members WHERE group_id = ? AND username = ?",
-        (group_id, session["username"]),
-    ).fetchone()
+    group = group_row(conn, group_id)
+    role = member_role(conn, group_id, me) if group else None
+    if not group or (not role and not group.get("is_public") and not g.is_admin):
+        conn.close()
+        return redirect(url_for("shaxsiy"))
+    count = group_member_count(conn, group_id)
+    muted = ("g:%s" % group_id) in muted_keys(conn, me)
     conn.close()
-
-    if not group or not is_member:
-        return redirect(url_for("groups_list"))
 
     return render_template(
         "group_chat.html",
-        username=session["username"],
+        username=me,
         avatar_letter=session["avatar_letter"],
         group=group,
-        active="groups",
+        role=role,
+        is_member=bool(role),
+        can_post=group_can_post(group, role),
+        member_count=count,
+        chat_muted=muted,
+        active="shaxsiy",
     )
 
 
@@ -3058,22 +3718,34 @@ def api_group_messages(group_id):
     if "user_id" not in session:
         return jsonify({"error": "kirish kerak"}), 401
 
+    me = session["username"]
     conn = get_db()
-    is_member = conn.execute(
-        "SELECT 1 FROM group_members WHERE group_id = ? AND username = ?",
-        (group_id, session["username"]),
-    ).fetchone()
-    if not is_member:
+    group = group_row(conn, group_id)
+    role = member_role(conn, group_id, me) if group else None
+    if not group or (not role and not group.get("is_public")):
         conn.close()
         return jsonify({"error": "a'zo emassiz"}), 403
 
     rows = conn.execute(
-        "SELECT id, username, content, image_file, media_kind, duration, reply_to, created_at FROM group_messages WHERE group_id = ? ORDER BY id DESC LIMIT 100",
+        "SELECT id, username, content, image_file, media_kind, duration, reply_to, created_at, created_ts FROM group_messages WHERE group_id = ? ORDER BY id DESC LIMIT 100",
         (group_id,),
     ).fetchall()
-    messages = serialize_chat_rows(conn, list(reversed(rows)), "group_messages", "username")
+    rows = list(reversed(rows))
+    messages = serialize_chat_rows(conn, rows, "group_messages", "username")
+    reads = conn.execute("SELECT username, COALESCE(last_read_id, 0) AS lr FROM group_members WHERE group_id = ?", (group_id,)).fetchall()
+    staff = role in ("owner", "admin")
+    for m in messages:
+        m["seen"] = sum(1 for r in reads if r["username"] != m["author"] and r["lr"] >= m["id"])
+        m["can_delete"] = (m["author"] == me) or staff
+    if role and rows:
+        top = rows[-1]["id"]
+        conn.execute("UPDATE group_members SET last_read_id = ? WHERE group_id = ? AND username = ? AND COALESCE(last_read_id, 0) < ?",
+                     (top, group_id, me, top))
+        conn.commit()
+    count = len(reads)
     conn.close()
-    return jsonify({"messages": messages, "me": session["username"]})
+    return jsonify({"messages": messages, "me": me, "kind": group.get("kind") or "group", "members": count,
+                    "can_post": group_can_post(group, role)})
 
 
 @app.route("/api/groups/message/delete/<int:message_id>", methods=["POST"])
@@ -3083,8 +3755,11 @@ def api_group_message_delete(message_id):
 
     conn = get_db()
     msg = conn.execute("SELECT * FROM group_messages WHERE id = ?", (message_id,)).fetchone()
-
-    if not msg or msg["username"] != session["username"]:
+    if not msg:
+        conn.close()
+        return jsonify({"error": "ruxsat yo'q"}), 403
+    role = member_role(conn, msg["group_id"], session["username"])
+    if msg["username"] != session["username"] and role not in ("owner", "admin") and not g.is_admin:
         conn.close()
         return jsonify({"error": "ruxsat yo'q"}), 403
 
@@ -3102,14 +3777,16 @@ def api_group_send(group_id):
     if "user_id" not in session:
         return jsonify({"error": "kirish kerak"}), 401
 
+    me = session["username"]
     conn = get_db()
-    is_member = conn.execute(
-        "SELECT 1 FROM group_members WHERE group_id = ? AND username = ?",
-        (group_id, session["username"]),
-    ).fetchone()
-    if not is_member:
+    group = group_row(conn, group_id)
+    role = member_role(conn, group_id, me) if group else None
+    if not group or not role:
         conn.close()
         return jsonify({"error": "a'zo emassiz"}), 403
+    if not group_can_post(group, role):
+        conn.close()
+        return jsonify({"error": "readonly", "message": tr("channel_readonly")}), 403
 
     payload, err = read_chat_payload(conn, "group_messages", "group_id = ?", (group_id,))
     if err:
@@ -3117,13 +3794,301 @@ def api_group_send(group_id):
         return err
     content, filename, kind, duration, reply_to = payload
 
-    conn.execute(
-        "INSERT INTO group_messages (group_id, username, content, image_file, media_kind, duration, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (group_id, session["username"], content, filename, kind, duration, reply_to, datetime.now().strftime("%H:%M")),
+    cur = conn.execute(
+        "INSERT INTO group_messages (group_id, username, content, image_file, media_kind, duration, reply_to, created_at, created_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (group_id, me, content, filename, kind, duration, reply_to, datetime.now().strftime("%H:%M"), int(time.time())),
     )
+    conn.execute("UPDATE group_members SET last_read_id = ? WHERE group_id = ? AND username = ?", (cur.lastrowid, group_id, me))
     conn.commit()
     conn.close()
 
+    return jsonify({"ok": True})
+
+
+def group_settings_context(conn, group, me, role):
+    members = conn.execute(
+        """SELECT m.username, m.role, u.nickname, u.avatar_letter, u.avatar_file, u.last_seen_ts FROM group_members m
+           JOIN users u ON u.username = m.username WHERE m.group_id = ?
+           ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.username""",
+        (group["id"],),
+    ).fetchall()
+    member_names = {m["username"] for m in members}
+    candidates = [c for c in conn.execute(
+        """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file FROM contacts c
+           JOIN users u ON u.username = c.contact_username WHERE c.username = ? ORDER BY u.username""",
+        (me,),
+    ).fetchall() if c["username"] not in member_names]
+    return members, candidates
+
+
+@app.route("/groups/<int:group_id>/settings")
+def group_settings(group_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    group = group_row(conn, group_id)
+    role = member_role(conn, group_id, me) if group else None
+    if not group or (not role and not g.is_admin):
+        conn.close()
+        return redirect(url_for("shaxsiy"))
+    members, candidates = group_settings_context(conn, group, me, role)
+    code = ensure_invite_code(conn, group) if role in ("owner", "admin") else (group.get("invite_code") or "")
+    muted = ("g:%s" % group_id) in muted_keys(conn, me)
+    product_count = conn.execute("SELECT COUNT(*) AS c FROM products WHERE channel_id = ?", (group_id,)).fetchone()["c"]
+    conn.close()
+    return render_template(
+        "group_settings.html",
+        username=me,
+        avatar_letter=session["avatar_letter"],
+        group=group,
+        role=role,
+        members=members,
+        candidates=candidates,
+        invite_link=url_for("join_by_code", code=code, _external=True) if code else "",
+        chat_muted=muted,
+        product_count=product_count,
+        active="shaxsiy",
+    )
+
+
+def _group_manager(conn, group_id, me):
+    """(group, role) yoki (None, None). Faqat ega yoki admin uchun."""
+    group = group_row(conn, group_id)
+    role = member_role(conn, group_id, me) if group else None
+    if not group or (role not in ("owner", "admin") and not g.is_admin):
+        return None, None
+    return group, role
+
+
+@app.route("/api/groups/<int:group_id>/update", methods=["POST"])
+def api_group_update(group_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    conn = get_db()
+    group, role = _group_manager(conn, group_id, me)
+    if not group:
+        conn.close()
+        return jsonify({"ok": False, "message": tr("group_no_permission")}), 403
+    name = (request.form.get("name") or group["name"]).strip()[:60] or group["name"]
+    description = (request.form.get("description") or "").strip()[:300]
+    conn.execute("UPDATE groups SET name = ?, avatar_letter = ?, description = ? WHERE id = ?",
+                 (name, name[0].upper(), description, group_id))
+    if role == "owner" or g.is_admin:
+        if "is_public" in request.form:
+            conn.execute("UPDATE groups SET is_public = ? WHERE id = ?", (1 if request.form.get("is_public") == "1" else 0, group_id))
+        if group.get("kind") != "channel" and request.form.get("post_mode") in ("all", "admins"):
+            conn.execute("UPDATE groups SET post_mode = ? WHERE id = ?", (request.form.get("post_mode"), group_id))
+    avatar = request.files.get("avatar")
+    if avatar and avatar.filename and allowed_file(avatar.filename):
+        new_name = save_image_to_db(conn, avatar, prefix="gavatar_", avatar=True)
+        if group.get("avatar_file"):
+            delete_image_from_db(conn, group["avatar_file"])
+        conn.execute("UPDATE groups SET avatar_file = ? WHERE id = ?", (new_name, group_id))
+    if request.form.get("remove_avatar") == "1" and group.get("avatar_file") and not (avatar and avatar.filename):
+        delete_image_from_db(conn, group["avatar_file"])
+        conn.execute("UPDATE groups SET avatar_file = NULL WHERE id = ?", (group_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/groups/<int:group_id>/members/add", methods=["POST"])
+def api_group_add_members(group_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    group, role = _group_manager(conn, group_id, me)
+    if not group:
+        conn.close()
+        return jsonify({"ok": False, "message": tr("group_no_permission")}), 403
+    added = 0
+    for name in (data.get("usernames") or [])[:100]:
+        u = conn.execute("SELECT username FROM users WHERE username = ?", (name,)).fetchone()
+        if u and not member_role(conn, group_id, u["username"]) and not is_blocked_between(conn, me, u["username"]):
+            join_group(conn, group_id, u["username"])
+            added += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "added": added})
+
+
+@app.route("/api/groups/<int:group_id>/role", methods=["POST"])
+def api_group_role(group_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    data = request.get_json(silent=True) or {}
+    target = data.get("username")
+    new_role = data.get("role")
+    conn = get_db()
+    group = group_row(conn, group_id)
+    if not group or (member_role(conn, group_id, me) != "owner" and not g.is_admin):
+        conn.close()
+        return jsonify({"ok": False, "message": tr("group_owner_only")}), 403
+    trole = member_role(conn, group_id, target)
+    if not trole or trole == "owner" or new_role not in ("admin", "member"):
+        conn.close()
+        return jsonify({"ok": False}), 400
+    conn.execute("UPDATE group_members SET role = ? WHERE group_id = ? AND username = ?", (new_role, group_id, target))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "role": new_role})
+
+
+@app.route("/api/groups/<int:group_id>/kick", methods=["POST"])
+def api_group_kick(group_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    data = request.get_json(silent=True) or {}
+    target = data.get("username")
+    conn = get_db()
+    group, role = _group_manager(conn, group_id, me)
+    if not group:
+        conn.close()
+        return jsonify({"ok": False, "message": tr("group_no_permission")}), 403
+    trole = member_role(conn, group_id, target)
+    if not trole or trole == "owner" or target == me or (trole == "admin" and role != "owner" and not g.is_admin):
+        conn.close()
+        return jsonify({"ok": False, "message": tr("group_no_permission")}), 403
+    conn.execute("DELETE FROM group_members WHERE group_id = ? AND username = ?", (group_id, target))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/groups/<int:group_id>/join", methods=["POST"])
+def api_group_join(group_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    conn = get_db()
+    group = group_row(conn, group_id)
+    if not group or not group.get("is_public"):
+        conn.close()
+        return jsonify({"ok": False}), 403
+    join_group(conn, group_id, me)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/join/<code>")
+def join_by_code(code):
+    if "user_id" not in session:
+        return redirect(url_for("login", next="/join/" + code))
+    conn = get_db()
+    row = conn.execute("SELECT id FROM groups WHERE invite_code = ?", (code,)).fetchone()
+    if not row:
+        conn.close()
+        flash(tr("group_link_invalid"))
+        return redirect(url_for("shaxsiy"))
+    join_group(conn, row["id"], session["username"])
+    conn.commit()
+    conn.close()
+    return redirect(url_for("group_chat", group_id=row["id"]))
+
+
+@app.route("/api/groups/<int:group_id>/leave", methods=["POST"])
+def api_group_leave(group_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    conn = get_db()
+    group = group_row(conn, group_id)
+    role = member_role(conn, group_id, me) if group else None
+    if not group or not role:
+        conn.close()
+        return jsonify({"ok": False}), 400
+    if role == "owner":
+        if group_member_count(conn, group_id) > 1:
+            conn.close()
+            return jsonify({"ok": False, "message": tr("group_owner_cannot_leave")}), 400
+        delete_group_everything(conn, group_id)
+    else:
+        conn.execute("DELETE FROM group_members WHERE group_id = ? AND username = ?", (group_id, me))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/groups/<int:group_id>/delete", methods=["POST"])
+def api_group_delete(group_id):
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    conn = get_db()
+    group = group_row(conn, group_id)
+    if not group or (member_role(conn, group_id, me) != "owner" and not g.is_admin):
+        conn.close()
+        return jsonify({"ok": False, "message": tr("group_owner_only")}), 403
+    delete_group_everything(conn, group_id)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/groups/<int:group_id>/transfer", methods=["POST"])
+def api_group_transfer(group_id):
+    """Egalikni boshqa a'zoga o'tkazish."""
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    me = session["username"]
+    target = (request.get_json(silent=True) or {}).get("username")
+    conn = get_db()
+    group = group_row(conn, group_id)
+    if not group or member_role(conn, group_id, me) != "owner" or not member_role(conn, group_id, target) or target == me:
+        conn.close()
+        return jsonify({"ok": False, "message": tr("group_owner_only")}), 403
+    conn.execute("UPDATE group_members SET role = 'owner' WHERE group_id = ? AND username = ?", (group_id, target))
+    conn.execute("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND username = ?", (group_id, me))
+    conn.execute("UPDATE groups SET created_by = ? WHERE id = ?", (target, group_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/discover")
+def discover():
+    """Ommaviy guruh va kanallarni qidirish."""
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    q = request.args.get("q", "").strip()
+    conn = get_db()
+    sql = ("SELECT g.id, g.name, g.avatar_letter, g.avatar_file, g.kind, g.description, "
+           "(SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS members, "
+           "(SELECT 1 FROM group_members m2 WHERE m2.group_id = g.id AND m2.username = ?) AS joined "
+           "FROM groups g WHERE g.is_public = 1 ")
+    params = [me]
+    if q:
+        sql += "AND LOWER(g.name) LIKE LOWER(?) "
+        params.append(f"%{q}%")
+    sql += "ORDER BY members DESC, g.id DESC LIMIT 40"
+    rows = conn.execute(sql, tuple(params)).fetchall()
+    conn.close()
+    return render_template("discover.html", username=me, avatar_letter=session["avatar_letter"], results=rows, q=q, active="shaxsiy")
+
+
+@app.route("/api/mute", methods=["POST"])
+def api_mute():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    data = request.get_json(silent=True) or {}
+    key = str(data.get("key") or "")
+    if not re.match(r"^(dm:[A-Za-z0-9_.\-]{1,40}|g:\d{1,12})$", key):
+        return jsonify({"ok": False}), 400
+    conn = get_db()
+    if data.get("muted"):
+        conn.execute("INSERT OR IGNORE INTO chat_mutes (username, chat_key) VALUES (?, ?)", (session["username"], key))
+    else:
+        conn.execute("DELETE FROM chat_mutes WHERE username = ? AND chat_key = ?", (session["username"], key))
+    conn.commit()
+    conn.close()
     return jsonify({"ok": True})
 
 
@@ -3144,9 +4109,9 @@ def finish_call(conn, call, status):
     conn.execute("UPDATE calls SET status = ?, ended_ts = ? WHERE id = ?", (status, now, call["id"]))
     unseen = 0 if status == "ended" else 1
     conn.execute(
-        "INSERT INTO private_messages (sender, receiver, content, image_file, media_kind, duration, created_at, is_read) "
-        "VALUES (?, ?, ?, NULL, 'call', ?, ?, ?)",
-        (call["caller"], call["callee"], f"{call['kind']}:{status}", duration, datetime.now().strftime("%H:%M"), 1 - unseen),
+        "INSERT INTO private_messages (sender, receiver, content, image_file, media_kind, duration, created_at, created_ts, is_read) "
+        "VALUES (?, ?, ?, NULL, 'call', ?, ?, ?, ?)",
+        (call["caller"], call["callee"], f"{call['kind']}:{status}", duration, datetime.now().strftime("%H:%M"), int(time.time()), 1 - unseen),
     )
     conn.execute("DELETE FROM call_signals WHERE call_id = ?", (call["id"],))
     return True
@@ -3364,43 +4329,64 @@ def call_page(call_id):
 
 # ---------- Xabarni tarjima qilish ----------
 _TRANSLATE_CACHE = {}
-GTX_LANG = {"uz": "uz", "ru": "ru", "zh": "zh-CN", "en": "en"}
+GTX_LANG = {"zh": "zh-CN"}
+
+
+def _translate_gtx(text, target):
+    url = "https://translate.googleapis.com/translate_a/single?" + urllib.parse.urlencode(
+        {"client": "gtx", "sl": "auto", "tl": GTX_LANG.get(target, target), "dt": "t", "q": text}
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    translated = "".join(part[0] for part in data[0] if part and part[0])
+    detected = (data[2] if len(data) > 2 and isinstance(data[2], str) else "")
+    if not translated:
+        raise ValueError("empty")
+    return translated, detected.split("-")[0]
+
+
+def _translate_mymemory(text, target):
+    url = "https://api.mymemory.translated.net/get?" + urllib.parse.urlencode(
+        {"q": text[:480], "langpair": "Autodetect|" + GTX_LANG.get(target, target)}
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    out = ((data.get("responseData") or {}).get("translatedText") or "").strip()
+    if not out or "MYMEMORY WARNING" in out.upper():
+        raise ValueError("empty")
+    return out, ""
+
+
+def _translate_claude(text, target):
+    if not (anthropic and ANTHROPIC_API_KEY and ANTHROPIC_API_KEY != "bu_yerga_kalitni_yozing"):
+        raise ValueError("no key")
+    name = TRANSLATE_LANGS.get(target, target)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    resp = client.messages.create(
+        model="claude-sonnet-5", max_tokens=600,
+        messages=[{"role": "user", "content": f"Translate to {name} ({target}). Reply with only the translation:\n\n{text}"}],
+    )
+    out = "".join(b.text for b in resp.content if b.type == "text").strip()
+    if not out:
+        raise ValueError("empty")
+    return out, ""
 
 
 def translate_text(text, target):
-    """Matnni target tiliga tarjima qiladi. Qaytaradi: (tarjima, aniqlangan_til). Xatoda None."""
+    """Matnni target tiliga tarjima qiladi. Qaytaradi: (tarjima, aniqlangan_til). Xatoda None.
+    Ketma-ket urinadi: Google (bepul) -> MyMemory (bepul) -> Anthropic (kalit bo'lsa)."""
     key = (text, target)
     if key in _TRANSLATE_CACHE:
         return _TRANSLATE_CACHE[key]
     result = None
-    # 1) Bepul tarjima xizmati (kalit shart emas)
-    try:
-        url = "https://translate.googleapis.com/translate_a/single?" + urllib.parse.urlencode(
-            {"client": "gtx", "sl": "auto", "tl": GTX_LANG.get(target, target), "dt": "t", "q": text}
-        )
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        translated = "".join(part[0] for part in data[0] if part and part[0])
-        detected = (data[2] if len(data) > 2 and isinstance(data[2], str) else "")
-        if translated:
-            result = (translated, detected.split("-")[0])
-    except Exception:
-        result = None
-    # 2) Zaxira: Anthropic API (kalit sozlangan bo'lsa)
-    if result is None and anthropic and ANTHROPIC_API_KEY and ANTHROPIC_API_KEY != "bu_yerga_kalitni_yozing":
+    for provider in (_translate_gtx, _translate_mymemory, _translate_claude):
         try:
-            names = {"uz": "Uzbek", "ru": "Russian", "zh": "Chinese", "en": "English"}
-            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            resp = client.messages.create(
-                model="claude-sonnet-5", max_tokens=600,
-                messages=[{"role": "user", "content": f"Translate to {names.get(target, target)}. Reply with only the translation:\n\n{text}"}],
-            )
-            out = "".join(b.text for b in resp.content if b.type == "text").strip()
-            if out:
-                result = (out, "")
-        except Exception:
-            result = None
+            result = provider(text, target)
+            break
+        except Exception as e:
+            app.logger.warning("translate %s failed: %s", provider.__name__, e)
     if result is not None:
         if len(_TRANSLATE_CACHE) > 2000:
             _TRANSLATE_CACHE.clear()
@@ -3416,13 +4402,15 @@ def api_translate():
     text = (data.get("text") or "").strip()[:1000]
     if not text:
         return jsonify({"ok": False}), 400
-    conn = get_db()
-    prefs = get_prefs(conn, session["username"])
-    conn.close()
-    target = prefs["translate_lang"] if prefs["translate_lang"] != "auto" else current_lang()
+    target = (data.get("target") or "").strip()
+    if target not in TRANSLATE_LANGS:
+        conn = get_db()
+        prefs = get_prefs(conn, session["username"])
+        conn.close()
+        target = prefs["translate_lang"] if prefs["translate_lang"] != "auto" else current_lang()
     res = translate_text(text, target)
     if not res:
-        return jsonify({"ok": False, "error": tr("translate_failed")}), 502
+        return jsonify({"ok": False, "message": tr("translate_failed")}), 502
     translated, detected = res
     same = bool(detected) and detected == GTX_LANG.get(target, target).split("-")[0]
     return jsonify({"ok": True, "text": translated, "same": same, "target": target})
@@ -3442,9 +4430,9 @@ def profile():
     products = conn.execute(
         "SELECT * FROM products WHERE seller_username = ? ORDER BY id DESC", (username,)
     ).fetchall()
-    user_row = conn.execute(
-        "SELECT nickname, avatar_file FROM users WHERE username = ?", (username,)
-    ).fetchone()
+    user_row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    contacts_count = conn.execute("SELECT COUNT(*) AS c FROM contacts WHERE username = ?", (username,)).fetchone()["c"]
+    feed_new = feed_new_counts(conn, username)
     conn.close()
 
     return render_template(
@@ -3455,6 +4443,12 @@ def profile():
         posts=posts,
         products=products,
         nickname=user_row["nickname"] if user_row else None,
+        bio=(user_row["bio"] or "") if user_row else "",
+        location_text=user_location_text(user_row) if user_row else "",
+        is_business=bool(user_row and user_row["account_type"] == "business"),
+        business_name=(user_row["business_name"] or "") if user_row else "",
+        contacts_count=contacts_count,
+        feed_new=feed_new,
         active="profile",
     )
 
@@ -3464,70 +4458,83 @@ def profile_edit():
     if "user_id" not in session:
         return redirect(url_for("login"))
 
+    me = session["username"]
+    conn = get_db()
+    u = conn.execute("SELECT * FROM users WHERE username = ?", (me,)).fetchone()
+
+    def render_form(nickname, form=None):
+        data = form or {
+            "bio": u["bio"] or "", "phone": u["phone"] or "", "country": u["country"] or "",
+            "region": u["region"] or "", "district": u["district"] or "",
+            "account_type": u["account_type"] or "personal", "business_name": u["business_name"] or "",
+        }
+        return render_template(
+            "profile_edit.html",
+            username=me,
+            avatar_letter=session["avatar_letter"],
+            avatar_file=session.get("avatar_file"),
+            nickname=nickname,
+            data=data,
+            countries=locations.country_list(current_lang()),
+        )
+
     if request.method == "POST":
-        nickname = request.form.get("nickname", "").strip()
-        avatar_image = request.files.get("avatar_image")
-
-        conn = get_db()
-
-        if avatar_image and avatar_image.filename and allowed_file(avatar_image.filename):
-            unique_name = save_image_to_db(conn, avatar_image, prefix=f"avatar_{session['username']}_", avatar=True)
-            conn.execute(
-                "UPDATE users SET avatar_file = ? WHERE username = ?",
-                (unique_name, session["username"]),
-            )
-            session["avatar_file"] = unique_name
-
-        nickname = nickname.lstrip("@").strip()
+        nickname = request.form.get("nickname", "").strip().lstrip("@").strip()
+        bio = request.form.get("bio", "").strip()[:160]
+        phone_raw = request.form.get("phone", "").strip()
+        phone = normalize_phone(phone_raw)
+        country = request.form.get("country", "").strip()
+        region = request.form.get("region", "").strip()
+        district = request.form.get("district", "").strip()
+        account_type = "business" if request.form.get("account_type") == "business" else "personal"
+        business_name = request.form.get("business_name", "").strip()[:40]
+        form = {"bio": bio, "phone": phone_raw, "country": country, "region": region, "district": district,
+                "account_type": account_type, "business_name": business_name}
+        error = None
         if nickname:
-            error = None
             if not NICK_RE.match(nickname):
                 error = tr("nick_invalid")
-            else:
-                existing = conn.execute(
-                    """SELECT username FROM users
-                       WHERE username != ? AND (LOWER(nickname) = LOWER(?) OR LOWER(username) = LOWER(?))""",
-                    (session["username"], nickname, nickname),
-                ).fetchone()
-                if existing:
-                    error = tr("nick_taken")
+            elif conn.execute(
+                """SELECT username FROM users
+                   WHERE username != ? AND (LOWER(nickname) = LOWER(?) OR LOWER(username) = LOWER(?))""",
+                (me, nickname, nickname),
+            ).fetchone():
+                error = tr("nick_taken")
+        if not error and phone_raw and not phone:
+            error = tr("phone_invalid")
+        if not error and not locations.is_valid(country, region, district):
+            error = tr("order_location_required")
+        if not error and account_type == "business":
+            if not business_name:
+                error = tr("business_name_required")
+            elif not (phone or u["phone"]):
+                error = tr("phone_invalid")
+        if error:
+            conn.close()
+            flash(error)
+            return render_form(nickname, form)
 
-            if error:
-                conn.rollback()
-                conn.close()
-                flash(error)
-                return render_template(
-                    "profile_edit.html",
-                    username=session["username"],
-                    avatar_letter=session["avatar_letter"],
-                    avatar_file=session.get("avatar_file"),
-                    nickname=nickname,
-                )
-
-            conn.execute(
-                "UPDATE users SET nickname = ? WHERE username = ?",
-                (nickname, session["username"]),
-            )
+        avatar_image = request.files.get("avatar_image")
+        if avatar_image and avatar_image.filename and allowed_file(avatar_image.filename):
+            unique_name = save_image_to_db(conn, avatar_image, prefix=f"avatar_{me}_", avatar=True)
+            conn.execute("UPDATE users SET avatar_file = ? WHERE username = ?", (unique_name, me))
+            session["avatar_file"] = unique_name
+        if nickname:
+            conn.execute("UPDATE users SET nickname = ? WHERE username = ?", (nickname, me))
             session["nickname"] = nickname
-
+        conn.execute(
+            "UPDATE users SET bio = ?, phone = ?, country = ?, region = ?, district = ?, account_type = ?, business_name = ? WHERE username = ?",
+            (bio, phone or (u["phone"] if account_type == "business" else ""), country, region, district,
+             account_type, business_name if account_type == "business" else (u["business_name"] or ""), me),
+        )
         conn.commit()
         conn.close()
-        flash("Profil yangilandi!")
+        flash(tr("profile_updated"))
         return redirect(url_for("profile"))
 
-    conn = get_db()
-    user_row = conn.execute(
-        "SELECT nickname, avatar_file FROM users WHERE username = ?", (session["username"],)
-    ).fetchone()
+    nick = u["nickname"] or ""
     conn.close()
-
-    return render_template(
-        "profile_edit.html",
-        username=session["username"],
-        avatar_letter=session["avatar_letter"],
-        nickname=user_row["nickname"] or "",
-        avatar_file=user_row["avatar_file"],
-    )
+    return render_form(nick)
 
 
 @app.route("/profile/avatar/remove", methods=["POST"])
@@ -3660,7 +4667,7 @@ SETTINGS_STUBS = {
 
 # Har bir bo'limdagi sozlamalar (kalit nomlari PREF_DEFAULTS'dan)
 SETTINGS_SCHEMA = {
-    "privacy-settings": ["allow_requests", "who_can_message"],
+    "privacy-settings": ["allow_requests", "who_can_message", "show_online", "read_receipts"],
     "notifications": ["notif_sound", "notif_browser", "notif_preview", "notif_calls"],
     "interface": ["font_size", "reduce_motion"],
     "chat-settings": ["enter_to_send", "wallpaper", "translate_lang", "shrink_images"],
@@ -3675,7 +4682,7 @@ def build_setting_items(prefs, keys):
             items.append({"key": key, "type": "toggle", "value": bool(prefs[key]), "options": []})
         else:
             if key == "translate_lang":
-                options = [("auto", tr("opt_auto"))] + [(code, name) for code, name in LANG_NAMES.items()]
+                options = [("auto", tr("opt_auto"))] + [(code, name) for code, name in TRANSLATE_LANGS.items()]
             else:
                 options = [(v, tr("opt_" + v)) for v in PREF_CHOICES[key]]
             items.append({"key": key, "type": "select", "value": prefs[key], "options": options})
@@ -3891,6 +4898,75 @@ def api_ai_send():
         return jsonify({"reply": reply_text})
     except Exception as e:
         return jsonify({"error": f"AI bilan bog'lanishda xato: {str(e)}"}), 500
+
+
+@app.route("/feed/activity")
+def feed_activity():
+    """Postlarimdagi layk va izohlar: kim layk bosgan, kim izoh yozgan."""
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    me = session["username"]
+    conn = get_db()
+    u = conn.execute("SELECT seen_like_id, seen_comment_id FROM users WHERE username = ?", (me,)).fetchone()
+    seen_l, seen_c = (u["seen_like_id"] or 0, u["seen_comment_id"] or 0) if u else (0, 0)
+
+    posts = conn.execute("SELECT id, content, image_file, created_at, created_ts FROM posts WHERE username = ? ORDER BY id DESC LIMIT 60", (me,)).fetchall()
+    ids = [p["id"] for p in posts]
+    likes_by_post, comments_by_post, thumbs = {}, {}, {}
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        for r in conn.execute(
+            f"""SELECT l.id, l.post_id, l.username, u.nickname, u.avatar_letter, u.avatar_file FROM likes l
+                LEFT JOIN users u ON u.username = l.username
+                WHERE l.post_id IN ({marks}) AND l.username != ? ORDER BY l.id DESC""",
+            (*ids, me),
+        ).fetchall():
+            likes_by_post.setdefault(r["post_id"], []).append({
+                "username": r["username"], "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
+                "avatar_file": r["avatar_file"], "new": r["id"] > seen_l, "id": r["id"]})
+        for r in conn.execute(
+            f"""SELECT c.id, c.post_id, c.username, c.content, c.created_at, u.nickname, u.avatar_letter, u.avatar_file FROM post_comments c
+                LEFT JOIN users u ON u.username = c.username
+                WHERE c.post_id IN ({marks}) AND c.username != ? ORDER BY c.id DESC""",
+            (*ids, me),
+        ).fetchall():
+            comments_by_post.setdefault(r["post_id"], []).append({
+                "username": r["username"], "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
+                "avatar_file": r["avatar_file"], "text": r["content"], "when": r["created_at"], "new": r["id"] > seen_c, "id": r["id"]})
+        for r in conn.execute(
+            f"SELECT post_id, filename, kind FROM post_media WHERE post_id IN ({marks}) ORDER BY position, id", tuple(ids)
+        ).fetchall():
+            if r["post_id"] not in thumbs and r["kind"] == "image":
+                thumbs[r["post_id"]] = r["filename"]
+    cards = []
+    for p in posts:
+        lk, cm = likes_by_post.get(p["id"], []), comments_by_post.get(p["id"], [])
+        if not lk and not cm:
+            continue
+        cards.append({
+            "id": p["id"], "text": (p["content"] or "")[:90], "thumb": thumbs.get(p["id"]) or p["image_file"],
+            "ago": time_ago(p["created_ts"], p["created_at"]),
+            "likes": lk, "comments": cm,
+            "new_likes": sum(1 for x in lk if x["new"]), "new_comments": sum(1 for x in cm if x["new"]),
+            "sort": (sum(1 for x in lk if x["new"]) + sum(1 for x in cm if x["new"]), p["id"]),
+        })
+    cards.sort(key=lambda c: c["sort"], reverse=True)
+    totals = feed_new_counts(conn, me)
+    # ko'rildi deb belgilaymiz
+    conn.execute("UPDATE users SET seen_like_id = (SELECT COALESCE(MAX(id), 0) FROM likes), "
+                 "seen_comment_id = (SELECT COALESCE(MAX(id), 0) FROM post_comments) WHERE username = ?", (me,))
+    conn.commit()
+    conn.close()
+    return render_template(
+        "feed_activity.html",
+        username=me,
+        avatar_letter=session["avatar_letter"],
+        cards=cards,
+        new_likes=totals["likes"],
+        new_comments=totals["comments"],
+        tab=("comments" if request.args.get("tab") == "comments" else "likes"),
+        active="feed",
+    )
 
 
 @app.route("/logout")

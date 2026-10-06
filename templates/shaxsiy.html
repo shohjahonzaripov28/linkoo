@@ -12,23 +12,29 @@
     {% include '_chat_tabs.html' %}
     <div class="chat-header">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">{{ t.shaxsiy_title }}</h1>
-      <a href="{{ url_for('people') }}" class="back-link" title="{{ t.new_chat }}">{{ icon('plus', 20) }}</a>
+      <h1 style="font-size:20px;">{{ t.nav_chats }}</h1>
+      <button type="button" class="back-link plain-btn" id="new-chat-btn" title="{{ t.new_chat }}">{{ icon('plus', 20) }}</button>
     </div>
 
-    <div class="feed-list">
-      {% if conversations|length == 0 %}
-        {{ empty_state('chat', t.no_conversations_empty) }}
-        <a href="{{ url_for('people') }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">{{ t.go_to_contacts }}</a>
-      {% endif %}
+    <div class="chip-row" id="chat-filters">
+      <button type="button" class="chip {% if flt == 'all' %}active{% endif %}" data-f="all">{{ t.filter_all }}</button>
+      <button type="button" class="chip {% if flt == 'dm' %}active{% endif %}" data-f="dm">{{ t.filter_personal }}</button>
+      <button type="button" class="chip {% if flt == 'group' %}active{% endif %}" data-f="group">{{ t.filter_groups }}</button>
+      <button type="button" class="chip {% if flt == 'channel' %}active{% endif %}" data-f="channel">{{ t.filter_channels }}</button>
+    </div>
 
+    <div class="feed-list" id="chat-list">
       {% for u in conversations %}
-      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row {% if u.unread %}has-unread{% endif %}">
+      {% if u.kind == 'dm' %}
+      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row chat-item {% if u.unread %}has-unread{% endif %}" data-kind="dm">
+        <span class="avatar-wrap">
         {% if u.avatar_file %}
           <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ u.avatar_letter }}</div>
         {% endif %}
+          {% if u.online %}<i class="presence-dot on"></i>{% endif %}
+        </span>
         <div class="person-main">
           <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
           <div class="person-sub">
@@ -38,12 +44,68 @@
         </div>
         <div class="person-meta">
           <span class="person-time">{{ u.time }}</span>
-          {% if u.unread %}<span class="unread-badge">{{ u.unread if u.unread < 100 else '99+' }}</span>{% endif %}
+          {% if u.unread %}<span class="unread-badge {{ 'muted' if u.muted }}">{{ u.unread if u.unread < 100 else '99+' }}</span>{% elif u.muted %}<span class="muted-ico">{{ icon('bell-off', 14) }}</span>{% endif %}
         </div>
       </a>
+      {% else %}
+      <a href="{{ url_for('group_chat', group_id=u.id) }}" class="person-row chat-item {% if u.unread %}has-unread{% endif %}" data-kind="{{ u.kind }}">
+        <span class="avatar-wrap">
+        {% if u.avatar_file %}
+          <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
+        {% else %}
+          <div class="avatar-circle small {{ 'is-channel' if u.kind == 'channel' }}">{{ u.avatar_letter }}</div>
+        {% endif %}
+          <i class="kind-badge">{{ icon('megaphone' if u.kind == 'channel' else 'groups', 11) }}</i>
+        </span>
+        <div class="person-main">
+          <div class="person-name">{{ u.name }}</div>
+          <div class="person-sub">
+            {% if u.unread %}{{ t.new_messages.replace('{n}', u.unread|string) }}
+            {% else %}{% if u.mine %}{{ t.you_prefix }}{% endif %}{{ u.preview or (u.members ~ ' ' ~ (t.channel_subscribers if u.kind == 'channel' else t.group_members_word)) }}{% endif %}
+          </div>
+        </div>
+        <div class="person-meta">
+          <span class="person-time">{{ u.time }}</span>
+          {% if u.unread %}<span class="unread-badge {{ 'muted' if u.muted }}">{{ u.unread if u.unread < 100 else '99+' }}</span>{% elif u.muted %}<span class="muted-ico">{{ icon('bell-off', 14) }}</span>{% endif %}
+        </div>
+      </a>
+      {% endif %}
       {% endfor %}
+      <div id="chat-empty" {% if conversations|length > 0 %}hidden{% endif %}>
+        {{ empty_state('chat', t.no_conversations_empty) }}
+        <a href="{{ url_for('people') }}" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">{{ t.go_to_contacts }}</a>
+      </div>
     </div>
   </div>
+
+  <div class="modal-overlay sheet-overlay" id="new-sheet" hidden>
+    <div class="modal-card sheet-card action-card">
+      <div class="action-preview">{{ t.new_chat }}</div>
+      <a class="action-item" href="{{ url_for('people') }}">{{ icon('user-plus', 20) }}<span>{{ t.new_chat_contact }}</span></a>
+      <a class="action-item" href="{{ url_for('group_new', kind='group') }}">{{ icon('groups', 20) }}<span>{{ t.new_group }}</span></a>
+      <a class="action-item" href="{{ url_for('group_new', kind='channel') }}">{{ icon('megaphone', 20) }}<span>{{ t.new_channel }}</span></a>
+      <a class="action-item" href="{{ url_for('discover') }}">{{ icon('search', 20) }}<span>{{ t.discover_title }}</span></a>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var sheet = document.getElementById("new-sheet");
+      document.getElementById("new-chat-btn").addEventListener("click", function () { sheet.hidden = false; });
+      sheet.addEventListener("click", function (e) { if (e.target === sheet) sheet.hidden = true; });
+      var items = document.querySelectorAll(".chat-item"), empty = document.getElementById("chat-empty");
+      function apply(f) {
+        var shown = 0;
+        items.forEach(function (it) { var ok = f === "all" || it.dataset.kind === f; it.hidden = !ok; if (ok) shown++; });
+        empty.hidden = shown > 0;
+        document.querySelectorAll("#chat-filters .chip").forEach(function (c) { c.classList.toggle("active", c.dataset.f === f); });
+      }
+      document.getElementById("chat-filters").addEventListener("click", function (e) {
+        var c = e.target.closest(".chip"); if (c) apply(c.dataset.f);
+      });
+      apply("{{ flt }}");
+    })();
+  </script>
 
   {% include 'navbar.html' %}
 </body>

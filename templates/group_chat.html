@@ -8,18 +8,42 @@
 </head>
 <body class="in-chat">
   {% from '_icons.html' import icon %}
-  <div class="glass-card chat-card" data-kind="group" data-target="{{ group.id }}" data-me="{{ username }}">
+  {% set is_channel = group.kind == 'channel' %}
+  <div class="glass-card chat-card" data-kind="group" data-target="{{ group.id }}" data-me="{{ username }}" data-channel="{{ 1 if is_channel else 0 }}">
     <div class="chat-header">
-      <a href="{{ url_for('groups_list') }}" class="back-link">←</a>
-      <div class="dm-title">
-        <div class="avatar-circle small">{{ group.avatar_letter }}</div>
-        <h1 style="font-size:18px;">{{ group.name }}</h1>
+      <a href="{{ url_for('shaxsiy') }}" class="back-link">←</a>
+      <a href="{{ url_for('group_settings', group_id=group.id) }}" class="dm-title dm-title-link">
+        {% if group.avatar_file %}
+          <img class="avatar-circle small" src="{{ url_for('media', filename=group.avatar_file) }}" alt="">
+        {% else %}
+          <div class="avatar-circle small {{ 'is-channel' if is_channel }}">{{ group.avatar_letter }}</div>
+        {% endif %}
+        <span class="dm-title-text">
+          <h1 style="font-size:18px;">{{ group.name }}</h1>
+          <span class="dm-status"><span id="member-count">{{ member_count }}</span> {{ t.channel_subscribers if is_channel else t.group_members_word }}</span>
+        </span>
+      </a>
+      <div class="chat-head-actions">
+        {% if is_channel %}
+        <a class="head-btn" href="{{ url_for('shop', channel=group.id) }}" aria-label="{{ t.nav_shop }}">{{ icon('store', 21) }}</a>
+        {% endif %}
+        <a class="head-btn" href="{{ url_for('group_settings', group_id=group.id) }}" aria-label="{{ t.group_settings }}">{{ icon('settings', 21) }}</a>
       </div>
-      <div style="width:36px;"></div>
     </div>
 
     {% include '_chat_composer.html' %}
   </div>
+
+  <script>
+    (function () {
+      var join = document.getElementById("join-btn");
+      if (join) join.addEventListener("click", function () {
+        fetch("/api/groups/{{ group.id }}/join", { method: "POST" })
+          .then(function (r) { if (!r.ok) throw 0; location.reload(); })
+          .catch(function () { alert("{{ t.err_network }}"); });
+      });
+    })();
+  </script>
 
   {% include 'navbar.html' %}
 </body>

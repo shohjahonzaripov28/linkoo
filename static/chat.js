@@ -9,6 +9,8 @@
   var cfg = JSON.parse(cfgEl.textContent);
   var T = cfg.t;
   var kind = card.dataset.kind;           // "dm" | "group"
+  var isChannel = card.dataset.channel === "1";
+  var canPost = cfg.canPost !== false;
   var target = card.dataset.target;       // foydalanuvchi nomi yoki guruh id
   var me = card.dataset.me;
 
@@ -38,21 +40,26 @@
   }
   function nearBottom() { return box.scrollHeight - box.scrollTop - box.clientHeight < 140; }
   function scrollBottom() { box.scrollTop = box.scrollHeight; }
-  function icon(name) {
+  function icon(name, size) {
     var p = {
       play: '<path d="M8 5.5v13l11-6.5-11-6.5Z" fill="currentColor" stroke="none"/>',
       pause: '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" stroke="none"/>',
       reply: '<path d="M9 7 4 12l5 5"/><path d="M4 12h9a7 7 0 0 1 7 7"/>',
-      phone: '<path d="M5 4h3.2l1.6 4-2 1.3a11 11 0 0 0 5.9 5.9l1.3-2 4 1.6V18a2 2 0 0 1-2.2 2A15.5 15.5 0 0 1 3 6.2 2 2 0 0 1 5 4Z"/>',
+      phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>',
+      check: '<path d="m4 12.5 5 5L20 6.5"/>',
+      eye: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8"/>',
+      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 4 5.7 4 9s-1.4 6.4-4 9c-2.6-2.6-4-5.7-4-9s1.4-6.4 4-9Z"/>',
       video: '<rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="m16 10.5 5-2.5v8l-5-2.5"/>'
     }[name];
-    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + p + "</svg>";
+    size = size || 18;
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + p + "</svg>";
   }
   function previewOf(m) {
     if (m.kind === "audio") return "🎤 " + T.voice;
     if (m.kind === "video") return "🎥 " + T.vnote;
     if (m.kind === "image") return "📷 " + (m.content || T.photo);
     if (m.kind === "sticker") return m.content;
+    if (m.kind === "order") return "🛒 " + (T.order || "");
     return m.content || "";
   }
 
@@ -88,8 +95,22 @@
     return { text: name + (m.duration ? " · " + fmtTime(m.duration) : ""), cls: "", ck: ck };
   }
 
+  function tickHtml(m) {
+    if (kind === "dm") {
+      return '<span class="ticks' + (m.read ? " read" : "") + '">' + icon("check", 13) + (m.read ? icon("check", 13) : "") + "</span>";
+    }
+    if (isChannel) return "";
+    return '<span class="ticks' + (m.seen > 0 ? " read" : "") + '">' + icon("check", 13) + (m.seen > 0 ? icon("check", 13) : "") + "</span>";
+  }
+  function metaHtml(m, isMe) {
+    var html = esc(m.created_at);
+    if (isChannel) html = '<span class="views">' + icon("eye", 13) + " " + (m.seen || 0) + "</span> " + html;
+    else if (isMe) html += " " + tickHtml(m);
+    return html;
+  }
+
   function buildRow(m) {
-    var isMe = m.author === me;
+    var isMe = m.author === me && !isChannel;
     var row = document.createElement("div");
     row.dataset.id = m.id;
 
@@ -108,20 +129,25 @@
         esc(previewOf({ kind: m.reply.kind, content: m.reply.text })) + "</span></div>";
     }
     var author = "";
-    if (kind === "group" && !isMe) {
+    if (kind === "group" && !isMe && !isChannel) {
       author = '<a class="msg-author" href="' + profileHref(m.author) + '">' + esc(m.author) + "</a>";
     }
-    var quick = '<button type="button" class="msg-quick-reply" aria-label="' + esc(T.reply) + '">' + icon("reply") + "</button>";
+    var quick = canPost ? '<button type="button" class="msg-quick-reply" aria-label="' + esc(T.reply) + '">' + icon("reply") + "</button>" : "";
 
     if (m.kind === "sticker") {
       row.innerHTML = quick + '<div class="msg-sticker-wrap">' + author + reply +
-        '<div class="msg-sticker">' + esc(m.content) + '</div><div class="msg-time sticker-time">' + esc(m.created_at) + "</div></div>";
+        '<div class="msg-sticker">' + esc(m.content) + '</div><div class="msg-time sticker-time">' + metaHtml(m, isMe) + "</div></div>";
+    } else if (m.kind === "order") {
+      row.innerHTML = '<div class="msg-bubble msg-order ' + (isMe ? "msg-mine" : "msg-other") + '">' + author +
+        '<div class="msg-order-body">' + esc(m.content) + '</div><div class="msg-time">' + metaHtml(m, isMe) + "</div></div>";
     } else {
       row.innerHTML = quick + '<div class="msg-bubble ' + (isMe ? "msg-mine" : "msg-other") + (m.kind === "video" ? " has-vnote" : "") + '">' +
         author + reply + buildMedia(m) +
         (m.content ? '<div class="msg-text">' + esc(m.content) + "</div>" : "") +
+        '<div class="msg-tools" hidden>' + (m.kind === "text" && m.content ?
+          '<button type="button" class="msg-tool" data-tool="translate">' + icon("globe", 15) + "<span>" + esc(T.translate) + "</span></button>" : "") + "</div>" +
         '<div class="msg-translation" hidden></div>' +
-        '<div class="msg-time">' + esc(m.created_at) + "</div></div>";
+        '<div class="msg-time">' + metaHtml(m, isMe) + "</div></div>";
     }
     return row;
   }
@@ -132,7 +158,12 @@
     var stick = firstLoad || nearBottom();
     var added = false, lastMine = false;
     list.forEach(function (m) {
+      var old = store.get(m.id);
       store.set(m.id, m);
+      if (nodes.has(m.id) && old && (old.read !== m.read || old.seen !== m.seen)) {
+        var tm = nodes.get(m.id).querySelector(".msg-time");
+        if (tm) tm.innerHTML = metaHtml(m, m.author === me && !isChannel);
+      }
       if (!nodes.has(m.id)) {
         var el = buildRow(m);
         box.appendChild(el);
@@ -148,7 +179,16 @@
   function load() {
     return fetch(API_LIST).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       if (d && d.messages) sync(d.messages);
+      if (d && "peer" in d) setPeer(d.peer);
+      if (d && d.members != null) { var mc = $("member-count"); if (mc) mc.textContent = d.members; }
     }).catch(function () {});
+  }
+
+  function setPeer(peer) {
+    var el = $("peer-status"); if (!el) return;
+    if (!peer) { el.hidden = true; return; }
+    el.hidden = false; el.textContent = peer.text; el.classList.toggle("online", !!peer.online);
+    var dot = document.querySelector(".presence-dot"); if (dot) dot.classList.toggle("on", !!peer.online);
   }
 
   /* ---------- yuborish ---------- */
@@ -406,23 +446,58 @@
     }).catch(function () { toast(T.net); });
   }
 
-  /* ---------- tarjima ---------- */
-  function toggleTranslate(id) {
+  /* ---------- tarjima: xabarni bosish -> "Tarjima" -> tilni tanlash ---------- */
+  var langSheet = $("lang-sheet"), langTarget = null;
+  var lastLang = null;
+  try { lastLang = localStorage.getItem("linko_tl"); } catch (e) { /* ignore */ }
+  lastLang = lastLang || cfg.defaultLang;
+
+  function openLangSheet(id) {
+    langTarget = id;
+    langSheet.querySelectorAll(".lang-item").forEach(function (b) { b.classList.toggle("active", b.dataset.lang === lastLang); });
+    langSheet.hidden = false;
+  }
+  function closeLangSheet() { langSheet.hidden = true; }
+  if (langSheet) {
+    var list = $("lang-list");
+    (cfg.langs || []).forEach(function (l) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "lang-item"; b.dataset.lang = l[0];
+      b.innerHTML = "<span>" + esc(l[1]) + "</span>" + icon("check", 16); list.appendChild(b);
+    });
+    langSheet.addEventListener("click", function (e) {
+      if (e.target === langSheet) { closeLangSheet(); return; }
+      var it = e.target.closest(".lang-item"); if (!it) return;
+      lastLang = it.dataset.lang;
+      try { localStorage.setItem("linko_tl", lastLang); } catch (err) { /* ignore */ }
+      var id = langTarget; closeLangSheet(); runTranslate(id, lastLang);
+    });
+  }
+
+  function runTranslate(id, lang) {
     var el = nodes.get(id), m = store.get(id);
-    if (!el || !m || !m.content || m.kind !== "text") return;
+    if (!el || !m || !m.content) return;
     var tbox = el.querySelector(".msg-translation");
     if (!tbox) return;
-    if (!tbox.hidden) { tbox.hidden = true; return; }
-    if (translations.has(id)) { tbox.textContent = translations.get(id); tbox.hidden = false; return; }
-    tbox.textContent = T.translating; tbox.hidden = false; tbox.classList.add("loading");
-    fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: m.content }) })
+    var langName = (cfg.langs || []).filter(function (l) { return l[0] === lang; }).map(function (l) { return l[1]; })[0] || lang;
+    tbox.hidden = false; tbox.classList.add("loading"); tbox.textContent = T.translating;
+    fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: m.content, target: lang }) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (res) {
         tbox.classList.remove("loading");
         if (!res.ok || !res.d.ok) { tbox.hidden = true; toast(res.d.message || T.translateFailed); return; }
         if (res.d.same) { tbox.hidden = true; toast(T.translateSame); return; }
-        translations.set(id, res.d.text); tbox.textContent = res.d.text;
+        tbox.innerHTML = '<div class="tr-head">' + icon("globe", 13) + "<span>" + esc(langName) + '</span><button type="button" class="tr-close" aria-label="close">&times;</button></div>' +
+          '<div class="tr-text">' + esc(res.d.text) + "</div>";
       }).catch(function () { tbox.classList.remove("loading"); tbox.hidden = true; toast(T.translateFailed); });
+  }
+
+  function toggleTools(id) {
+    var el = nodes.get(id), m = store.get(id);
+    if (!el || !m || m.kind !== "text" || !m.content) return;
+    var tools = el.querySelector(".msg-tools"); if (!tools) return;
+    var show = tools.hidden;
+    document.querySelectorAll(".msg-tools").forEach(function (t) { t.hidden = true; });
+    tools.hidden = !show;
   }
 
   /* ---------- amallar menyusi (uzoq bosish / o'ng tugma) ---------- */
@@ -433,7 +508,8 @@
     $("action-preview").textContent = (m.author === me ? "" : m.author + ": ") + previewOf(m);
     sheet.querySelector('[data-act="translate"]').hidden = !(m.kind === "text" && m.content);
     sheet.querySelector('[data-act="copy"]').hidden = !(m.kind === "text" && m.content) && m.kind !== "sticker";
-    sheet.querySelector('[data-act="delete"]').hidden = m.author !== me || m.kind === "call";
+    sheet.querySelector('[data-act="reply"]').hidden = !canPost;
+    sheet.querySelector('[data-act="delete"]').hidden = !(m.can_delete || (m.author === me && kind === "dm")) || m.kind === "call";
     sheet.querySelector('[data-act="delete"] span').textContent = T.del;
     sheet.hidden = false;
   }
@@ -443,7 +519,7 @@
     var b = e.target.closest(".action-item"); if (!b) return;
     var id = sheetId, m = store.get(id); closeSheet(); if (!m) return;
     if (b.dataset.act === "reply") setReply(m);
-    else if (b.dataset.act === "translate") toggleTranslate(id);
+    else if (b.dataset.act === "translate") openLangSheet(id);
     else if (b.dataset.act === "copy") {
       (navigator.clipboard ? navigator.clipboard.writeText(m.content) : Promise.reject()).then(function () { toast(T.copied); }).catch(function () {
         var ta = document.createElement("textarea"); ta.value = m.content; document.body.appendChild(ta); ta.select();
@@ -467,7 +543,7 @@
     if (!press.row) return;
     var dx = e.touches[0].clientX - press.x, dy = e.touches[0].clientY - press.y;
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearTimeout(press.timer);
-    if (!press.swiping && dx > 12 && Math.abs(dy) < 20 && dx > Math.abs(dy)) press.swiping = true;
+    if (canPost && !press.swiping && dx > 12 && Math.abs(dy) < 20 && dx > Math.abs(dy)) press.swiping = true;
     if (press.swiping) {
       press.dx = Math.min(dx, 80);
       press.row.style.transition = "none"; press.row.style.transform = "translateX(" + press.dx + "px)";
@@ -478,7 +554,7 @@
     if (press.row && press.swiping) {
       var row = press.row;
       row.style.transition = "transform .18s"; row.style.transform = "";
-      if (press.dx >= 55) { var m = store.get(+row.dataset.id); if (m) setReply(m); }
+      if (press.dx >= 55 && canPost) { var m = store.get(+row.dataset.id); if (m) setReply(m); }
       press.suppressClick = true; setTimeout(function () { press.suppressClick = false; }, 300);
     }
     press.row = null; press.swiping = false;
@@ -496,6 +572,13 @@
 
     var call = e.target.closest(".msg-call");
     if (call) { startCall(call.dataset.call); return; }
+
+    var trClose = e.target.closest(".tr-close");
+    if (trClose) { var tb = trClose.closest(".msg-translation"); tb.hidden = true; tb.innerHTML = ""; return; }
+    var tool = e.target.closest(".msg-tool");
+    if (tool) { var trow = tool.closest(".msg-row"); trow.querySelector(".msg-tools").hidden = true; openLangSheet(+trow.dataset.id); return; }
+    var trBox = e.target.closest(".msg-translation");
+    if (trBox && !trBox.hidden && !trBox.classList.contains("loading")) { openLangSheet(+trBox.closest(".msg-row").dataset.id); return; }
 
     var quick = e.target.closest(".msg-quick-reply");
     if (quick) { var qm = store.get(+quick.closest(".msg-row").dataset.id); if (qm) setReply(qm); return; }
@@ -534,9 +617,9 @@
     }
     if (e.target.closest("a, button, img, video, audio")) return;
 
-    // Oddiy matnli xabarni bir marta bosish: tarjima
+    // Matnli xabarni bosish: "Tarjima" tugmasi chiqadi
     var bubble = e.target.closest(".msg-bubble");
-    if (bubble) { var row = bubble.closest(".msg-row"); toggleTranslate(+row.dataset.id); }
+    if (bubble) { var row = bubble.closest(".msg-row"); toggleTools(+row.dataset.id); }
   });
 
   /* ---------- qo'ng'iroq boshlash (shaxsiy chat) ---------- */

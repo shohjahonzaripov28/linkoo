@@ -12,12 +12,18 @@
     <div class="chat-header">
       <a href="{{ url_for('shaxsiy') }}" class="back-link">←</a>
       <a href="{{ url_for('user_profile', target_username=other_username) }}" class="dm-title dm-title-link" title="{{ t.profile_open }}">
+        <span class="avatar-wrap">
         {% if other_avatar_file %}
           <img class="avatar-circle small" src="{{ url_for('media', filename=other_avatar_file) }}" alt="">
         {% else %}
           <div class="avatar-circle small">{{ other_avatar }}</div>
         {% endif %}
-        <h1 style="font-size:18px;">{{ other_display }}</h1>
+          <i class="presence-dot {% if peer and peer.online %}on{% endif %}"></i>
+        </span>
+        <span class="dm-title-text">
+          <h1 style="font-size:18px;">{{ other_display }}</h1>
+          <span class="dm-status {% if peer and peer.online %}online{% endif %}" id="peer-status" {% if not peer %}hidden{% endif %}>{{ peer.text if peer else '' }}</span>
+        </span>
       </a>
       <div class="chat-head-actions">
         <button type="button" class="head-btn" id="call-audio" aria-label="{{ t.call_audio }}">{{ icon('phone', 21) }}</button>
@@ -26,6 +32,7 @@
           <button type="button" class="head-btn" id="chat-menu-btn" aria-label="{{ t.chat_menu }}">{{ icon('more', 21) }}</button>
           <div class="post-menu" id="chat-menu" hidden>
             <a class="menu-item" href="{{ url_for('user_profile', target_username=other_username) }}">{{ t.profile_open }}</a>
+            <button type="button" class="menu-item" id="mute-toggle" data-muted="{{ 1 if chat_muted else 0 }}">{{ t.chat_unmute if chat_muted else t.chat_mute }}</button>
             <button type="button" class="menu-item danger" id="block-toggle" data-blocked="{{ 1 if i_blocked else 0 }}">{{ t.unblock_user if i_blocked else t.block_user }}</button>
           </div>
         </div>
@@ -43,6 +50,13 @@
       var menu = document.getElementById("chat-menu");
       document.getElementById("chat-menu-btn").addEventListener("click", function (e) { e.stopPropagation(); menu.hidden = !menu.hidden; });
       document.addEventListener("click", function () { menu.hidden = true; });
+      var mt = document.getElementById("mute-toggle");
+      mt.addEventListener("click", function () {
+        var muted = mt.dataset.muted !== "1";
+        fetch("/api/mute", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "dm:" + other, muted: muted }) })
+          .then(function (r) { if (!r.ok) throw 0; mt.dataset.muted = muted ? "1" : "0"; mt.textContent = muted ? "{{ t.chat_unmute }}" : "{{ t.chat_mute }}"; menu.hidden = true; })
+          .catch(function () { alert("{{ t.err_network }}"); });
+      });
       var tg = document.getElementById("block-toggle");
       tg.addEventListener("click", function () {
         var blocked = tg.dataset.blocked === "1";
