@@ -37,3 +37,12 @@
   }
   apply(stored());
 })();
+
+/* Yengil tebranish (Android'da): pastki menyu va layk bosilganda */
+(function () {
+  if (!navigator.vibrate) return;
+  document.addEventListener("pointerdown", function (e) {
+    if (document.documentElement.classList.contains("reduce-motion")) return;
+    if (e.target.closest && e.target.closest(".nav-item, .like-btn")) { try { navigator.vibrate(8); } catch (x) {} }
+  }, { passive: true });
+})();
