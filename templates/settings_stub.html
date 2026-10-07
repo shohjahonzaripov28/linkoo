@@ -8,17 +8,33 @@
 </head>
 <body>
   {% from '_icons.html' import icon, empty_state %}
-  <div class="glass-card feed-card">
-    <div class="chat-header">
+  {% set sec = {
+    'privacy-settings': ('lock', 'violet'), 'security': ('shield', 'green'), 'notifications': ('bell', 'red'),
+    'interface': ('sliders', 'pink'), 'chat-settings': ('chat', 'blue'), 'devices': ('monitor', 'teal')} %}
+  {% set pico = {
+    'allow_requests': ('user-plus', 'blue'), 'who_can_message': ('chat', 'violet'), 'show_online': ('eye', 'green'),
+    'read_receipts': ('check', 'teal'), 'notif_sound': ('bell', 'orange'), 'notif_browser': ('globe', 'blue'),
+    'notif_preview': ('eye', 'pink'), 'notif_calls': ('phone', 'green'), 'font_size': ('type', 'pink'),
+    'reduce_motion': ('sliders', 'gray'), 'wallpaper': ('palette', 'violet'), 'translate_lang': ('translate', 'cyan'),
+    'shrink_images': ('image', 'orange')} %}
+  <div class="glass-card feed-card st">
+    <div class="pf-top">
       <a href="{{ url_for('settings_page') }}" class="back-link" style="transform:scaleX(-1); display:inline-flex;">{{ icon('chevron', 20) }}</a>
-      <h1 style="font-size:20px;">{{ title }}</h1>
+      <h1 class="pf-title">{{ title }}</h1>
       <div style="width:36px;"></div>
     </div>
+    {% if section in sec %}
+    <div class="st-hero">
+      <span class="settings-icon-badge big tone-{{ sec[section][1] }}">{{ icon(sec[section][0], 26) }}</span>
+    </div>
+    {% endif %}
 
     {% if items %}
     <div class="settings-list pref-list">
       {% for it in items %}
       <div class="settings-row pref-row" style="cursor:default;">
+        {% set pi = pico.get(it.key, ('sliders', 'gray')) %}
+        <div class="settings-icon-badge tone-{{ pi[1] }}">{{ icon(pi[0], 18) }}</div>
         <div class="settings-row-label">{{ t['pref_' ~ it.key] }}</div>
         {% if it.type == 'toggle' %}
         <label class="switch"><input type="checkbox" data-key="{{ it.key }}" {% if it.value %}checked{% endif %}><span class="slider"></span></label>

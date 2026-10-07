@@ -7,6 +7,8 @@
   if (!card || !cfgEl) return;
 
   var cfg = JSON.parse(cfgEl.textContent);
+  // Enter: kompyuterda yuboradi, telefonda yangi qator (yuborish tugmasi bor)
+  var enterSends = !(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
   var T = cfg.t;
   var kind = card.dataset.kind;           // "dm" | "group"
   var isChannel = card.dataset.channel === "1";
@@ -239,7 +241,7 @@
   function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 120) + "px"; }
   input.addEventListener("input", function () { autosize(); updateButtons(); });
   input.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey && cfg.enterToSend && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+    if (e.key === "Enter" && !e.shiftKey && enterSends && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
   });
 
   imageInput.addEventListener("change", function () {

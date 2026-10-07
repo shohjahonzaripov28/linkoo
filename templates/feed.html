@@ -45,16 +45,16 @@
       {% if group %}
       <div class="act-group-title">{{ title }}</div>
       {% for e in group %}
-      <a class="act-row{% if e.new %} is-new{% endif %}" href="{{ url_for('post_page', post_id=e.post_id) }}">
+      <a class="act-row{% if e.new %} is-new{% endif %}" href="{% if e.kind == 'follow' %}{{ url_for('user_profile', target_username=e.username) }}{% else %}{{ url_for('post_page', post_id=e.post_id) }}{% endif %}">
         <span class="act-ava">
           {% if e.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=e.avatar_file) }}" alt="">{% else %}<span class="avatar-circle small">{{ e.letter }}</span>{% endif %}
-          <i class="act-kind {{ e.kind }}">{{ icon('heart-fill' if e.kind == 'like' else 'comment', 11) }}</i>
+          <i class="act-kind {{ e.kind }}">{{ icon('heart-fill' if e.kind == 'like' else ('user-plus' if e.kind == 'follow' else 'comment'), 11) }}</i>
         </span>
         <span class="act-main">
-          <span class="act-line"><b>@{{ e.display }}</b> {{ t.feed_act_liked if e.kind == 'like' else t.feed_act_commented }}{% if e.ago %} <em class="act-ago">{{ e.ago }}</em>{% endif %}</span>
+          <span class="act-line"><b>@{{ e.display }}</b> {{ t.feed_act_liked if e.kind == 'like' else (t.feed_act_followed if e.kind == 'follow' else t.feed_act_commented) }}{% if e.ago %} <em class="act-ago">{{ e.ago }}</em>{% endif %}</span>
           {% if e.kind == 'comment' and e.text %}<span class="act-quote">{{ e.text }}</span>{% endif %}
         </span>
-        {% if e.thumb %}<img class="act-thumb" src="{{ url_for('media', filename=e.thumb) }}" alt="" loading="lazy">{% else %}<span class="act-thumb ph">{{ icon('feed', 18) }}</span>{% endif %}
+        {% if e.kind == 'follow' %}<span class="act-thumb ph follow">{{ icon('users', 18) }}</span>{% elif e.thumb %}<img class="act-thumb" src="{{ url_for('media', filename=e.thumb) }}" alt="" loading="lazy">{% else %}<span class="act-thumb ph">{{ icon('feed', 18) }}</span>{% endif %}
         {% if e.new %}<i class="act-new-dot"></i>{% endif %}
       </a>
       {% endfor %}

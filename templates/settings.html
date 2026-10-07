@@ -8,125 +8,169 @@
 </head>
 <body>
   {% from '_icons.html' import icon %}
-  <div class="glass-card feed-card">
-    <div class="chat-header">
+  <div class="glass-card feed-card st">
+    <div class="pf-top">
       <a href="{{ url_for('profile') }}" class="back-link">←</a>
-      <h1 style="font-size:24px;">{{ t.settings_title }}</h1>
+      <h1 class="pf-title">{{ t.settings_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
-    <a href="{{ url_for('profile_edit') }}" class="settings-profile-card">
+    <a href="{{ url_for('profile_edit') }}" class="st-profile">
       {% if avatar_file %}
-        <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="">
+        <img class="st-ava" src="{{ url_for('media', filename=avatar_file) }}" alt="">
       {% else %}
-        <div class="avatar-circle">{{ avatar_letter }}</div>
+        <span class="st-ava">{{ avatar_letter }}</span>
       {% endif %}
-      <div style="flex:1;">
-        <div style="font-weight:700; font-size:16px;">@{{ nickname if nickname else username }}</div>
-        <div style="font-size:12px; opacity:0.6;">{{ username }}</div>
-        <div style="font-size:12px; color:var(--c-blue); margin-top:2px;">{{ t.manage_account }}</div>
-      </div>
+      <span class="st-who">
+        <b>{{ nickname if nickname else username }}</b>
+        <small>@{{ username }}</small>
+        <span class="st-chips">
+          {% if creator %}<i class="st-chip violet">{{ icon('grid', 11) }} {{ t.pf_creator_badge }}</i>{% endif %}
+          {% if has_store %}<i class="st-chip amber">{{ icon('store', 11) }} {{ t.business_badge }}</i>{% endif %}
+          {% if is_admin %}<i class="st-chip blue">{{ icon('shield', 11) }} {{ t.admin_badge }}</i>{% endif %}
+        </span>
+      </span>
       <span class="chevron">{{ icon('chevron', 18) }}</span>
     </a>
 
-    <div class="settings-list">
-      <a href="{{ url_for('profile_edit') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('profile', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_account }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('settings_stub', section='privacy-settings') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('lock', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_privacy }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('settings_stub', section='security') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('shield', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_security }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('settings_stub', section='notifications') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('bell', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_notifications }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('settings_stub', section='interface') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('sliders', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_interface }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <div class="settings-row theme-row" style="cursor:default;">
-        <div class="settings-icon-badge">{{ icon('moon', 18) }}</div>
-        <div class="settings-row-label">{{ t.theme_title }}</div>
-        <div class="seg" role="group" aria-label="{{ t.theme_title }}">
-          <button type="button" data-theme-set="auto">{{ t.theme_auto }}</button>
-          <button type="button" data-theme-set="light">{{ icon('sun', 14) }} {{ t.theme_light }}</button>
-          <button type="button" data-theme-set="dark">{{ icon('moon', 14) }} {{ t.theme_dark }}</button>
-        </div>
-      </div>
-      <a href="{{ url_for('settings_language') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('globe', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_language }}</div>
-        <span class="settings-row-value">{{ langs[lang] }}</span>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('settings_stub', section='chat-settings') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('chat', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_chat }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('storage_page') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('archive', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_storage }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('settings_stub', section='devices') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('monitor', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_devices }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-      <a href="{{ url_for('settings_about') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('info', 18) }}</div>
-        <div class="settings-row-label">{{ t.menu_about }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
+    <div class="st-search">
+      {{ icon('search', 18) }}
+      <input type="search" id="st-q" placeholder="{{ t.set_search }}" autocomplete="off" enterkeyhint="search">
     </div>
+
+    <section class="st-group">
+      <h2 class="st-head">{{ t.set_group_account }}</h2>
+      <div class="settings-list">
+        <a href="{{ url_for('profile_edit') }}" class="settings-row">
+          <div class="settings-icon-badge tone-blue">{{ icon('profile', 18) }}</div>
+          <div class="settings-row-label">{{ t.set_personal }}<small>{{ t.set_sub_personal }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('profile', m='account') if creator else url_for('profile', open='creator') }}" class="settings-row">
+          <div class="settings-icon-badge tone-violet">{{ icon('grid', 18) }}</div>
+          <div class="settings-row-label">{{ t.pf_creator_row }}<small>{{ t.set_sub_creator }}</small></div>
+          <span class="settings-row-value {% if creator %}on{% endif %}">{{ t.set_creator_on if creator else t.set_creator_off }}</span>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('store_manage') if has_store else url_for('store_open') }}" class="settings-row">
+          <div class="settings-icon-badge tone-amber">{{ icon('store', 18) }}</div>
+          <div class="settings-row-label">{{ t.set_store }}<small>{{ t.set_sub_store }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('settings_stub', section='security') }}" class="settings-row">
+          <div class="settings-icon-badge tone-green">{{ icon('shield', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_security }}<small>{{ t.set_sub_security }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('settings_stub', section='privacy-settings') }}" class="settings-row">
+          <div class="settings-icon-badge tone-violet">{{ icon('lock', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_privacy }}<small>{{ t.set_sub_privacy }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('settings_stub', section='devices') }}" class="settings-row">
+          <div class="settings-icon-badge tone-teal">{{ icon('monitor', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_devices }}<small>{{ t.set_sub_devices }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="st-group">
+      <h2 class="st-head">{{ t.set_group_app }}</h2>
+      <div class="settings-list">
+        <a href="{{ url_for('settings_stub', section='notifications') }}" class="settings-row">
+          <div class="settings-icon-badge tone-red">{{ icon('bell', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_notifications }}<small>{{ t.set_sub_notifications }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <div class="settings-row theme-row" style="cursor:default;">
+          <div class="settings-icon-badge tone-indigo">{{ icon('moon', 18) }}</div>
+          <div class="settings-row-label">{{ t.theme_title }}</div>
+          <div class="seg" role="group" aria-label="{{ t.theme_title }}">
+            <button type="button" data-theme-set="auto">{{ t.theme_auto }}</button>
+            <button type="button" data-theme-set="light">{{ icon('sun', 14) }} {{ t.theme_light }}</button>
+            <button type="button" data-theme-set="dark">{{ icon('moon', 14) }} {{ t.theme_dark }}</button>
+          </div>
+        </div>
+        <a href="{{ url_for('settings_stub', section='interface') }}" class="settings-row">
+          <div class="settings-icon-badge tone-pink">{{ icon('sliders', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_interface }}<small>{{ t.set_sub_interface }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('settings_language') }}" class="settings-row">
+          <div class="settings-icon-badge tone-cyan">{{ icon('globe', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_language }}</div>
+          <span class="settings-row-value">{{ langs[lang] }}</span>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('settings_stub', section='chat-settings') }}" class="settings-row">
+          <div class="settings-icon-badge tone-blue">{{ icon('chat', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_chat }}<small>{{ t.set_sub_chat }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        <a href="{{ url_for('storage_page') }}" class="settings-row">
+          <div class="settings-icon-badge tone-gray">{{ icon('archive', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_storage }}<small>{{ t.set_sub_storage }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+      </div>
+    </section>
 
     {% if google_client_id %}
-    <div class="settings-list" style="margin-top:16px;">
-      <div class="settings-row" style="cursor:default;">
-        <div class="settings-icon-badge">{{ icon('globe', 18) }}</div>
-        <div class="settings-row-label">{{ t.google_account_row }}</div>
-        {% if google_email %}<span class="settings-row-value">✓ {{ google_email }}</span>{% endif %}
+    <section class="st-group">
+      <h2 class="st-head">{{ t.google_account_row }}</h2>
+      <div class="settings-list">
+        <div class="settings-row" style="cursor:default;">
+          <div class="settings-icon-badge tone-red">{{ icon('mail', 18) }}</div>
+          <div class="settings-row-label">{{ t.google_account_row }}</div>
+          {% if google_email %}<span class="settings-row-value on">✓ {{ google_email }}</span>{% endif %}
+        </div>
+        {% if not google_email %}
+        <div style="padding:6px 12px 12px;">
+          <p class="g-note" style="margin:0 0 10px;">{{ t.google_link_hint }}</p>
+          {% include '_google.html' %}
+        </div>
+        {% endif %}
       </div>
-      {% if not google_email %}
-      <div style="padding:6px 6px 10px;">
-        <p class="g-note" style="margin:0 0 10px;">{{ t.google_link_hint }}</p>
-        {% include '_google.html' %}
-      </div>
-      {% endif %}
-    </div>
+    </section>
     {% endif %}
 
-    {% if is_admin %}
-    <div class="settings-list" style="margin-top:16px;">
-      <a href="{{ url_for('admin_page') }}" class="settings-row">
-        <div class="settings-icon-badge">{{ icon('shield', 18) }}</div>
-        <div class="settings-row-label">{{ t.admin_panel }}</div>
-        <span class="chevron">{{ icon('chevron', 16) }}</span>
-      </a>
-    </div>
-    {% endif %}
+    <section class="st-group">
+      <h2 class="st-head">{{ t.set_group_help }}</h2>
+      <div class="settings-list">
+        <a href="{{ url_for('settings_about') }}" class="settings-row">
+          <div class="settings-icon-badge tone-gray">{{ icon('info', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_about }}<small>{{ t.set_sub_about }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        {% if is_admin %}
+        <a href="{{ url_for('admin_page') }}" class="settings-row">
+          <div class="settings-icon-badge tone-blue">{{ icon('shield', 18) }}</div>
+          <div class="settings-row-label">{{ t.admin_panel }}</div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
+        {% endif %}
+      </div>
+    </section>
 
-    <div class="settings-list" style="margin-top:16px;">
-      <a href="{{ url_for('logout') }}" class="settings-row danger-row" data-confirm="{{ t.confirm_logout }}">
-        <div class="settings-icon-badge danger-badge">{{ icon('logout', 18) }}</div>
-        <div class="settings-row-label">{{ t.logout }}</div>
-      </a>
-      <a href="#" class="settings-row danger-row" id="delete-account-open">
-        <div class="settings-icon-badge danger-badge">{{ icon('close', 18) }}</div>
-        <div class="settings-row-label">{{ t.delete_account_title }}</div>
-      </a>
+    <section class="st-group">
+      <div class="settings-list">
+        <a href="{{ url_for('logout') }}" class="settings-row danger-row" data-confirm="{{ t.confirm_logout }}">
+          <div class="settings-icon-badge danger-badge">{{ icon('logout', 18) }}</div>
+          <div class="settings-row-label">{{ t.logout }}</div>
+        </a>
+        <a href="#" class="settings-row danger-row" id="delete-account-open">
+          <div class="settings-icon-badge danger-badge">{{ icon('trash', 18) }}</div>
+          <div class="settings-row-label">{{ t.delete_account_title }}</div>
+        </a>
+      </div>
+    </section>
+
+    <p class="st-empty" id="st-empty" hidden>{{ t.set_no_results }}</p>
+
+    <div class="st-foot">
+      <img src="{{ url_for('static', filename='logo.svg') }}" alt="" width="28" height="28">
+      <span>Linko</span>
     </div>
   </div>
 
@@ -149,6 +193,24 @@
 
   <script>
     (function () {
+      // Qidiruv: qatorlarni filtrlash
+      var q = document.getElementById("st-q"), empty = document.getElementById("st-empty");
+      var groups = Array.prototype.slice.call(document.querySelectorAll(".st-group"));
+      q.addEventListener("input", function () {
+        var v = q.value.trim().toLowerCase(), any = false;
+        groups.forEach(function (g) {
+          var shown = 0;
+          g.querySelectorAll(".settings-row").forEach(function (r) {
+            var hit = !v || r.textContent.toLowerCase().indexOf(v) !== -1;
+            r.style.display = hit ? "" : "none";
+            if (hit) shown++;
+          });
+          g.style.display = shown ? "" : "none";
+          if (shown) any = true;
+        });
+        empty.hidden = any;
+      });
+
       var modal = document.getElementById("delete-modal");
       var errBox = document.getElementById("delete-err");
       function show() { modal.hidden = false; document.getElementById("delete-confirm-input").focus(); }

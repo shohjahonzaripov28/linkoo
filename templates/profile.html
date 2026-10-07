@@ -7,92 +7,261 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon, empty_state, render_media %}
-  <div class="glass-card feed-card">
-    <div class="chat-header">
+  {% from '_icons.html' import icon, empty_state, post_grid, product_grid %}
+  {% set shown_name = nickname if nickname else username %}
+  <div class="glass-card feed-card pf pf-{{ view }}">
+
+    <div class="pf-top">
       <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">{{ t.profile_title }}</h1>
+      {% if creator %}
+      <div class="pf-switch" role="tablist" aria-label="{{ t.pf_switch_label }}">
+        <a href="{{ url_for('profile', m='personal') }}" class="{% if view == 'personal' %}on{% endif %}" role="tab">{{ icon('profile', 16) }}<span>{{ t.pf_view_personal }}</span></a>
+        <a href="{{ url_for('profile', m='account') }}" class="{% if view == 'account' %}on{% endif %}" role="tab">{{ icon('grid', 16) }}<span>{{ t.pf_view_account }}</span></a>
+      </div>
+      {% else %}
+      <h1 class="pf-title">{{ t.profile_title }}</h1>
+      {% endif %}
       <a href="{{ url_for('settings_page') }}" class="back-link" title="{{ t.open_settings }}">{{ icon('settings', 22) }}</a>
     </div>
 
-    <div class="profile-hero">
-      <div class="hero-cover"></div>
-      <div class="hero-avatar">
-        {% if avatar_file %}
-          <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="">
-        {% else %}
-          <div class="avatar-circle">{{ avatar_letter }}</div>
-        {% endif %}
-        <a href="{{ url_for('profile_edit') }}" class="edit-pencil" aria-label="{{ t.edit_profile_title }}">{{ icon('edit', 16) }}</a>
-      </div>
-      <h1 class="hero-name">{{ nickname if nickname else username }}
-        {% if is_business %}<span class="biz-badge">{{ icon('store', 12) }} {{ t.business_badge }}</span>{% endif %}
-      </h1>
-      <div class="hero-nick">@{{ username }}</div>
-      {% if is_business and business_name %}<div class="hero-biz">{{ business_name }}</div>{% endif %}
-      {% if bio %}<p class="hero-bio">{{ bio }}</p>{% endif %}
-      {% if location_text %}<div class="hero-loc">{{ icon('pin', 14) }} {{ location_text }}</div>{% endif %}
-      <div class="hero-stats">
-        <div><b>{{ posts|length }}</b><span>{{ t.post_unit }}</span></div>
-        <div><b>{{ products|length }}</b><span>{{ t.product_unit }}</span></div>
-        <div><b>{{ contacts_count }}</b><span>{{ t.nav_contacts }}</span></div>
-      </div>
-      <a class="profile-store-card" href="{{ url_for('store_manage') }}">
-        {% if store and store.logo_file %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=store.logo_file) }}" alt="">{% else %}<span class="psc-ico">{{ icon('store', 18) }}</span>{% endif %}
-        <div><b>{{ store.name if store else t.profile_open_store }}</b><small>{{ ('@' ~ store.handle) if store else t.profile_open_store_hint }}</small></div>
-        <span class="seller-go">{{ icon('chevron', 18) }}</span>
-      </a>
-      <div class="hero-actions">
-        <a href="{{ url_for('profile_edit') }}" class="btn-primary hero-btn">{{ icon('edit', 16) }} {{ t.edit_profile_title }}</a>
-        <a href="{{ url_for('feed', f='activity') }}" class="btn-primary hero-btn secondary-btn">{{ icon('heart', 16) }} {{ t.activity_title }}{% if feed_new.total %}<span class="notif-badge inline">{{ feed_new.total }}</span>{% endif %}</a>
-      </div>
-    </div>
-
-    <div class="profile-tabs">
-      <button class="tab-btn active" data-tab="posts-tab">{{ t.posts_tab }}</button>
-      <button class="tab-btn" data-tab="products-tab">{{ t.products_tab }}</button>
-    </div>
-
-    <div id="posts-tab" class="feed-list tab-panel">
-      {% if posts|length == 0 %}
-        {{ empty_state('feed', t.no_posts_yet) }}
-      {% endif %}
-      {% for post in posts %}
-      <div class="post-card">
-        <div class="post-time">{{ post.ago }}</div>
-        {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
-        {{ render_media(post.media) }}
-      </div>
-      {% endfor %}
-    </div>
-
-    <div id="products-tab" class="shop-grid tab-panel" style="display:none;">
-      {% if products|length == 0 %}
-        {{ empty_state('shop', t.no_products_yet) }}
-      {% endif %}
-      {% for p in products %}
-      <div class="product-card">
-        <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-media">
-          {% if p.image_file %}<img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">{% else %}<div class="product-image product-noimg">{{ icon('shop', 30) }}</div>{% endif %}
-        </a>
-        <div class="product-info">
-          <a href="{{ url_for('product_page', product_id=p.id) }}" class="product-title">{{ p.title }}</a>
-          <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
+    {% if view == 'account' %}
+    {# ================= Instagram / TikTok uslubidagi akkaunt ================= #}
+    <section class="ig-hero">
+      <div class="ig-row">
+        <div class="ig-ava ring">
+          {% if avatar_file %}<img src="{{ url_for('media', filename=avatar_file) }}" alt="">{% else %}<span>{{ avatar_letter }}</span>{% endif %}
+        </div>
+        <div class="ig-stats">
+          <div><b>{{ posts|length }}</b><span>{{ t.pf_posts }}</span></div>
+          <button type="button" data-follows="followers"><b id="cnt-followers">{{ stats.followers|compact }}</b><span>{{ t.pf_followers }}</span></button>
+          <button type="button" data-follows="following"><b>{{ stats.following|compact }}</b><span>{{ t.pf_following }}</span></button>
         </div>
       </div>
-      {% endfor %}
+      <div class="ig-name">{{ shown_name }}{% if is_business %}<span class="biz-badge">{{ icon('store', 12) }} {{ t.business_badge }}</span>{% endif %}</div>
+      <div class="ig-handle">@{{ username }}</div>
+      {% if creator_cat %}<div class="ig-cat">{{ t['creator_cat_' ~ creator_cat] }}</div>{% endif %}
+      {% if bio %}<p class="ig-bio">{{ bio }}</p>{% endif %}
+      <div class="ig-meta">
+        {% if creator_link %}<a class="ig-link" href="{{ creator_link }}" target="_blank" rel="noopener nofollow">{{ icon('link', 14) }} {{ creator_link|link_label }}</a>{% endif %}
+        {% if location_text %}<span>{{ icon('pin', 13) }} {{ location_text }}</span>{% endif %}
+        {% if stats.likes %}<span>{{ icon('heart-fill', 13) }} {{ stats.likes|compact }} {{ t.pf_likes }}</span>{% endif %}
+      </div>
+      <div class="ig-actions">
+        <a href="{{ url_for('profile_edit') }}" class="ig-btn">{{ t.pf_edit_profile }}</a>
+        <button type="button" class="ig-btn" id="share-btn">{{ t.pf_share }}</button>
+        <a href="{{ url_for('feed', f='activity') }}" class="ig-btn icon" aria-label="{{ t.activity_title }}">{{ icon('bell', 18) }}{% if feed_new.total %}<i class="ig-dot">{{ feed_new.total if feed_new.total < 100 else '99+' }}</i>{% endif %}</a>
+      </div>
+    </section>
+
+    <div class="ig-tabs">
+      <button type="button" class="active" data-tab="posts-tab" aria-label="{{ t.posts_tab }}">{{ icon('grid', 22) }}</button>
+      <button type="button" data-tab="catalog-tab" aria-label="{{ t.pf_catalog }}">{{ icon('shop', 22) }}</button>
+    </div>
+
+    {% else %}
+    {# ================= Telegram uslubidagi shaxsiy profil ================= #}
+    <section class="tg-hero">
+      <div class="tg-ava">
+        {% if avatar_file %}<img src="{{ url_for('media', filename=avatar_file) }}" alt="">{% else %}<span>{{ avatar_letter }}</span>{% endif %}
+        <a href="{{ url_for('profile_edit') }}" class="tg-cam" aria-label="{{ t.edit_profile_title }}">{{ icon('camera', 16) }}</a>
+      </div>
+      <h1 class="tg-name">{{ shown_name }}</h1>
+      <div class="tg-sub">@{{ username }}{% if is_business and business_name %} · {{ business_name }}{% endif %}</div>
+      {% if is_business %}<span class="biz-badge">{{ icon('store', 12) }} {{ t.business_badge }}</span>{% endif %}
+      <div class="tg-actions">
+        <a href="{{ url_for('profile_edit') }}">{{ icon('edit', 20) }}<span>{{ t.pf_edit }}</span></a>
+        <a href="{{ url_for('qr_page') }}">{{ icon('qr', 20) }}<span>{{ t.pf_qr }}</span></a>
+        <a href="{{ url_for('feed', f='activity') }}" class="rel">{{ icon('bell', 20) }}<span>{{ t.activity_title }}</span>{% if feed_new.total %}<i class="ig-dot">{{ feed_new.total if feed_new.total < 100 else '99+' }}</i>{% endif %}</a>
+        <a href="{{ url_for('settings_page') }}">{{ icon('settings', 20) }}<span>{{ t.settings_title }}</span></a>
+      </div>
+    </section>
+
+    <section class="tg-info">
+      {% if phone %}
+      <div class="tg-row">{{ icon('phone', 20) }}<div><b>{{ phone }}</b><small>{{ t.phone_label }}</small></div></div>
+      {% endif %}
+      <div class="tg-row">{{ icon('at', 20) }}<div><b>{{ username }}</b><small>{{ t.pf_username }}</small></div>
+        <button type="button" class="tg-copy" data-copy="@{{ username }}" aria-label="{{ t.msg_copy }}">{{ icon('copy', 18) }}</button></div>
+      <div class="tg-row">{{ icon('info', 20) }}
+        {% if bio %}<div><b class="pre">{{ bio }}</b><small>{{ t.pf_about }}</small></div>
+        {% else %}<div><a class="tg-add" href="{{ url_for('profile_edit') }}">{{ t.pf_add_bio }}</a><small>{{ t.pf_about }}</small></div>{% endif %}</div>
+      {% if location_text %}
+      <div class="tg-row">{{ icon('pin', 20) }}<div><b>{{ location_text }}</b><small>{{ t.location_label }}</small></div></div>
+      {% endif %}
+      <a class="tg-row link" href="{{ url_for('people') }}">{{ icon('contacts', 20) }}<div><b>{{ contacts_count }}</b><small>{{ t.nav_contacts }}</small></div><span class="seller-go">{{ icon('chevron', 16) }}</span></a>
+    </section>
+
+    {% if not creator %}
+    <button type="button" class="pf-cta" id="open-creator">
+      <span class="pf-cta-ico">{{ icon('sparkles', 22) }}</span>
+      <span class="pf-cta-text"><b>{{ t.pf_creator_title }}</b><small>{{ t.pf_creator_sub }}</small></span>
+      <span class="seller-go">{{ icon('chevron', 18) }}</span>
+    </button>
+    {% endif %}
+
+    <div class="pf-tabs">
+      <button type="button" class="active" data-tab="posts-tab">{{ icon('grid', 17) }} {{ t.posts_tab }} <em>{{ posts|length }}</em></button>
+      <button type="button" data-tab="catalog-tab">{{ icon('shop', 17) }} {{ t.pf_catalog }} <em>{{ products|length }}</em></button>
+    </div>
+    {% endif %}
+
+    {# ---- Postlar ---- #}
+    <div id="posts-tab" class="tab-panel">
+      {% if posts|length == 0 %}
+        {{ empty_state('camera', t.no_posts_yet) }}
+        <a href="{{ url_for('feed') }}" class="pf-empty-btn">{{ icon('plus', 16) }} {{ t.pf_first_post }}</a>
+      {% else %}
+        {{ post_grid(posts) }}
+      {% endif %}
+    </div>
+
+    {# ---- Katalog ---- #}
+    <div id="catalog-tab" class="tab-panel" style="display:none;">
+      <div class="pf-cat-head">
+        {% if store %}
+          <a class="pf-cat-store" href="{{ url_for('store_manage') }}">
+            {% if store.logo_file %}<img class="avatar-circle tiny" src="{{ url_for('media', filename=store.logo_file) }}" alt="">{% else %}<span class="psc-ico">{{ icon('store', 18) }}</span>{% endif %}
+            <span><b>{{ store.name }}</b><small>@{{ store.handle }}</small></span>
+          </a>
+          <a class="mini-btn pf-add" href="{{ url_for('store_product_form') }}">{{ icon('plus', 15) }} {{ t.pf_add_product }}</a>
+        {% else %}
+          <a class="pf-cta slim" href="{{ url_for('store_open') }}">
+            <span class="pf-cta-ico amber">{{ icon('store', 20) }}</span>
+            <span class="pf-cta-text"><b>{{ t.profile_open_store }}</b><small>{{ t.profile_open_store_hint }}</small></span>
+            <span class="seller-go">{{ icon('chevron', 18) }}</span>
+          </a>
+        {% endif %}
+      </div>
+      {% if products|length == 0 %}
+        {{ empty_state('shop', t.pf_no_catalog) }}
+      {% else %}
+        {{ product_grid(products, t.currency_sum) }}
+      {% endif %}
     </div>
   </div>
 
+  {# ---- Ijodkor akkaunt ochish oynasi ---- #}
+  {% if not creator %}
+  <div class="modal-overlay" id="creator-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>{{ t.pf_creator_title }}</h3>
+        <button type="button" class="modal-close" data-close>{{ icon('close', 20) }}</button>
+      </div>
+      <ul class="pf-perks">
+        <li>{{ icon('users', 18) }}<span>{{ t.pf_perk_followers }}</span></li>
+        <li>{{ icon('grid', 18) }}<span>{{ t.pf_perk_grid }}</span></li>
+        <li>{{ icon('shop', 18) }}<span>{{ t.pf_perk_catalog }}</span></li>
+        <li>{{ icon('swap', 18) }}<span>{{ t.pf_perk_switch }}</span></li>
+      </ul>
+      <div class="field"><label>{{ t.pf_creator_cat }}</label>
+        <select id="cr-cat" class="shop-input">
+          <option value="">{{ t.pf_creator_cat_none }}</option>
+          {% for c in creator_cats %}<option value="{{ c }}">{{ t['creator_cat_' ~ c] }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>{{ t.pf_creator_link }}</label>
+        <input type="text" id="cr-link" class="shop-input" placeholder="example.com" maxlength="120" autocapitalize="none" autocomplete="off"></div>
+      <div class="flash" id="cr-err" hidden></div>
+      <button type="button" class="btn-primary" id="cr-go" style="margin-top:8px;">{{ t.pf_creator_open }}</button>
+      <p class="hint-text center" style="margin-top:10px;">{{ t.pf_creator_note }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ---- Kuzatuvchilar ro'yxati ---- #}
+  <div class="modal-overlay" id="follows-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="follows-title"></h3>
+        <button type="button" class="modal-close" data-close>{{ icon('close', 20) }}</button>
+      </div>
+      <div id="follows-list" class="follow-list"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="pf-toast" hidden></div>
+
   <script>
-    document.querySelectorAll(".tab-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-        document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
-        btn.classList.add("active");
-        document.getElementById(btn.dataset.tab).style.display = (btn.dataset.tab === "products-tab" ? "grid" : "flex");
+    (function () {
+      var ME = {{ username|tojson }};
+      var T = {{ {"followers": t.pf_followers, "following": t.pf_following, "none": t.pf_no_follows, "copied": t.link_copied, "net": t.err_network}|tojson }};
+      var toastEl = document.getElementById("pf-toast"), tt;
+      function toast(x) { toastEl.textContent = x; toastEl.hidden = false; clearTimeout(tt); tt = setTimeout(function () { toastEl.hidden = true; }, 1600); }
+
+      // Postlar / Katalog
+      var tabs = document.querySelectorAll("[data-tab]");
+      tabs.forEach(function (b) {
+        b.addEventListener("click", function () {
+          tabs.forEach(function (x) { x.classList.toggle("active", x === b); });
+          document.querySelectorAll(".tab-panel").forEach(function (p) { p.style.display = "none"; });
+          document.getElementById(b.dataset.tab).style.display = "block";
+        });
       });
-    });
+
+      // Nusxalash
+      document.querySelectorAll("[data-copy]").forEach(function (b) {
+        b.addEventListener("click", function () {
+          var v = b.dataset.copy;
+          (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(function () { toast(T.copied); }, function () {
+            var ta = document.createElement("textarea"); ta.value = v; document.body.appendChild(ta); ta.select();
+            try { document.execCommand("copy"); toast(T.copied); } catch (e) {} ta.remove();
+          });
+        });
+      });
+
+      // Ulashish
+      var share = document.getElementById("share-btn");
+      if (share) share.addEventListener("click", function () {
+        var url = location.origin + "/u/" + encodeURIComponent(ME);
+        if (navigator.share) { navigator.share({ title: "Linko @" + ME, url: url }).catch(function () {}); return; }
+        (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(function () { toast(T.copied); }, function () { prompt("", url); });
+      });
+
+      // Modallar
+      function openM(m) { m.hidden = false; }
+      function closeM(m) { m.hidden = true; }
+      document.querySelectorAll(".modal-overlay").forEach(function (m) {
+        m.addEventListener("click", function (e) { if (e.target === m || e.target.closest("[data-close]")) closeM(m); });
+      });
+
+      // Kuzatuvchilar / kuzatilayotganlar
+      var fm = document.getElementById("follows-modal"), fl = document.getElementById("follows-list");
+      document.querySelectorAll("[data-follows]").forEach(function (b) {
+        b.addEventListener("click", function () {
+          var kind = b.dataset.follows;
+          document.getElementById("follows-title").textContent = T[kind];
+          fl.innerHTML = ""; openM(fm);
+          fetch("/api/follows/" + encodeURIComponent(ME) + "/" + kind).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.ok || !d.items.length) { fl.innerHTML = '<p class="hint-text center" style="padding:18px 0;">' + T.none + "</p>"; return; }
+            d.items.forEach(function (it) {
+              var a = document.createElement("a"); a.className = "follow-row"; a.href = it.url;
+              var av = it.avatar ? '<img class="avatar-circle tiny" src="' + it.avatar + '" alt="">' : '<div class="avatar-circle tiny"></div>';
+              a.innerHTML = av + "<span><b></b><small></small></span>";
+              if (!it.avatar) a.querySelector(".avatar-circle").textContent = it.letter;
+              a.querySelector("b").textContent = it.display; a.querySelector("small").textContent = "@" + it.username;
+              fl.appendChild(a);
+            });
+          }).catch(function () { fl.innerHTML = '<p class="hint-text center">' + T.net + "</p>"; });
+        });
+      });
+
+      // Ijodkor akkaunt ochish
+      var openBtn = document.getElementById("open-creator"), cm = document.getElementById("creator-modal");
+      if (openBtn && cm) {
+        openBtn.addEventListener("click", function () { openM(cm); });
+        if (/[?&]open=creator/.test(location.search)) openM(cm);
+        document.getElementById("cr-go").addEventListener("click", function () {
+          var btn = this, err = document.getElementById("cr-err"); btn.disabled = true; err.hidden = true;
+          fetch("/api/creator/open", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: document.getElementById("cr-cat").value, link: document.getElementById("cr-link").value }) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+              if (res.ok && res.d.ok) { location.href = res.d.redirect; return; }
+              err.textContent = res.d.message || T.net; err.hidden = false; btn.disabled = false;
+            }).catch(function () { err.textContent = T.net; err.hidden = false; btn.disabled = false; });
+        });
+      }
+    })();
   </script>
   {% include 'navbar.html' %}
 </body>

@@ -7,78 +7,123 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  {% from '_icons.html' import icon, empty_state, render_media %}
-  <div class="glass-card feed-card">
-    <div class="chat-header">
+  {% from '_icons.html' import icon, empty_state, post_grid, product_grid %}
+  {% set shown_name = target.nickname if target.nickname else target.username %}
+  <div class="glass-card feed-card pf pf-{{ 'account' if creator else 'personal' }}">
+    <div class="pf-top">
       <a href="{{ url_for('people') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">{{ t.profile_title }}</h1>
+      <h1 class="pf-title">{{ t.profile_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
-    <div class="profile-avatar-wrap">
-      {% if target.avatar_file %}
-        <img class="avatar-circle" src="{{ url_for('media', filename=target.avatar_file) }}" alt="" style="margin-bottom:8px;">
-      {% else %}
-        <div class="avatar-circle" style="margin-bottom:8px;">{{ target.avatar_letter }}</div>
-      {% endif %}
-    </div>
-    <h1 style="font-size:22px; text-align:center;">@{{ target.nickname if target.nickname else target.username }}</h1>
-    {% if target.nickname %}
-    <p class="subtitle" style="margin-bottom:2px;">{{ target.username }}</p>
-    {% endif %}
-    <p class="subtitle" style="margin-bottom:6px;">{{ posts|length }} {{ t.post_unit }} &nbsp;·&nbsp; {{ products|length }} {{ t.product_unit }}</p>
-    {% if target_is_admin %}<p style="text-align:center; margin-bottom:6px;"><span class="admin-chip">{{ t.admin_badge }}</span></p>{% endif %}
-    {% if is_blocked %}<p style="text-align:center; margin-bottom:6px;"><span class="admin-chip danger">{{ t.blocked_label }}</span></p>{% endif %}
-
-    <div class="profile-actions">
-      <a href="{{ url_for('dm', other_username=target.username) }}" class="btn-primary profile-action-btn" style="text-decoration:none; text-align:center;">{{ t.write_message }}</a>
-      {% if is_contact %}
-        <div class="profile-status">✓ {{ t.in_contacts }}</div>
-      {% elif is_pending %}
-        <div class="profile-status">{{ t.request_pending_note }}</div>
-      {% else %}
-        <button id="send-request-btn" class="btn-primary profile-action-btn secondary-btn">{{ t.send_request_btn }}</button>
-      {% endif %}
-      {% if is_admin and not target_is_admin %}
-        <button id="block-btn" class="btn-primary profile-action-btn danger-btn" data-blocked="{{ 1 if is_blocked else 0 }}">
-          {{ t.unblock_btn if is_blocked else t.block_btn }}
-        </button>
-      {% endif %}
-    </div>
-
-    <div class="profile-tabs">
-      <button class="tab-btn active" data-tab="posts-tab">{{ t.posts_tab }}</button>
-      <button class="tab-btn" data-tab="products-tab">{{ t.products_tab }}</button>
-    </div>
-
-    <div id="posts-tab" class="feed-list tab-panel">
-      {% if posts|length == 0 %}
-        {{ empty_state('feed', t.admin_empty) }}
-      {% endif %}
-      {% for post in posts %}
-      <div class="post-card">
-        <div class="post-time">{{ post.ago }}</div>
-        {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
-        {{ render_media(post.media) }}
-      </div>
-      {% endfor %}
-    </div>
-
-    <div id="products-tab" class="feed-list tab-panel" style="display:none;">
-      {% if products|length == 0 %}
-        {{ empty_state('shop', t.admin_empty) }}
-      {% endif %}
-      {% for p in products %}
-      <div class="product-card">
-        {% if p.image_file %}
-        <img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="{{ p.title }}">
-        {% endif %}
-        <div class="product-info">
-          <div class="product-title">{{ p.title }}</div>
-          <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
+    {% if creator %}
+    {# ================= Ijodkor akkaunt (Instagram / TikTok uslubi) ================= #}
+    <section class="ig-hero">
+      <div class="ig-row">
+        <div class="ig-ava ring">
+          {% if target.avatar_file %}<img src="{{ url_for('media', filename=target.avatar_file) }}" alt="">{% else %}<span>{{ target.avatar_letter }}</span>{% endif %}
+          {% if presence and presence.online %}<i class="presence-dot on"></i>{% endif %}
+        </div>
+        <div class="ig-stats">
+          <div><b>{{ posts|length }}</b><span>{{ t.pf_posts }}</span></div>
+          <button type="button" data-follows="followers"><b id="cnt-followers">{{ stats.followers|compact }}</b><span>{{ t.pf_followers }}</span></button>
+          <button type="button" data-follows="following"><b>{{ stats.following|compact }}</b><span>{{ t.pf_following }}</span></button>
         </div>
       </div>
-      {% endfor %}
+      <div class="ig-name">{{ shown_name }}{% if is_business %}<span class="biz-badge">{{ icon('store', 12) }} {{ t.business_badge }}</span>{% endif %}{% if target_is_admin %}<span class="admin-chip">{{ t.admin_badge }}</span>{% endif %}</div>
+      <div class="ig-handle">@{{ target.username }}{% if presence %} · <span class="{% if presence.online %}ig-online{% endif %}">{{ presence.text }}</span>{% endif %}</div>
+      {% if creator_cat %}<div class="ig-cat">{{ t['creator_cat_' ~ creator_cat] }}</div>{% endif %}
+      {% if target.bio %}<p class="ig-bio">{{ target.bio }}</p>{% endif %}
+      <div class="ig-meta">
+        {% if creator_link %}<a class="ig-link" href="{{ creator_link }}" target="_blank" rel="noopener nofollow">{{ icon('link', 14) }} {{ creator_link|link_label }}</a>{% endif %}
+        {% if location_text %}<span>{{ icon('pin', 13) }} {{ location_text }}</span>{% endif %}
+        {% if stats.likes %}<span>{{ icon('heart-fill', 13) }} {{ stats.likes|compact }} {{ t.pf_likes }}</span>{% endif %}
+        {% if is_blocked %}<span class="admin-chip danger">{{ t.blocked_label }}</span>{% endif %}
+      </div>
+      <div class="ig-actions">
+        <button type="button" class="ig-btn follow {% if i_follow %}on{% else %}primary{% endif %}" id="follow-btn" data-on="{{ 1 if i_follow else 0 }}">{{ t.pf_following if i_follow else t.pf_follow }}</button>
+        <a href="{{ url_for('dm', other_username=target.username) }}" class="ig-btn">{{ t.pf_message }}</a>
+        {% if is_contact %}
+          <span class="ig-btn icon ok" title="{{ t.in_contacts }}">{{ icon('user-check', 18) }}</span>
+        {% elif is_pending %}
+          <span class="ig-btn icon" title="{{ t.request_pending_note }}">{{ icon('user-plus', 18) }}</span>
+        {% else %}
+          <button type="button" class="ig-btn icon" id="send-request-btn" aria-label="{{ t.send_request_btn }}" title="{{ t.send_request_btn }}">{{ icon('user-plus', 18) }}</button>
+        {% endif %}
+      </div>
+      {% if is_admin and not target_is_admin %}
+      <div class="ig-actions"><button id="block-btn" class="ig-btn danger" data-blocked="{{ 1 if is_blocked else 0 }}">{{ t.unblock_btn if is_blocked else t.block_btn }}</button></div>
+      {% endif %}
+    </section>
+
+    <div class="ig-tabs">
+      <button type="button" class="active" data-tab="posts-tab" aria-label="{{ t.posts_tab }}">{{ icon('grid', 22) }}</button>
+      <button type="button" data-tab="catalog-tab" aria-label="{{ t.pf_catalog }}">{{ icon('shop', 22) }}</button>
+    </div>
+
+    {% else %}
+    {# ================= Telegram uslubidagi shaxsiy profil ================= #}
+    <section class="tg-hero">
+      <div class="tg-ava">
+        {% if target.avatar_file %}<img src="{{ url_for('media', filename=target.avatar_file) }}" alt="">{% else %}<span>{{ target.avatar_letter }}</span>{% endif %}
+        {% if presence and presence.online %}<i class="presence-dot on big"></i>{% endif %}
+      </div>
+      <h1 class="tg-name">{{ shown_name }}</h1>
+      <div class="tg-sub {% if presence and presence.online %}online{% endif %}">{% if presence %}{{ presence.text }}{% else %}@{{ target.username }}{% endif %}</div>
+      <div class="tg-badges">
+        {% if is_business %}<span class="biz-badge">{{ icon('store', 12) }} {{ t.business_badge }}</span>{% endif %}
+        {% if target_is_admin %}<span class="admin-chip">{{ t.admin_badge }}</span>{% endif %}
+        {% if is_blocked %}<span class="admin-chip danger">{{ t.blocked_label }}</span>{% endif %}
+      </div>
+      <div class="tg-actions">
+        <a href="{{ url_for('dm', other_username=target.username) }}">{{ icon('chat', 20) }}<span>{{ t.pf_message }}</span></a>
+        {% if is_contact %}
+          <a class="static ok">{{ icon('user-check', 20) }}<span>{{ t.in_contacts }}</span></a>
+        {% elif is_pending %}
+          <a class="static">{{ icon('user-plus', 20) }}<span>{{ t.request_pending_note }}</span></a>
+        {% else %}
+          <a href="#" id="send-request-btn">{{ icon('user-plus', 20) }}<span>{{ t.send_request_btn }}</span></a>
+        {% endif %}
+        {% if is_admin and not target_is_admin %}
+          <a href="#" id="block-btn" class="danger" data-blocked="{{ 1 if is_blocked else 0 }}">{{ icon('block', 20) }}<span>{{ t.unblock_btn if is_blocked else t.block_btn }}</span></a>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="tg-info">
+      <div class="tg-row">{{ icon('at', 20) }}<div><b>{{ target.username }}</b><small>{{ t.pf_username }}</small></div></div>
+      {% if target.bio %}<div class="tg-row">{{ icon('info', 20) }}<div><b class="pre">{{ target.bio }}</b><small>{{ t.pf_about }}</small></div></div>{% endif %}
+      {% if location_text %}<div class="tg-row">{{ icon('pin', 20) }}<div><b>{{ location_text }}</b><small>{{ t.location_label }}</small></div></div>{% endif %}
+      {% if store %}
+      <a class="tg-row link" href="{{ url_for('store_page', handle=store.handle) }}">{{ icon('store', 20) }}<div><b>{{ store.name }}</b><small>@{{ store.handle }}</small></div><span class="seller-go">{{ icon('chevron', 16) }}</span></a>
+      {% endif %}
+    </section>
+
+    <div class="pf-tabs">
+      <button type="button" class="active" data-tab="posts-tab">{{ icon('grid', 17) }} {{ t.posts_tab }} <em>{{ posts|length }}</em></button>
+      <button type="button" data-tab="catalog-tab">{{ icon('shop', 17) }} {{ t.pf_catalog }} <em>{{ products|length }}</em></button>
+    </div>
+    {% endif %}
+
+    <div id="posts-tab" class="tab-panel">
+      {% if posts|length == 0 %}{{ empty_state('camera', t.pf_no_posts_other) }}{% else %}{{ post_grid(posts) }}{% endif %}
+    </div>
+    <div id="catalog-tab" class="tab-panel" style="display:none;">
+      {% if creator and store %}
+      <a class="pf-cta slim" href="{{ url_for('store_page', handle=store.handle) }}">
+        <span class="pf-cta-ico amber">{{ icon('store', 20) }}</span>
+        <span class="pf-cta-text"><b>{{ store.name }}</b><small>@{{ store.handle }}</small></span>
+        <span class="seller-go">{{ icon('chevron', 18) }}</span>
+      </a>
+      {% endif %}
+      {% if products|length == 0 %}{{ empty_state('shop', t.pf_no_catalog_other) }}{% else %}{{ product_grid(products, t.currency_sum) }}{% endif %}
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="follows-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><h3 id="follows-title"></h3><button type="button" class="modal-close" data-close>{{ icon('close', 20) }}</button></div>
+      <div id="follows-list" class="follow-list"></div>
     </div>
   </div>
 
@@ -87,20 +132,22 @@
     const addedNote = "{{ t.added_note }}";
     const netErrorText = "{{ t.err_network }}";
     const confirmBlockText = "{{ t.confirm_block }}";
+    const TARGET = {{ target.username|tojson }};
+    const FT = {{ {"followers": t.pf_followers, "following": t.pf_following, "none": t.pf_no_follows, "follow": t.pf_follow, "on": t.pf_following}|tojson }};
 
     const btn = document.getElementById("send-request-btn");
     if (btn) {
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
         btn.disabled = true;
         try {
-          const res = await fetch(`/api/contacts/request/{{ target.username }}`, { method: "POST" });
+          const res = await fetch(`/api/contacts/request/${encodeURIComponent(TARGET)}`, { method: "POST" });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) { btn.disabled = false; alert(data.message || netErrorText); return; }
-          const note = document.createElement("div");
-          note.className = "profile-status";
-          note.textContent = data.status === "accepted" ? addedNote : requestSentNote;
-          btn.replaceWith(note);
-        } catch (e) {
+          const note = data.status === "accepted" ? addedNote : requestSentNote;
+          const label = btn.querySelector("span");
+          if (label) { label.textContent = note; btn.classList.add("static"); } else { btn.title = note; btn.classList.add("ok"); }
+        } catch (err) {
           btn.disabled = false;
           alert(netErrorText);
         }
@@ -109,25 +156,61 @@
 
     const blockBtn = document.getElementById("block-btn");
     if (blockBtn) {
-      blockBtn.addEventListener("click", async () => {
+      blockBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
         const isBlocked = blockBtn.dataset.blocked === "1";
-        if (!isBlocked && !confirm(confirmBlockText)) return;
+        if (!isBlocked && !(await window.linkoConfirm(confirmBlockText))) return;
         try {
-          const res = await fetch(`/api/admin/${isBlocked ? "unblock" : "block"}/{{ target.username }}`, { method: "POST" });
+          const res = await fetch(`/api/admin/${isBlocked ? "unblock" : "block"}/${encodeURIComponent(TARGET)}`, { method: "POST" });
           if (!res.ok) throw new Error("bad");
           window.location.reload();
-        } catch (e) { alert(netErrorText); }
+        } catch (err) { alert(netErrorText); }
       });
     }
 
-    document.querySelectorAll(".tab-btn").forEach((b) => {
-      b.addEventListener("click", () => {
-        document.querySelectorAll(".tab-btn").forEach((x) => x.classList.remove("active"));
-        document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
-        b.classList.add("active");
-        document.getElementById(b.dataset.tab).style.display = "flex";
-      });
+    // Kuzatish
+    const fb = document.getElementById("follow-btn");
+    if (fb) fb.addEventListener("click", async () => {
+      fb.disabled = true;
+      try {
+        const res = await fetch(`/api/follow/${encodeURIComponent(TARGET)}`, { method: "POST" });
+        const d = await res.json();
+        if (!res.ok || !d.ok) throw new Error("bad");
+        fb.textContent = d.following ? FT.on : FT.follow;
+        fb.classList.toggle("primary", !d.following);
+        fb.classList.toggle("on", d.following);
+        const c = document.getElementById("cnt-followers");
+        if (c) c.textContent = d.followers >= 1000 ? (d.followers / 1000).toFixed(1).replace(/\.0$/, "") + "K" : d.followers;
+      } catch (err) { alert(netErrorText); }
+      fb.disabled = false;
     });
+
+    // Postlar / Katalog
+    const tabs = document.querySelectorAll("[data-tab]");
+    tabs.forEach((b) => b.addEventListener("click", () => {
+      tabs.forEach((x) => x.classList.toggle("active", x === b));
+      document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
+      document.getElementById(b.dataset.tab).style.display = "block";
+    }));
+
+    // Kuzatuvchilar ro'yxati
+    const fm = document.getElementById("follows-modal"), fl = document.getElementById("follows-list");
+    fm.addEventListener("click", (e) => { if (e.target === fm || e.target.closest("[data-close]")) fm.hidden = true; });
+    document.querySelectorAll("[data-follows]").forEach((b) => b.addEventListener("click", () => {
+      const kind = b.dataset.follows;
+      document.getElementById("follows-title").textContent = FT[kind];
+      fl.innerHTML = ""; fm.hidden = false;
+      fetch(`/api/follows/${encodeURIComponent(TARGET)}/${kind}`).then((r) => r.json()).then((d) => {
+        if (!d.ok || !d.items.length) { fl.innerHTML = '<p class="hint-text center" style="padding:18px 0;">' + FT.none + "</p>"; return; }
+        d.items.forEach((it) => {
+          const a = document.createElement("a"); a.className = "follow-row"; a.href = it.url;
+          a.innerHTML = (it.avatar ? '<img class="avatar-circle tiny" src="' + it.avatar + '" alt="">' : '<div class="avatar-circle tiny"></div>') + "<span><b></b><small></small></span>";
+          if (!it.avatar) a.querySelector(".avatar-circle").textContent = it.letter;
+          a.querySelector("b").textContent = it.display; a.querySelector("small").textContent = "@" + it.username;
+          fl.appendChild(a);
+        });
+      }).catch(() => { fl.innerHTML = '<p class="hint-text center">' + netErrorText + "</p>"; });
+    }));
   </script>
 
   {% include 'navbar.html' %}

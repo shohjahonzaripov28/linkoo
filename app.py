@@ -254,6 +254,7 @@ PREF_DEFAULTS = {
     "shrink_images": True,
     "show_online": "everyone",      # online / oxirgi marta ko'rinishini kim ko'ra oladi
     "read_receipts": True,          # "o'qildi" belgisini ko'rsatish
+    "profile_view": "personal",     # profil: "personal" (shaxsiy) yoki "account" (ijodkor akkaunt)
 }
 PREF_CHOICES = {
     "allow_requests": ("everyone", "nobody"),
@@ -262,6 +263,7 @@ PREF_CHOICES = {
     "wallpaper": ("default", "blue", "green", "sunset"),
     "translate_lang": ("auto",) + tuple(TRANSLATE_LANGS),
     "show_online": ("everyone", "nobody"),
+    "profile_view": ("personal", "account"),
 }
 
 
@@ -567,9 +569,9 @@ def presence_info(conn, viewer, username, prefs=None, last_seen_ts=None):
 
 # ---------- Yangi layk va izohlar (feed faolligi) ----------
 def feed_new_counts(conn, me):
-    u = conn.execute("SELECT seen_like_id, seen_comment_id FROM users WHERE username = ?", (me,)).fetchone()
+    u = conn.execute("SELECT seen_like_id, seen_comment_id, seen_follow_id FROM users WHERE username = ?", (me,)).fetchone()
     if not u:
-        return {"likes": 0, "comments": 0, "total": 0}
+        return {"likes": 0, "comments": 0, "follows": 0, "total": 0}
     likes = conn.execute(
         """SELECT COUNT(*) AS c FROM likes l JOIN posts p ON p.id = l.post_id
            WHERE p.username = ? AND l.username != ? AND l.id > ?""",
@@ -580,7 +582,11 @@ def feed_new_counts(conn, me):
            WHERE p.username = ? AND c.username != ? AND c.id > ?""",
         (me, me, u["seen_comment_id"] or 0),
     ).fetchone()["c"]
-    return {"likes": likes, "comments": comments, "total": likes + comments}
+    follows = conn.execute(
+        "SELECT COUNT(*) AS c FROM follows WHERE followee = ? AND follower != ? AND id > ?",
+        (me, me, u["seen_follow_id"] or 0),
+    ).fetchone()["c"]
+    return {"likes": likes, "comments": comments, "follows": follows, "total": likes + comments + follows}
 
 
 @app.route("/api/unread")
@@ -872,6 +878,17 @@ def ensure_v11_tables(conn):
     add_column_if_missing(conn, "likes", "created_ts", "BIGINT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_likes_post ON likes (post_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_post ON post_comments (post_id)")
+    # ijodkor akkaunt (Instagram/TikTok uslubi) va obunalar
+    pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    for col, typ in (("creator_on", "INTEGER DEFAULT 0"), ("creator_cat", "TEXT"), ("creator_link", "TEXT"),
+                     ("seen_follow_id", "INTEGER DEFAULT 0")):
+        add_column_if_missing(conn, "users", col, typ)
+    conn.execute("UPDATE users SET creator_on = 0 WHERE creator_on IS NULL")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS follows (
+        id {pk}, follower TEXT NOT NULL, followee TEXT NOT NULL, created_ts BIGINT NOT NULL,
+        UNIQUE(follower, followee))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows (followee)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows (follower)")
 
 
 def ensure_v10_tables(conn):
@@ -1472,6 +1489,7 @@ def delete_user_everything(conn, username):
         else:
             delete_group_everything(conn, gid)
     conn.execute("DELETE FROM chat_mutes WHERE username = ?", (username,))
+    conn.execute("DELETE FROM follows WHERE follower = ? OR followee = ?", (username, username))
     conn.execute("DELETE FROM cart_lines WHERE username = ?", (username,))
     conn.execute("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE buyer = ? OR seller = ?)", (username, username))
     conn.execute("DELETE FROM orders WHERE buyer = ? OR seller = ?", (username, username))
@@ -1953,7 +1971,8 @@ def feed():
         events = build_activity(conn, me)
         # ko'rildi deb belgilaymiz (yangi belgisi ketadi)
         conn.execute("UPDATE users SET seen_like_id = (SELECT COALESCE(MAX(id), 0) FROM likes), "
-                     "seen_comment_id = (SELECT COALESCE(MAX(id), 0) FROM post_comments) WHERE username = ?", (me,))
+                     "seen_comment_id = (SELECT COALESCE(MAX(id), 0) FROM post_comments), "
+                     "seen_follow_id = (SELECT COALESCE(MAX(id), 0) FROM follows) WHERE username = ?", (me,))
         conn.commit()
         conn.close()
         return render_template(
@@ -1965,8 +1984,9 @@ def feed():
         rows = conn.execute(
             """SELECT * FROM posts
                WHERE username = ? OR username IN (SELECT contact_username FROM contacts WHERE username = ?)
+                  OR username IN (SELECT followee FROM follows WHERE follower = ?)
                ORDER BY id DESC LIMIT ? OFFSET ?""",
-            (me, me, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
+            (me, me, me, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -1995,7 +2015,7 @@ def feed():
 
 def build_activity(conn, me, limit=60):
     """Postlarimga bosilgan layklar va yozilgan izohlar - yagona vaqt ro'yxati (Instagram 'Faollik' kabi)."""
-    u = conn.execute("SELECT seen_like_id, seen_comment_id FROM users WHERE username = ?", (me,)).fetchone()
+    u = conn.execute("SELECT seen_like_id, seen_comment_id, seen_follow_id FROM users WHERE username = ?", (me,)).fetchone()
     seen_l, seen_c = ((u["seen_like_id"] or 0), (u["seen_comment_id"] or 0)) if u else (0, 0)
     events = []
     for r in conn.execute(
@@ -2014,10 +2034,19 @@ def build_activity(conn, me, limit=60):
                        "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
                        "avatar_file": r["avatar_file"], "text": (r["content"] or "")[:160], "ts": r["created_ts"] or 0,
                        "when": r["created_at"] or "", "thumb": r["image_file"], "new": r["id"] > seen_c})
+    seen_f = (u["seen_follow_id"] or 0) if u else 0
+    for r in conn.execute(
+        """SELECT f.id, f.follower, f.created_ts, u.nickname, u.avatar_letter, u.avatar_file
+           FROM follows f LEFT JOIN users u ON u.username = f.follower
+           WHERE f.followee = ? AND f.follower != ? ORDER BY f.id DESC LIMIT ?""", (me, me, limit)).fetchall():
+        events.append({"kind": "follow", "id": r["id"], "post_id": None, "username": r["follower"],
+                       "display": r["nickname"] or r["follower"], "letter": r["avatar_letter"] or r["follower"][:1].upper(),
+                       "avatar_file": r["avatar_file"], "text": "", "ts": r["created_ts"] or 0, "when": "",
+                       "thumb": None, "new": r["id"] > seen_f})
     events.sort(key=lambda e: (e["ts"], e["id"]), reverse=True)
     events = events[:limit]
     # postning birinchi rasmi (kichik rasm uchun)
-    pids = list({e["post_id"] for e in events})
+    pids = list({e["post_id"] for e in events if e["post_id"]})
     thumbs = {}
     if pids:
         marks = ",".join("?" for _ in pids)
@@ -4034,10 +4063,20 @@ def user_profile(target_username):
     target_store = get_store(conn, target_username)
     presence = presence_info(conn, me, target_username, None, target["last_seen_ts"])
     contacts_count = conn.execute("SELECT COUNT(*) AS c FROM contacts WHERE username = ?", (target_username,)).fetchone()["c"]
+    creator = bool(target["creator_on"])
+    stats = follow_stats(conn, target_username)
+    i_follow = bool(conn.execute(
+        "SELECT 1 FROM follows WHERE follower = ? AND followee = ?", (me, target_username)).fetchone())
     conn.close()
 
     return render_template(
         "add_contact.html",
+        creator=creator,
+        stats=stats,
+        i_follow=i_follow,
+        creator_cat=(target["creator_cat"] or ""),
+        creator_link=(target["creator_link"] or ""),
+        contact_phone="",
         username=me,
         avatar_letter=session["avatar_letter"],
         target=target,
@@ -5232,6 +5271,49 @@ def api_translate():
     return jsonify({"ok": True, "text": translated, "same": same, "target": target})
 
 
+# ---------- Ijodkor akkaunt (Instagram / TikTok uslubi) va obunalar ----------
+CREATOR_CATS = ("blogger", "artist", "musician", "photographer", "brand", "education",
+                "food", "sport", "tech", "fashion", "other")
+LINK_RE = re.compile(r"^https?://[^\s/$.?#][^\s]*\.[^\s]{2,}$", re.I)
+
+
+def clean_creator_link(v):
+    v = (v or "").strip()[:120]
+    if not v:
+        return "", True
+    if not re.match(r"^https?://", v, re.I):
+        v = "https://" + v
+    return (v, True) if LINK_RE.match(v) else ("", False)
+
+
+def compact_number(n):
+    n = int(n or 0)
+    if n >= 1_000_000:
+        return ("%.1f" % (n / 1_000_000)).rstrip("0").rstrip(".") + "M"
+    if n >= 10_000:
+        return ("%.1f" % (n / 1000)).rstrip("0").rstrip(".") + "K"
+    if n >= 1000:
+        return ("%.1f" % (n / 1000)).rstrip("0").rstrip(".") + "K"
+    return str(n)
+
+
+app.jinja_env.filters["compact"] = compact_number
+app.jinja_env.filters["link_label"] = lambda u: re.sub(r"^https?://(www\.)?", "", u or "").rstrip("/")
+
+
+def follow_stats(conn, username):
+    followers = conn.execute("SELECT COUNT(*) AS c FROM follows WHERE followee = ?", (username,)).fetchone()["c"]
+    following = conn.execute("SELECT COUNT(*) AS c FROM follows WHERE follower = ?", (username,)).fetchone()["c"]
+    likes = conn.execute(
+        "SELECT COUNT(*) AS c FROM likes l JOIN posts p ON p.id = l.post_id WHERE p.username = ?", (username,)
+    ).fetchone()["c"]
+    return {"followers": followers, "following": following, "likes": likes}
+
+
+def set_profile_view(conn, username, view):
+    save_pref(conn, username, "profile_view", view)
+
+
 @app.route("/profile")
 def profile():
     if "user_id" not in session:
@@ -5239,17 +5321,26 @@ def profile():
 
     username = session["username"]
     conn = get_db()
+    user_row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    creator = bool(user_row and user_row["creator_on"])
+    prefs = get_prefs(conn, username)
+    view = prefs["profile_view"] if creator else "personal"
+    want = request.args.get("m")
+    if creator and want in ("personal", "account") and want != view:
+        view = want
+        set_profile_view(conn, username, view)
+        conn.commit()
 
     posts = build_post_cards(
-        conn, conn.execute("SELECT * FROM posts WHERE username = ? ORDER BY id DESC LIMIT 50", (username,)).fetchall(), username
+        conn, conn.execute("SELECT * FROM posts WHERE username = ? ORDER BY id DESC LIMIT 60", (username,)).fetchall(), username
     )
     products = conn.execute(
         "SELECT * FROM products WHERE seller_username = ? ORDER BY id DESC", (username,)
     ).fetchall()
-    user_row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
     contacts_count = conn.execute("SELECT COUNT(*) AS c FROM contacts WHERE username = ?", (username,)).fetchone()["c"]
     feed_new = feed_new_counts(conn, username)
     my_store = get_store(conn, username)
+    stats = follow_stats(conn, username)
     conn.close()
 
     return render_template(
@@ -5262,13 +5353,113 @@ def profile():
         products=products,
         nickname=user_row["nickname"] if user_row else None,
         bio=(user_row["bio"] or "") if user_row else "",
+        phone=(user_row["phone"] or "") if user_row else "",
         location_text=user_location_text(user_row) if user_row else "",
         is_business=bool(my_store),
         business_name=(my_store["name"] if my_store else ""),
         contacts_count=contacts_count,
         feed_new=feed_new,
+        creator=creator,
+        view=view,
+        creator_cat=(user_row["creator_cat"] or "") if user_row else "",
+        creator_link=(user_row["creator_link"] or "") if user_row else "",
+        stats=stats,
+        creator_cats=CREATOR_CATS,
         active="profile",
     )
+
+
+@app.route("/api/creator/open", methods=["POST"])
+def api_creator_open():
+    """Ijodkor akkaunt ochish (ixtiyoriy): kategoriya va havola."""
+    if "user_id" not in session:
+        return jsonify({"ok": False}), 401
+    data = request.get_json(silent=True) or {}
+    cat = (data.get("category") or "").strip()
+    if cat and cat not in CREATOR_CATS:
+        cat = "other"
+    link, ok = clean_creator_link(data.get("link"))
+    if not ok:
+        return jsonify({"ok": False, "message": tr("pf_creator_link_invalid")}), 400
+    me = session["username"]
+    conn = get_db()
+    conn.execute("UPDATE users SET creator_on = 1, creator_cat = ?, creator_link = ? WHERE username = ?", (cat, link, me))
+    set_profile_view(conn, me, "account")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "redirect": url_for("profile", m="account")})
+
+
+@app.route("/api/creator/close", methods=["POST"])
+def api_creator_close():
+    if "user_id" not in session:
+        return jsonify({"ok": False}), 401
+    me = session["username"]
+    conn = get_db()
+    conn.execute("UPDATE users SET creator_on = 0 WHERE username = ?", (me,))
+    set_profile_view(conn, me, "personal")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "redirect": url_for("profile", m="personal")})
+
+
+@app.route("/api/follow/<target>", methods=["POST"])
+def api_follow(target):
+    if "user_id" not in session:
+        return jsonify({"ok": False}), 401
+    me = session["username"]
+    if target == me:
+        return jsonify({"ok": False}), 400
+    conn = get_db()
+    t = conn.execute("SELECT username, creator_on FROM users WHERE username = ?", (target,)).fetchone()
+    if not t or not t["creator_on"]:
+        conn.close()
+        return jsonify({"ok": False, "message": tr("profile_not_found")}), 404
+    if conn.execute("SELECT 1 FROM user_blocks WHERE blocker = ? AND blocked = ?", (target, me)).fetchone():
+        conn.close()
+        return jsonify({"ok": False, "message": tr("err_network")}), 403
+    row = conn.execute("SELECT id FROM follows WHERE follower = ? AND followee = ?", (me, target)).fetchone()
+    if row:
+        conn.execute("DELETE FROM follows WHERE id = ?", (row["id"],))
+        following = False
+    else:
+        conn.execute("INSERT INTO follows (follower, followee, created_ts) VALUES (?, ?, ?)", (me, target, int(time.time())))
+        following = True
+    conn.commit()
+    followers = conn.execute("SELECT COUNT(*) AS c FROM follows WHERE followee = ?", (target,)).fetchone()["c"]
+    conn.close()
+    return jsonify({"ok": True, "following": following, "followers": followers})
+
+
+@app.route("/api/follows/<target>/<kind>")
+def api_follows_list(target, kind):
+    """Kuzatuvchilar / kuzatilayotganlar ro'yxati."""
+    if "user_id" not in session:
+        return jsonify({"ok": False}), 401
+    if kind not in ("followers", "following"):
+        return jsonify({"ok": False}), 400
+    me = session["username"]
+    conn = get_db()
+    t = conn.execute("SELECT username, creator_on FROM users WHERE username = ?", (target,)).fetchone()
+    if not t or not (t["creator_on"] or target == me):
+        conn.close()
+        return jsonify({"ok": False}), 404
+    if kind == "followers":
+        rows = conn.execute(
+            """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.creator_on FROM follows f
+               JOIN users u ON u.username = f.follower WHERE f.followee = ? ORDER BY f.id DESC LIMIT 200""", (target,)).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.creator_on FROM follows f
+               JOIN users u ON u.username = f.followee WHERE f.follower = ? ORDER BY f.id DESC LIMIT 200""", (target,)).fetchall()
+    mine = {r["followee"] for r in conn.execute("SELECT followee FROM follows WHERE follower = ?", (me,)).fetchall()}
+    conn.close()
+    return jsonify({"ok": True, "items": [{
+        "username": r["username"], "display": r["nickname"] or r["username"], "letter": r["avatar_letter"] or r["username"][:1].upper(),
+        "avatar": (url_for("media", filename=r["avatar_file"]) if r["avatar_file"] else ""),
+        "creator": bool(r["creator_on"]), "me": r["username"] == me, "following": r["username"] in mine,
+        "url": url_for("user_profile", target_username=r["username"]),
+    } for r in rows]})
 
 
 @app.route("/profile/edit", methods=["GET", "POST"])
@@ -5296,6 +5487,10 @@ def profile_edit():
             data=data,
             store=my_store,
             countries=locations.country_list(current_lang()),
+            creator=bool(u["creator_on"]),
+            creator_cats=CREATOR_CATS,
+            creator_cat=(form or {}).get("creator_cat", u["creator_cat"] or ""),
+            creator_link=(form or {}).get("creator_link", u["creator_link"] or ""),
         )
 
     if request.method == "POST":
@@ -5306,9 +5501,16 @@ def profile_edit():
         country = request.form.get("country", "").strip()
         region = request.form.get("region", "").strip()
         district = request.form.get("district", "").strip()
-        form = {"bio": bio, "phone": phone_raw, "country": country, "region": region, "district": district}
+        creator_cat = request.form.get("creator_cat", "").strip()
+        if creator_cat and creator_cat not in CREATOR_CATS:
+            creator_cat = "other"
+        creator_link, link_ok = clean_creator_link(request.form.get("creator_link"))
+        form = {"bio": bio, "phone": phone_raw, "country": country, "region": region, "district": district,
+                "creator_cat": creator_cat, "creator_link": request.form.get("creator_link", "").strip()}
         error = None
-        if nickname:
+        if u["creator_on"] and not link_ok:
+            error = tr("pf_creator_link_invalid")
+        if nickname and not error:
             if not NICK_RE.match(nickname):
                 error = tr("nick_invalid")
             elif conn.execute(
@@ -5338,6 +5540,8 @@ def profile_edit():
             "UPDATE users SET bio = ?, phone = ?, country = ?, region = ?, district = ? WHERE username = ?",
             (bio, phone, country, region, district, me),
         )
+        if u["creator_on"]:
+            conn.execute("UPDATE users SET creator_cat = ?, creator_link = ? WHERE username = ?", (creator_cat, creator_link, me))
         conn.commit()
         conn.close()
         flash(tr("profile_updated"))
@@ -5440,12 +5644,15 @@ def settings_page():
 
     conn = get_db()
     user_row = conn.execute(
-        "SELECT nickname, email, google_sub FROM users WHERE username = ?", (session["username"],)
+        "SELECT nickname, email, google_sub, creator_on FROM users WHERE username = ?", (session["username"],)
     ).fetchone()
+    has_store = bool(get_store(conn, session["username"]))
     conn.close()
 
     return render_template(
         "settings.html",
+        creator=bool(user_row and user_row["creator_on"]),
+        has_store=has_store,
         google_email=(user_row["email"] if user_row and user_row["google_sub"] else None),
         username=session["username"],
         avatar_letter=session["avatar_letter"],
@@ -5481,7 +5688,7 @@ SETTINGS_SCHEMA = {
     "privacy-settings": ["allow_requests", "who_can_message", "show_online", "read_receipts"],
     "notifications": ["notif_sound", "notif_browser", "notif_preview", "notif_calls"],
     "interface": ["font_size", "reduce_motion"],
-    "chat-settings": ["enter_to_send", "wallpaper", "translate_lang", "shrink_images"],
+    "chat-settings": ["wallpaper", "translate_lang", "shrink_images"],
 }
 
 

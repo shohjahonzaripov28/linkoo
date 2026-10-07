@@ -8,84 +8,116 @@
 </head>
 <body>
   {% from '_icons.html' import icon %}
-  <div class="glass-card">
-    <div class="chat-header">
+  <div class="glass-card pe">
+    <div class="pf-top">
       <a href="{{ url_for('profile') }}" class="back-link">←</a>
-      <h1 style="font-size:20px;">{{ t.edit_profile_title }}</h1>
+      <h1 class="pf-title">{{ t.edit_profile_title }}</h1>
       <div style="width:36px;"></div>
     </div>
 
-    <div class="profile-avatar-wrap">
-      {% if avatar_file %}
-        <img class="avatar-circle" src="{{ url_for('media', filename=avatar_file) }}" alt="" style="margin: 10px auto 8px auto;">
-      {% else %}
-        <div class="avatar-circle" style="margin: 10px auto 8px auto;">{{ avatar_letter }}</div>
-      {% endif %}
-    </div>
-    {% if avatar_file %}
-    <form method="POST" action="{{ url_for('profile_avatar_remove') }}" style="text-align:center; margin-bottom:16px;">
-      <button type="submit" class="remove-avatar-btn">{{ t.remove_photo_btn }}</button>
-    </form>
-    {% endif %}
-
     {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        {% for message in messages %}
-          <div class="flash">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
+      {% if messages %}{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endif %}
     {% endwith %}
 
-    <form method="POST" enctype="multipart/form-data">
-      <div class="field">
-        <label>{{ t.profile_photo_label }}</label>
-        <input type="file" name="avatar_image" accept="image/*" class="shop-input" style="padding:8px 0;">
-      </div>
-      <div class="field">
-        <label>{{ t.nickname_label }}</label>
-        <input type="text" name="nickname" value="{{ nickname }}" placeholder="@shoh_uz" maxlength="24" autocapitalize="none" autocomplete="off">
-      </div>
-      <p style="font-size:12px; color:rgba(var(--fg),0.6); margin-bottom:16px;">
-        {{ t.nick_rules }}
-      </p>
-
-      <div class="field">
-        <label>{{ t.bio_label }} <span class="count" id="bio-count">{{ data.bio|length }}/160</span></label>
-        <textarea name="bio" id="bio" rows="3" maxlength="160" placeholder="{{ t.bio_placeholder }}">{{ data.bio }}</textarea>
+    <form method="POST" enctype="multipart/form-data" id="pe-form">
+      <div class="pe-avatar">
+        <label class="pe-ava-btn" for="avatar-input" aria-label="{{ t.profile_photo_label }}">
+          {% if avatar_file %}<img id="ava-preview" src="{{ url_for('media', filename=avatar_file) }}" alt="">{% else %}<span id="ava-letter">{{ avatar_letter }}</span><img id="ava-preview" alt="" hidden>{% endif %}
+          <i class="pe-cam">{{ icon('camera', 16) }}</i>
+        </label>
+        <input type="file" name="avatar_image" id="avatar-input" accept="image/*" hidden>
+        <div class="pe-ava-links">
+          <label for="avatar-input" class="pe-link">{{ t.pf_change_photo }}</label>
+          {% if avatar_file %}<button type="submit" form="remove-avatar-form" class="remove-avatar-btn">{{ t.remove_photo_btn }}</button>{% endif %}
+        </div>
       </div>
 
-      <div class="field">
-        <label>{{ t.phone_label }}</label>
-        <input type="tel" name="phone" value="{{ data.phone }}" placeholder="+998 90 123 45 67" maxlength="20" autocomplete="tel">
+      <div class="pe-card">
+        <div class="field">
+          <label>{{ t.nickname_label }}</label>
+          <input type="text" name="nickname" value="{{ nickname }}" placeholder="@shoh_uz" maxlength="24" autocapitalize="none" autocomplete="off">
+          <p class="hint-text">{{ t.nick_rules }}</p>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label>{{ t.bio_label }} <span class="count" id="bio-count">{{ data.bio|length }}/160</span></label>
+          <textarea name="bio" id="bio" rows="3" maxlength="160" placeholder="{{ t.bio_placeholder }}">{{ data.bio }}</textarea>
+        </div>
       </div>
 
-      <label class="section-title" style="display:block; margin:14px 0 6px;">{{ t.location_label }}</label>
-      <div data-geo data-region="{{ data.region }}" data-district="{{ data.district }}"
-           data-ph-region="{{ t.geo_pick_region }}" data-ph-district="{{ t.geo_pick_district }}">
-        <div class="field geo-country">
-          <select name="country" class="shop-input">
-            <option value="">{{ t.geo_pick_country }}</option>
-            {% for c in countries %}<option value="{{ c.code }}" {% if c.code == data.country %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+      <div class="pe-card">
+        <div class="field">
+          <label>{{ t.phone_label }}</label>
+          <input type="tel" name="phone" value="{{ data.phone }}" placeholder="+998 90 123 45 67" maxlength="20" autocomplete="tel">
+        </div>
+        <label class="pe-sub">{{ t.location_label }}</label>
+        <div data-geo data-region="{{ data.region }}" data-district="{{ data.district }}"
+             data-ph-region="{{ t.geo_pick_region }}" data-ph-district="{{ t.geo_pick_district }}">
+          <div class="field geo-country">
+            <select name="country" class="shop-input">
+              <option value="">{{ t.geo_pick_country }}</option>
+              {% for c in countries %}<option value="{{ c.code }}" {% if c.code == data.country %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field geo-region" hidden><select name="region" class="shop-input"></select></div>
+          <div class="field geo-district" hidden><select name="district" class="shop-input"></select></div>
+        </div>
+      </div>
+
+      {% if creator %}
+      <div class="pe-card">
+        <div class="pe-card-title">{{ icon('grid', 18) }} {{ t.pf_creator_section }}</div>
+        <div class="field">
+          <label>{{ t.pf_creator_cat }}</label>
+          <select name="creator_cat" class="shop-input">
+            <option value="">{{ t.pf_creator_cat_none }}</option>
+            {% for c in creator_cats %}<option value="{{ c }}" {% if c == creator_cat %}selected{% endif %}>{{ t['creator_cat_' ~ c] }}</option>{% endfor %}
           </select>
         </div>
-        <div class="field geo-region" hidden><select name="region" class="shop-input"></select></div>
-        <div class="field geo-district" hidden><select name="district" class="shop-input"></select></div>
+        <div class="field" style="margin-bottom:0;">
+          <label>{{ t.pf_creator_link }}</label>
+          <input type="text" name="creator_link" value="{{ creator_link }}" placeholder="example.com" maxlength="120" autocapitalize="none" autocomplete="off">
+        </div>
       </div>
+      {% endif %}
 
-      <a class="settings-row" href="{{ url_for('store_settings') if store else url_for('store_open') }}" style="margin-top:14px;">
-        <div class="settings-icon-badge">{{ icon('store', 18) }}</div>
+      <a class="settings-row pe-row" href="{{ url_for('store_settings') if store else url_for('store_open') }}">
+        <div class="settings-icon-badge tone-amber">{{ icon('store', 18) }}</div>
         <div class="settings-row-label">{{ t.business_account }}<small>{{ t.business_account_hint }}</small></div>
         <span class="seller-go">{{ icon('chevron', 18) }}</span>
       </a>
 
-      <button type="submit" class="btn-primary" style="margin-top:12px;">{{ t.save }}</button>
+      {% if creator %}
+      <button type="button" class="pe-close" id="creator-close">{{ t.pf_creator_close }}</button>
+      {% endif %}
+
+      <button type="submit" class="btn-primary" style="margin-top:14px;">{{ t.save }}</button>
     </form>
+    <form method="POST" action="{{ url_for('profile_avatar_remove') }}" id="remove-avatar-form" hidden></form>
   </div>
 
   <script src="{{ url_for('static', filename='geo.js') }}"></script>
   <script>
     var bio = document.getElementById("bio");
     bio.addEventListener("input", function () { document.getElementById("bio-count").textContent = bio.value.length + "/160"; });
+
+    // Tanlangan rasmni darrov ko'rsatish
+    document.getElementById("avatar-input").addEventListener("change", function () {
+      var f = this.files && this.files[0];
+      if (!f) return;
+      var img = document.getElementById("ava-preview"), letter = document.getElementById("ava-letter");
+      img.src = URL.createObjectURL(f); img.hidden = false;
+      if (letter) letter.hidden = true;
+    });
+
+    var closeBtn = document.getElementById("creator-close");
+    if (closeBtn) closeBtn.addEventListener("click", async function () {
+      if (!(await window.linkoConfirm({{ t.pf_creator_close_confirm|tojson }}))) return;
+      try {
+        var r = await fetch("/api/creator/close", { method: "POST" });
+        var d = await r.json();
+        if (d.ok) location.href = d.redirect;
+      } catch (e) { alert({{ t.err_network|tojson }}); }
+    });
   </script>
   {% include 'navbar.html' %}
 </body>
