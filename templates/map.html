@@ -5,215 +5,172 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Linko Map</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css">
   <style>
     /* ================================================================
-       Linko Map sahifasi (faqat shu sahifa uchun)
+       Linko Map: kinematik video-sayohat + erkin xarita
        ================================================================ */
     body.map-page {
-      margin: 0;
-      padding: 0 !important;
-      height: 100vh;
-      height: 100dvh;
-      overflow: hidden;
-      background: #01030a !important;
-      color: #e6f2ff;
+      margin: 0; padding: 0 !important;
+      height: 100vh; height: 100dvh; overflow: hidden;
+      background: #000 !important; color: #fff;
     }
-    #stars, #map { position: fixed; top: 0; bottom: 0; left: 0; right: 0; }
-    #stars { z-index: 0; width: 100%; height: 100%; }
-    #map { z-index: 1; background: transparent; }
-    .maplibregl-canvas { outline: none; }
-    .maplibregl-ctrl-attrib { background: rgba(0, 0, 0, .45) !important; color: #9fb4d6; font-size: 10px; }
-    .maplibregl-ctrl-attrib a { color: #bcd2f5; }
-    .maplibregl-popup-content { background: rgba(6, 14, 32, .94); color: #e6f2ff; border: 1px solid rgba(120, 200, 255, .3); border-radius: 12px; padding: 10px 14px; font-size: 13px; }
-    .maplibregl-popup-tip { display: none; }
-    .maplibregl-popup-close-button { color: #9fdcff; font-size: 18px; }
+    .lm-fixed { position: fixed; top: 0; bottom: 0; left: 0; right: 0; }
+
+    /* --- Video sahnalari --- */
+    #stage { z-index: 1; background: #000; overflow: hidden; }
+    .scene { position: absolute; inset: 0; opacity: 0; will-change: opacity; }
+    .scene img, .scene video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .scene video { opacity: 0; transition: opacity .5s; }
+    .scene video.ready { opacity: 1; }
+    #shade {
+      z-index: 2; pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%),
+        linear-gradient(0deg, rgba(0,0,0,.75) 0%, rgba(0,0,0,.15) 45%, rgba(0,0,0,0) 65%);
+    }
+
+    /* --- Scroll qatlami (ko'rinmas, faqat scroll uchun) --- */
+    #story { z-index: 3; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    #story::-webkit-scrollbar { display: none; }
+    #track { width: 1px; }
+
+    /* --- Matn --- */
+    #caption {
+      position: fixed; z-index: 4; left: 0; right: 0; bottom: 0;
+      padding: 0 32px calc(46px + env(safe-area-inset-bottom));
+      pointer-events: none; max-width: 760px;
+    }
+    .cap-tag { font: 600 12px Consolas, "Courier New", monospace; letter-spacing: 3px; color: #9fdcff; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
+    .cap-title { margin: 8px 0 2px; font-size: clamp(34px, 6vw, 72px); font-weight: 800; line-height: 1.02; letter-spacing: -1px; text-shadow: 0 4px 30px rgba(0,0,0,.45); }
+    .cap-stat { font: 700 clamp(22px, 3vw, 34px) Consolas, "Courier New", monospace; background: linear-gradient(90deg, #7dd3fc, #c4b5fd, #f9a8d4); -webkit-background-clip: text; background-clip: text; color: transparent; margin: 6px 0 4px; }
+    .cap-text { margin: 10px 0 0; font-size: clamp(15px, 1.6vw, 19px); line-height: 1.55; color: rgba(255,255,255,.92); max-width: 600px; text-shadow: 0 2px 14px rgba(0,0,0,.7); }
+    .cap-start { pointer-events: auto; margin-top: 18px; display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 22px; border-radius: 14px; border: none; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: #fff; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 10px 30px rgba(59,130,246,.45); }
+    .cap-hint { margin-top: 14px; font-size: 13px; color: rgba(255,255,255,.7); animation: lmBob 1.6s infinite; }
+    @keyframes lmBob { 50% { transform: translateY(6px); } }
+
+    /* --- Asboblar paneli (tezlik / balandlik) --- */
+    #hud {
+      position: fixed; z-index: 4; right: 24px; top: calc(86px + env(safe-area-inset-top));
+      display: flex; gap: 10px; pointer-events: none; opacity: 0; transition: opacity .4s;
+    }
+    #hud.show { opacity: 1; }
+    .hud-box { min-width: 108px; padding: 10px 14px; border-radius: 14px; background: rgba(0,10,25,.45); border: 1px solid rgba(160,220,255,.35); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .hud-box small { display: block; font: 600 10px Consolas, monospace; letter-spacing: 2px; color: #9fdcff; }
+    .hud-box b { font: 700 24px Consolas, "Courier New", monospace; color: #fff; }
+    .hud-box i { font-style: normal; font: 11px Consolas, monospace; color: rgba(255,255,255,.7); margin-left: 4px; }
 
     /* --- Yuqori panel --- */
-    .mp-top {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 8;
+    .lm-top {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 6;
       display: flex; align-items: center; gap: 10px;
-      padding: calc(12px + env(safe-area-inset-top)) 14px 10px;
-      background: linear-gradient(180deg, rgba(1, 3, 10, .75), rgba(1, 3, 10, 0));
-      pointer-events: none;
+      padding: calc(12px + env(safe-area-inset-top)) 16px 10px; pointer-events: none;
     }
-    .mp-top > * { pointer-events: auto; }
-    .mp-back { color: #9fdcff; text-decoration: none; font-size: 22px; padding: 6px 8px; }
-    .mp-title { flex: 1; min-width: 0; }
-    .mp-title h1 {
-      margin: 0; font-size: 18px; font-weight: 800;
-      background: linear-gradient(90deg, #7dd3fc, #a78bfa 60%, #f0abfc);
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-    }
-    .mp-hud { font-family: Consolas, "Courier New", monospace; font-size: 11px; letter-spacing: 2px; color: #78dcff; text-shadow: 0 0 8px rgba(80, 200, 255, .8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .mp-tools { display: flex; gap: 6px; align-items: center; }
-    .mp-btn {
-      height: 36px; min-width: 36px; padding: 0 10px; border-radius: 12px;
-      border: 1px solid rgba(120, 200, 255, .25); background: rgba(6, 12, 30, .6);
+    .lm-top > * { pointer-events: auto; }
+    .lm-back { color: #fff; text-decoration: none; font-size: 22px; padding: 6px 8px; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+    .lm-title { flex: 1; min-width: 0; font-weight: 800; font-size: 18px; text-shadow: 0 1px 10px rgba(0,0,0,.6); }
+    .lm-btn {
+      height: 38px; min-width: 38px; padding: 0 12px; border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.28); background: rgba(10,16,32,.5);
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-      color: #d6eeff; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
-      transition: background .2s, border-color .2s, box-shadow .2s;
+      color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
     }
-    .mp-btn svg { width: 18px; height: 18px; flex: none; }
-    .mp-btn:hover { border-color: rgba(120, 200, 255, .55); }
-    .mp-btn.on { background: rgba(40, 150, 255, .3); border-color: rgba(120, 210, 255, .85); box-shadow: 0 0 14px rgba(70, 180, 255, .45); }
-    .mp-btn.primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); border: none; color: #fff; }
+    .lm-btn svg { width: 18px; height: 18px; flex: none; }
+    .lm-btn.on { background: rgba(59,130,246,.55); border-color: rgba(147,197,253,.9); }
+    .lm-btn.primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); border: none; }
 
-    /* --- Sayohat (scroll) --- */
-    #tour {
-      position: fixed; inset: 0; z-index: 5;
-      overflow-y: auto; overflow-x: hidden;
-      scroll-snap-type: y mandatory;
-      scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
-    }
-    #tour::-webkit-scrollbar { display: none; }
-    .mp-step {
-      height: 100vh; height: 100dvh;
-      scroll-snap-align: start;
-      display: flex; align-items: center;
-      padding: 90px 28px 40px;
-      box-sizing: border-box;
-      pointer-events: none;
-    }
-    .mp-card {
-      pointer-events: auto;
-      width: min(420px, 100%);
-      background: rgba(4, 10, 26, .72);
-      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(120, 200, 255, .2);
-      border-radius: 22px;
-      padding: 20px 22px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
-      opacity: .35; transform: translateY(18px);
-      transition: opacity .6s, transform .6s;
-    }
-    .mp-step.active .mp-card { opacity: 1; transform: none; }
-    .mp-num { font-family: Consolas, monospace; font-size: 11px; letter-spacing: 2px; color: #78dcff; }
-    .mp-card h2 { margin: 6px 0 4px; font-size: 24px; line-height: 1.2; }
-    .mp-stat {
-      font-family: Consolas, monospace; font-size: 30px; font-weight: 700; margin: 6px 0 8px;
-      background: linear-gradient(90deg, #7dd3fc, #c4b5fd);
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-    }
-    .mp-card p { margin: 0 0 14px; font-size: 15px; line-height: 1.55; color: #cfe3ff; }
-    .mp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .mp-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #86efac; margin-bottom: 10px; }
-    .mp-live i { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e; animation: mpPulse 1.4s infinite; }
-    @keyframes mpPulse { 50% { opacity: .3; } }
+    #progress { position: fixed; z-index: 7; top: 0; left: 0; height: 3px; width: 0; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899); }
+    #dots { position: fixed; z-index: 5; right: 14px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 7px; }
+    #dots button { width: 8px; height: 8px; padding: 0; border: none; border-radius: 50%; background: rgba(255,255,255,.35); cursor: pointer; transition: transform .2s, background .2s; }
+    #dots button.on { background: #fff; transform: scale(1.5); }
+    #credit { position: fixed; z-index: 5; right: 12px; bottom: 8px; font-size: 10px; color: rgba(255,255,255,.55); }
+    #credit a { color: inherit; }
 
-    .mp-intro { justify-content: center; text-align: center; }
-    .mp-intro .mp-card { width: min(560px, 100%); text-align: center; opacity: 1; transform: none; }
-    .mp-intro h2 { font-size: clamp(28px, 5vw, 44px); }
-    .mp-intro .mp-actions { justify-content: center; }
-    .mp-scrollhint { margin-top: 14px; font-size: 12px; color: #8ea3c7; animation: mpBob 1.6s infinite; }
-    @keyframes mpBob { 50% { transform: translateY(5px); } }
+    /* --- Erkin xarita --- */
+    #mapwrap { z-index: 8; display: none; background: radial-gradient(circle at 50% 40%, #16305e, #070d1f 75%); }
+    body.explore #mapwrap { display: block; }
+    body.explore #story, body.explore #caption, body.explore #hud, body.explore #dots, body.explore #credit { display: none; }
+    #map { position: absolute; inset: 0; }
+    #mapbar { position: absolute; z-index: 3; left: 14px; right: 14px; top: calc(64px + env(safe-area-inset-top)); display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+    .lm-search { position: relative; z-index: 4; flex: 1 1 240px; max-width: 460px; }
+    .lm-search input { width: 100%; box-sizing: border-box; height: 42px; border-radius: 14px; border: 1px solid rgba(15,23,42,.15); background: rgba(255,255,255,.96); color: #0f172a; padding: 0 14px; font-size: 16px; outline: none; box-shadow: 0 6px 20px rgba(0,0,0,.2); }
+    .lm-results { position: absolute; top: 46px; left: 0; right: 0; background: #fff; color: #0f172a; border-radius: 14px; overflow: hidden; display: none; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .lm-results button { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid #eef2f7; padding: 10px 14px; font: inherit; font-size: 14px; color: inherit; cursor: pointer; }
+    .lm-results button:hover { background: #eff6ff; }
+    .lm-results small { display: block; color: #64748b; font-size: 12px; }
+    .lm-mapbtns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .lm-mapbtns .lm-btn { height: 42px; background: rgba(255,255,255,.96); color: #0f172a; border-color: rgba(15,23,42,.12); box-shadow: 0 6px 20px rgba(0,0,0,.18); backdrop-filter: none; }
+    .lm-mapbtns .lm-btn.on { background: #2563eb; color: #fff; }
+    .me-dot { width: 16px; height: 16px; border-radius: 50%; background: #2563eb; border: 3px solid #fff; animation: meRing 1.8s infinite; }
+    @keyframes meRing { 0% { box-shadow: 0 0 0 0 rgba(37,99,235,.5); } 100% { box-shadow: 0 0 0 22px rgba(37,99,235,0); } }
 
-    /* Progress */
-    #mp-progress { position: fixed; z-index: 9; top: 0; left: 0; height: 3px; width: 0; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899); transition: width .4s; }
-    #mp-dots { position: fixed; z-index: 7; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 6px; }
-    #mp-dots button { width: 8px; height: 8px; padding: 0; border-radius: 50%; border: none; background: rgba(160, 200, 255, .3); cursor: pointer; }
-    #mp-dots button.on { background: #7dd3fc; box-shadow: 0 0 8px #7dd3fc; transform: scale(1.4); }
+    #toast { position: fixed; z-index: 20; left: 50%; bottom: 34px; transform: translateX(-50%); max-width: min(92vw, 420px); padding: 10px 16px; border-radius: 14px; background: rgba(10,20,44,.94); color: #fff; font-size: 13.5px; text-align: center; opacity: 0; pointer-events: none; transition: opacity .25s; }
+    #toast.show { opacity: 1; }
+    #fade { z-index: 9; background: #000; opacity: 0; pointer-events: none; transition: opacity .6s; }
+    #fade.on { opacity: 1; }
 
-    /* --- Erkin xarita paneli --- */
-    #explore-bar {
-      position: fixed; z-index: 8; left: 14px; right: 14px;
-      top: calc(64px + env(safe-area-inset-top));
-      display: none; flex-wrap: wrap; gap: 8px; align-items: flex-start;
-    }
-    body.explore #explore-bar { display: flex; }
-    body.explore #tour, body.explore #mp-dots { display: none; }
-    .mp-search { position: relative; z-index: 3; flex: 1 1 260px; max-width: 460px; }
-    .mp-search input {
-      width: 100%; box-sizing: border-box; height: 40px; border-radius: 14px;
-      border: 1px solid rgba(120, 200, 255, .3); background: rgba(6, 12, 30, .8);
-      backdrop-filter: blur(10px); color: #fff; padding: 0 14px; font-size: 16px; outline: none;
-    }
-    .mp-results { position: absolute; top: 44px; left: 0; right: 0; background: rgba(6, 12, 30, .96); border: 1px solid rgba(120, 200, 255, .25); border-radius: 14px; overflow: hidden; display: none; }
-    .mp-results button { display: block; width: 100%; text-align: left; background: none; border: none; color: #e6f2ff; padding: 10px 14px; font: inherit; font-size: 14px; cursor: pointer; border-bottom: 1px solid rgba(120, 200, 255, .08); }
-    .mp-results button:hover { background: rgba(60, 130, 246, .2); }
-    .mp-results small { display: block; color: #8ea3c7; font-size: 12px; }
-    .mp-btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
-    .mp-btn.tall { height: 40px; }
-
-    #mp-toast {
-      position: fixed; z-index: 20; left: 50%; bottom: 110px; transform: translateX(-50%);
-      max-width: min(92vw, 420px); padding: 10px 16px; border-radius: 14px;
-      background: rgba(10, 20, 44, .94); border: 1px solid rgba(120, 200, 255, .35);
-      color: #dff4ff; font-size: 13.5px; text-align: center; opacity: 0; pointer-events: none; transition: opacity .25s;
-    }
-    #mp-toast.show { opacity: 1; }
-
-    /* Joylashuvim nuqtasi va kosmik stansiya belgisi */
-    .me-dot { width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; border: 3px solid #fff; box-shadow: 0 0 0 0 rgba(59, 130, 246, .6); animation: meRing 1.8s infinite; }
-    @keyframes meRing { to { box-shadow: 0 0 0 22px rgba(59, 130, 246, 0); } }
-    .sat-label { font-family: Consolas, monospace; font-size: 11px; color: #ffe08a; text-shadow: 0 0 6px #000, 0 0 10px rgba(255, 200, 80, .8); white-space: nowrap; pointer-events: none; transform: translate(14px, -14px); }
-    .sat-label b { font-size: 14px; }
-
-    /* Telefon: kartochka pastda, pastki menyu yashiriladi */
     @media (max-width: 899px) {
       body.map-page .bottom-nav { display: none; }
-      .mp-step { align-items: flex-end; padding: 80px 12px calc(18px + env(safe-area-inset-bottom)); }
-      .mp-intro { align-items: center; }
-      .mp-card { padding: 16px 18px; border-radius: 20px; }
-      .mp-card h2 { font-size: 20px; }
-      .mp-stat { font-size: 24px; margin: 2px 0 6px; }
-      .mp-card p { font-size: 14px; }
-      #mp-dots { display: none; }
-      .mp-tools .mp-btn .lbl, .mp-btnrow .mp-btn .lbl { display: none; }
-      #mp-toast { bottom: 30px; }
+      #caption { padding: 0 20px calc(30px + env(safe-area-inset-bottom)); }
+      #hud { right: 12px; left: 12px; justify-content: flex-end; top: calc(64px + env(safe-area-inset-top)); }
+      .hud-box { min-width: 0; padding: 8px 10px; }
+      .hud-box b { font-size: 18px; }
+      #dots { display: none; }
+      .lm-top .lm-btn .lbl, .lm-mapbtns .lbl { display: none; }
     }
-    /* Kompyuter: chapda Linko menyusi */
     @media (min-width: 900px) {
-      #map, #stars, #tour, .mp-top, #mp-progress { left: 236px; }
-      #explore-bar { left: 250px; }
-      .mp-step { padding-left: 48px; }
-      #mp-toast { left: calc(50% + 118px); }
+      .lm-fixed, .lm-top, #caption, #progress { left: 236px; }
+      #caption { padding-left: 56px; }
     }
   </style>
 </head>
 <body class="map-page">
-  <canvas id="stars" aria-hidden="true"></canvas>
-  <div id="map"></div>
-  <div id="mp-progress"></div>
+  <div id="stage" class="lm-fixed"></div>
+  <div id="shade" class="lm-fixed"></div>
+  <div id="progress"></div>
 
-  <header class="mp-top">
-    <a href="{{ url_for('dashboard') }}" class="mp-back" aria-label="Back">←</a>
-    <div class="mp-title">
-      <h1>Linko Map</h1>
-      <div class="mp-hud" id="mp-hud">GLOBAL VIEW</div>
-    </div>
-    <div class="mp-tools">
-      <button type="button" class="mp-btn" id="voice-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>
-      </button>
-      <button type="button" class="mp-btn" id="mode-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/><path d="M8 2v16M16 6v16"/></svg>
-        <span class="lbl" id="mode-lbl"></span>
-      </button>
-    </div>
-  </header>
+  <div id="story" class="lm-fixed"><div id="track"></div></div>
 
-  <div id="explore-bar">
-    <div class="mp-search">
-      <input type="search" id="search-input" autocomplete="off" enterkeyhint="search">
-      <div class="mp-results" id="search-results"></div>
-    </div>
-    <div class="mp-btnrow">
-      <button type="button" class="mp-btn tall" id="locate-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span class="lbl" data-t="locate"></span>
-      </button>
-      <button type="button" class="mp-btn tall" id="planes-btn">✈️ <span class="lbl" data-t="planes"></span></button>
-      <button type="button" class="mp-btn tall" id="sats-btn">🛰️ <span class="lbl" data-t="sats"></span></button>
-      <button type="button" class="mp-btn tall" id="style-btn">🗺️ <span class="lbl" id="style-lbl"></span></button>
-      <button type="button" class="mp-btn tall" id="tilt-btn">3D</button>
-    </div>
+  <div id="caption">
+    <div class="cap-tag" id="cap-tag"></div>
+    <div class="cap-title" id="cap-title"></div>
+    <div class="cap-stat" id="cap-stat"></div>
+    <p class="cap-text" id="cap-text"></p>
+    <div id="cap-extra"></div>
   </div>
 
-  <div id="tour"></div>
-  <nav id="mp-dots" aria-hidden="true"></nav>
-  <div id="mp-toast" role="status"></div>
+  <div id="hud">
+    <div class="hud-box"><small>SPEED</small><b id="hud-spd">0</b><i id="hud-spd-u">kt</i></div>
+    <div class="hud-box"><small>ALTITUDE</small><b id="hud-alt">0</b><i id="hud-alt-u">ft</i></div>
+  </div>
+
+  <nav id="dots" aria-hidden="true"></nav>
+  <div id="credit">Video: <a href="https://www.pexels.com" target="_blank" rel="noopener">Pexels</a></div>
+
+  <div id="mapwrap" class="lm-fixed">
+    <div id="map"></div>
+    <div id="mapbar">
+      <div class="lm-search">
+        <input type="search" id="search-input" autocomplete="off" enterkeyhint="search">
+        <div class="lm-results" id="search-results"></div>
+      </div>
+      <div class="lm-mapbtns">
+        <button type="button" class="lm-btn" id="locate-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span class="lbl" data-t="locate"></span></button>
+        <button type="button" class="lm-btn" id="style-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><span class="lbl" id="style-lbl"></span></button>
+        <button type="button" class="lm-btn" id="tilt-btn">3D</button>
+      </div>
+    </div>
+  </div>
+  <div id="fade" class="lm-fixed"></div>
+
+  <header class="lm-top">
+    <a href="{{ url_for('dashboard') }}" class="lm-back" aria-label="Back">←</a>
+    <div class="lm-title">Linko Map</div>
+    <button type="button" class="lm-btn" id="voice-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg></button>
+    <button type="button" class="lm-btn" id="mode-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/><path d="M8 2v16M16 6v16"/></svg><span class="lbl" id="mode-lbl"></span></button>
+  </header>
+
+  <div id="toast" role="status"></div>
 
   {% include 'navbar.html' %}
 
@@ -221,10 +178,10 @@
     window.LINKO_MAP = {
       lang: {{ lang|tojson }},
       maptilerKey: {{ maptiler_key|tojson }},
+      mediaBase: {{ media_base|tojson }},
       startMode: {{ start_mode|tojson }}
     };
   </script>
-  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
   <script src="{{ url_for('static', filename='map_tour.js') }}"></script>
   <script src="{{ url_for('static', filename='map.js') }}"></script>
 </body>

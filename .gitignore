@@ -9,3 +9,7 @@ linko.db
 # Python keshlari
 __pycache__/
 *.pyc
+
+# Linko Map videolari (Cloudflare uchun, GitHubga yuklanmaydi)
+linko-media/
+*.mp4

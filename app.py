@@ -55,6 +55,8 @@ GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or _local_key("GEMINI_API_KEY
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or _local_key("GEMINI_MODEL") or "gemini-flash-latest"
 # Linko Map: MapTiler kaliti (ixtiyoriy). Bo'lmasa, bepul ochiq xarita manbalari ishlatiladi.
 MAPTILER_KEY = (os.environ.get("MAPTILER_KEY") or _local_key("MAPTILER_KEY")).strip()
+# Linko Map videolari: Cloudflare manzili (masalan https://linko-media.pages.dev). Bo'sh bo'lsa, Pexels'dan olinadi.
+MEDIA_BASE = (os.environ.get("MEDIA_BASE") or _local_key("MEDIA_BASE")).strip().rstrip("/")
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
@@ -6096,7 +6098,7 @@ def api_ai_send():
         return jsonify({"error": "ai_error", "message": f"AI bilan bog'lanishda xato: {str(e)[:200]}"}), 502
 
 
-# ---------- Linko Map: 3D xarita, jonli samolyotlar, sun'iy yo'ldoshlar ----------
+# ---------- Linko Map: kinematik sayohat va erkin xarita (joy qidirish) ----------
 _map_cache = {}
 _nominatim_last = [0.0]
 MAP_UA = "LinkoApp/1.0 (+https://linkoo.onrender.com)"
@@ -6129,112 +6131,12 @@ def map_page():
     return render_template(
         "map.html",
         maptiler_key=MAPTILER_KEY,
+        media_base=MEDIA_BASE,
         start_mode="explore" if request.args.get("mode") == "explore" else "tour",
         username=session["username"],
         avatar_letter=session["avatar_letter"],
         active="map",
     )
-
-
-@app.route("/api/map/planes")
-def api_map_planes():
-    """Berilgan nuqta atrofidagi samolyotlar (adsb.lol, bo'lmasa OpenSky). 8 soniya keshlanadi."""
-    if "user_id" not in session:
-        return jsonify({"error": "kirish kerak"}), 401
-    try:
-        lat = max(-85.0, min(85.0, float(request.args.get("lat", 0))))
-        lon = max(-180.0, min(180.0, float(request.args.get("lon", 0))))
-        dist = max(10, min(250, int(float(request.args.get("dist", 100)))))
-    except ValueError:
-        return jsonify({"error": "bad_params"}), 400
-
-    key = f"pl:{lat:.1f}:{lon:.1f}:{dist}"
-    cached = _map_cache_get(key, 8)
-    if cached is not None:
-        return jsonify({"ac": cached})
-
-    planes = None
-    try:
-        data = _http_json(f"https://api.adsb.lol/v2/point/{lat:.3f}/{lon:.3f}/{dist}", timeout=12)
-        planes = []
-        for a in data.get("ac") or []:
-            if a.get("lat") is None or a.get("lon") is None:
-                continue
-            alt = a.get("alt_baro")
-            ground = alt == "ground"
-            planes.append({
-                "h": a.get("hex", ""), "c": (a.get("flight") or "").strip(), "ty": a.get("t") or "",
-                "la": a["lat"], "lo": a["lon"], "al": 0 if ground else (alt or a.get("alt_geom") or 0),
-                "gs": a.get("gs") or 0, "tr": a.get("track") or a.get("true_heading") or 0, "g": ground,
-            })
-    except Exception as e:
-        app.logger.warning("Map planes (adsb.lol): %s", e)
-
-    if planes is None:
-        try:
-            dlat = dist * 1.852 / 111.0
-            dlon = dlat / max(0.2, abs(math.cos(math.radians(lat))))
-            q = urllib.parse.urlencode({"lamin": lat - dlat, "lamax": lat + dlat, "lomin": lon - dlon, "lomax": lon + dlon})
-            data = _http_json("https://opensky-network.org/api/states/all?" + q, timeout=12)
-            planes = []
-            for s in data.get("states") or []:
-                if s[5] is None or s[6] is None:
-                    continue
-                planes.append({
-                    "h": s[0], "c": (s[1] or "").strip(), "ty": "", "la": s[6], "lo": s[5],
-                    "al": round((s[7] or 0) / 0.3048), "gs": round((s[9] or 0) * 1.94384),
-                    "tr": s[10] or 0, "g": bool(s[8]),
-                })
-        except Exception as e:
-            app.logger.warning("Map planes (OpenSky): %s", e)
-
-    if planes is None:
-        return jsonify({"error": "unavailable"}), 503
-    planes = planes[:400]
-    _map_cache_set(key, planes)
-    return jsonify({"ac": planes})
-
-
-@app.route("/api/map/sats")
-def api_map_sats():
-    """CelesTrak orbita ma'lumotlari (stansiyalar, yorqin yo'ldoshlar, GPS, Starlink). 6 soat keshlanadi."""
-    if "user_id" not in session:
-        return jsonify({"error": "kirish kerak"}), 401
-    cached = _map_cache_get("sats", 6 * 3600)
-    if cached is not None:
-        return jsonify({"sats": cached})
-
-    groups = [("stations", "stations", None), ("visual", "visual", None), ("gps-ops", "gps", None), ("starlink", "starlink", 500)]
-    out, seen = [], set()
-    for group, label, limit in groups:
-        try:
-            data = _http_json(f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=json", timeout=25)
-        except Exception as e:
-            app.logger.warning("Map sats (%s): %s", group, e)
-            continue
-        if limit and len(data) > limit:
-            step = len(data) / limit
-            data = [data[int(i * step)] for i in range(limit)]
-        for o in data:
-            nid = o.get("NORAD_CAT_ID")
-            if nid in seen:
-                continue
-            seen.add(nid)
-            try:
-                out.append({
-                    "n": o["OBJECT_NAME"], "g": label, "ep": o["EPOCH"], "mm": o["MEAN_MOTION"], "e": o["ECCENTRICITY"],
-                    "i": o["INCLINATION"], "ra": o["RA_OF_ASC_NODE"], "ap": o["ARG_OF_PERICENTER"], "ma": o["MEAN_ANOMALY"],
-                })
-            except KeyError:
-                continue
-
-    if not out:
-        stale = _map_cache.get("sats")
-        if stale:
-            return jsonify({"sats": stale[1]})
-        return jsonify({"error": "unavailable"}), 503
-    _map_cache_set("sats", out)
-    return jsonify({"sats": out})
 
 
 @app.route("/api/map/search")

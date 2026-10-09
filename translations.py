@@ -727,10 +727,10 @@ TRANSLATIONS = {
         "dash_ai_sub": "Yozing yoki gapiring: savol bering, tarjima qiling, g'oya so'rang",
         "dash_ai_cta": "Gaplashish",
         "dash_map_title": "Linko Map",
-        "dash_map_sub": "Everestdan Xitoy va Buxorogacha 3D sayohat, jonli samolyotlar va sun'iy yo'ldoshlar",
+        "dash_map_sub": "Samolyotda uchib, Everest, Xitoy devori va kosmosgacha: haqiqiy videolarda sayohat",
         "dash_map_cta": "Sayohatni boshlash",
         "dash_map_free": "Xarita",
-        "dash_quick": "Tezkor kirish",
+        "dash_quick": "Linko bo'limlari",
     },
 
     "ru": {
@@ -1436,10 +1436,10 @@ TRANSLATIONS = {
         "dash_ai_sub": "Пишите или говорите: задавайте вопросы, переводите, ищите идеи",
         "dash_ai_cta": "Поговорить",
         "dash_map_title": "Linko Map",
-        "dash_map_sub": "3D-путешествие от Эвереста до Китая и Бухары, самолёты и спутники онлайн",
+        "dash_map_sub": "Полёт на самолёте до Эвереста, Великой стены и космоса — в настоящих видео",
         "dash_map_cta": "Начать путешествие",
         "dash_map_free": "Карта",
-        "dash_quick": "Быстрый доступ",
+        "dash_quick": "Разделы Linko",
     },
 
     "zh": {
@@ -2145,10 +2145,10 @@ TRANSLATIONS = {
         "dash_ai_sub": "打字或语音：提问、翻译、寻找灵感",
         "dash_ai_cta": "开始对话",
         "dash_map_title": "Linko Map",
-        "dash_map_sub": "从珠峰到中国和布哈拉的3D之旅，实时航班与卫星",
+        "dash_map_sub": "乘飞机飞越珠峰、长城直至太空——真实视频之旅",
         "dash_map_cta": "开始旅程",
         "dash_map_free": "地图",
-        "dash_quick": "快速入口",
+        "dash_quick": "Linko 功能",
     },
 
     "en": {
@@ -2854,9 +2854,9 @@ TRANSLATIONS = {
         "dash_ai_sub": "Type or talk: ask questions, translate, get ideas",
         "dash_ai_cta": "Start talking",
         "dash_map_title": "Linko Map",
-        "dash_map_sub": "A 3D journey from Everest to China and Bukhara, with live planes and satellites",
+        "dash_map_sub": "Fly from takeoff to Everest, the Great Wall and space, in real video",
         "dash_map_cta": "Start the journey",
         "dash_map_free": "Map",
-        "dash_quick": "Quick access",
+        "dash_quick": "Explore Linko",
     },
 }
