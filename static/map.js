@@ -15,10 +15,14 @@
                (navigator.deviceMemory || 8) <= 4 ||
                (navigator.hardwareConcurrency || 8) <= 4;
   const CONN = navigator.connection || {};
-  const SLOW = !!CONN.saveData || /(^|-)2g|3g/.test(CONN.effectiveType || "");
+  const SLOW = !!CONN.saveData || /(^|-)2g|3g/.test(CONN.effectiveType || "") || (CONN.downlink > 0 && CONN.downlink < 3);
+  const PHONE = matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 700;
   const REDUCED = document.documentElement.classList.contains("reduce-motion");
-  // Video sifati: katta ekranli kuchli kompyuterda 1280, qolganlarida 960
-  const Q = (!LITE && !SLOW && window.innerWidth * (window.devicePixelRatio || 1) > 1300) ? 1280 : 960;
+  // Video sifati: telefon yoki sekin internet -> 640 (tez yuklanadi),
+  // telefon + juda tez internet -> 960, noutbuk -> 960, kuchli katta ekran -> 1280
+  const Q = SLOW ? 640
+          : PHONE ? (CONN.downlink >= 10 ? 960 : 640)
+          : (!LITE && window.innerWidth * (window.devicePixelRatio || 1) > 1300) ? 1280 : 960;
 
   const I18N = {
     uz: { start: "Sayohatni boshlash", hint: "↓ pastga aylantiring", toMap: "Xarita", toStory: "Sayohat",
@@ -59,11 +63,11 @@
   // MEDIA_BASE (Cloudflare) berilsa, videolar o'sha yerdan; bo'lmasa to'g'ridan-to'g'ri Pexels'dan
   function videoUrl(s) {
     if (CFG.mediaBase) return CFG.mediaBase.replace(/\/$/, "") + "/" + s.id + "_" + Q + ".mp4";
-    return "https://videos.pexels.com/video-files/" + s.pexels[Q];
+    return "https://videos.pexels.com/video-files/" + (s.pexels[Q] || s.pexels[960]);
   }
   function posterUrl(s) {
     if (CFG.mediaBase) return CFG.mediaBase.replace(/\/$/, "") + "/" + s.id + ".jpg";
-    return s.poster + "?auto=compress&cs=tinysrgb&w=" + (Q === 1280 ? 1280 : 960);
+    return s.poster + "?auto=compress&cs=tinysrgb&w=" + (Q === 1280 ? 1280 : Q === 960 ? 960 : 720);
   }
 
   /* ================= SAHNALAR ================= */
@@ -79,7 +83,9 @@
     const v = document.createElement("video");
     v.muted = true; v.playsInline = true; v.preload = "none";
     v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
-    v.addEventListener("loadeddata", () => v.classList.add("ready"));
+    v.addEventListener("loadeddata", () => { v.classList.add("ready"); el.classList.remove("wait"); });
+    v.addEventListener("waiting", () => el.classList.add("wait"));
+    v.addEventListener("canplay", () => el.classList.remove("wait"));
     el.append(img, v);
     stage.append(el);
     return { s, el, img, v, loaded: false, cur: s.from, start: 0, end: 0 };
@@ -94,6 +100,8 @@
     track.style.height = (total + VH) + "px";
   }
   measure();
+  // Sahifa ochilishi bilan birinchi uchta video yuklana boshlaydi
+  scenes.slice(0, 3).forEach((sc) => load(sc, true));
   window.addEventListener("resize", () => { const r = storyEl.scrollTop / Math.max(1, total); measure(); storyEl.scrollTop = r * total; });
 
   function load(sc, auto) {
@@ -218,9 +226,9 @@
       dotBtns.forEach((b, k) => b.classList.toggle("on", k === i));
       // Yaqin sahnalarni yuklash, uzoqdagilarni bo'shatish (xotira tejaladi)
       scenes.forEach((sc, k) => {
-        if (k === i || k === i + 1) load(sc, true);
-        else if (k === i + 2 || k === i - 1) load(sc, false);
-        else if (Math.abs(k - i) > 2) unload(sc);
+        if (k >= i - 1 && k <= i + 2) load(sc, true);       // oldindan yuklab qo'yiladi
+        else if (k === i + 3) load(sc, false);
+        else if (k < i - 2 || k > i + 3) unload(sc);
       });
       if (i < scenes.length) {
         const s = scenes[i].s;
@@ -237,6 +245,7 @@
       else if (k === i + 1) op = smooth(0.82, 1, (y - scenes[i].start) / (scenes[i].end - scenes[i].start)); // keyingisi asta paydo bo'ladi
       if (i >= scenes.length && k === scenes.length - 1) op = 1;
       sc.el.style.opacity = op;
+      if (op > 0.5 && sc.loaded && sc.v.readyState < 2) sc.el.classList.add("wait");
       sc.el.style.zIndex = k === i + 1 ? 2 : 1;
 
       const v = sc.v;
