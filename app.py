@@ -8,6 +8,7 @@ import json
 import urllib.request
 import urllib.parse
 import time
+import math
 import os
 import re
 from datetime import datetime, timedelta
@@ -52,7 +53,8 @@ def _local_key(name):
 # kompyuterda esa local_keys.py fayliga yoziladi.
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or _local_key("GEMINI_API_KEY")).strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or _local_key("GEMINI_MODEL") or "gemini-flash-latest"
-GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+# Linko Map: MapTiler kaliti (ixtiyoriy). Bo'lmasa, bepul ochiq xarita manbalari ishlatiladi.
+MAPTILER_KEY = (os.environ.get("MAPTILER_KEY") or _local_key("MAPTILER_KEY")).strip()
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
@@ -1575,6 +1577,8 @@ def mobile_no_zoom(resp):
                 body = body.replace("</body>", NO_ZOOM_JS + "</body>", 1)
             if "rel=\"icon\"" not in body and "</head>" in body:
                 body = body.replace("</head>", BRAND_HEAD + "</head>", 1)
+            if "lk-splash" not in body and "</head>" in body:
+                body = body.replace("</head>", SPLASH_HEAD + "</head>", 1)
             resp.set_data(body)
     except Exception:
         pass
@@ -1592,6 +1596,36 @@ BRAND_HEAD = (
     'document.documentElement.setAttribute("data-theme",m==="light"?"light":"dark");}catch(e){}})();</script>'
     '<script src="/static/theme.js" defer></script>'
 )
+
+# Saytga kirganda Linko logotipi animatsiyasi (har brauzer seansida bir marta)
+SPLASH_HEAD = """<style>
+html.lk-splashing body{visibility:hidden}
+#lk-splash{position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+background:radial-gradient(circle at 50% 45%,#141c42 0%,#05060f 70%);transition:opacity .6s ease,transform .6s ease}
+#lk-splash.out{opacity:0;transform:scale(1.05);pointer-events:none}
+#lk-splash svg{width:168px;height:168px;filter:drop-shadow(0 0 26px rgba(139,92,246,.55))}
+#lk-splash .lk-ring{stroke-dasharray:0 754;animation:lkRing 1.1s cubic-bezier(.65,0,.25,1) .15s forwards}
+@keyframes lkRing{to{stroke-dasharray:560 194}}
+#lk-splash .lk-dot{transform-box:view-box;transform-origin:342px 170px;transform:scale(0);animation:lkDot .5s cubic-bezier(.3,1.7,.5,1) 1.05s forwards}
+@keyframes lkDot{to{transform:scale(1)}}
+#lk-splash .lk-word{font:800 46px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.5px;
+background:linear-gradient(90deg,#818cf8,#c084fc 55%,#f0abfc);-webkit-background-clip:text;background-clip:text;color:transparent;
+opacity:0;transform:translateY(12px);animation:lkWord .6s ease 1.15s forwards}
+#lk-splash .lk-sub{font:600 11px Consolas,"Courier New",monospace;letter-spacing:4px;color:#7dd3fc;opacity:0;animation:lkWord .6s ease 1.4s forwards}
+@keyframes lkWord{to{opacity:1;transform:none}}
+</style>
+<script>(function(){
+try{if(sessionStorage.getItem("lk_splash"))return;sessionStorage.setItem("lk_splash","1");}catch(e){return;}
+if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+var d=document.documentElement;d.classList.add("lk-splashing");
+var el=document.createElement("div");el.id="lk-splash";
+el.innerHTML='<svg viewBox="0 0 512 512"><defs><linearGradient id="lkg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset=".55" stop-color="#8b5cf6"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs>'+
+'<circle class="lk-ring" cx="256" cy="256" r="120" fill="none" stroke="url(#lkg)" stroke-width="46" stroke-linecap="round" transform="rotate(-3.5 256 256)"/>'+
+'<circle class="lk-dot" cx="342" cy="170" r="34" fill="#fff"/></svg><div class="lk-word">Linko</div><div class="lk-sub">CONNECT · EXPLORE · CREATE</div>';
+d.appendChild(el);
+setTimeout(function(){el.classList.add("out");d.classList.remove("lk-splashing");},2100);
+setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},2800);
+})();</script>"""
 
 
 @app.route("/manifest.webmanifest")
@@ -1710,7 +1744,6 @@ def dashboard():
         (me,),
     ).fetchone()["c"]
 
-    recent_chats = get_conversations(conn, me, limit=4)
     feed_new = feed_new_counts(conn, me)
     conn.close()
 
@@ -1722,7 +1755,6 @@ def dashboard():
         avatar_file=session.get("avatar_file"),
         display_name=session.get("nickname") or me,
         pending_count=pending_count,
-        recent_chats=recent_chats,
         active="home",
     )
 
@@ -5942,8 +5974,14 @@ def _ai_rate_ok(user_id):
     return True
 
 
-def _ask_gemini(messages, system, model=None):
-    model = model or GEMINI_MODEL
+class _GeminiSkip(Exception):
+    """Bu model hozir ishlamadi -> keyingi modelga o'tiladi."""
+    def __init__(self, msg, limit=False):
+        super().__init__(msg)
+        self.limit = limit
+
+
+def _gemini_once(messages, system, model):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:generateContent"
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
@@ -5951,7 +5989,7 @@ def _ask_gemini(messages, system, model=None):
             {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
             for m in messages
         ],
-        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.8},
+        "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.8},
     }
     req = urllib.request.Request(
         url,
@@ -5960,7 +5998,7 @@ def _ask_gemini(messages, system, model=None):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=45) as r:
+        with urllib.request.urlopen(req, timeout=30) as r:
             data = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = ""
@@ -5968,19 +6006,45 @@ def _ask_gemini(messages, system, model=None):
             detail = e.read().decode("utf-8", "ignore")[:300]
         except Exception:
             pass
-        if e.code == 429:
-            raise AILimitError()
-        if e.code == 404 and model != GEMINI_FALLBACK_MODEL:
-            return _ask_gemini(messages, system, GEMINI_FALLBACK_MODEL)
-        raise RuntimeError(f"Gemini {e.code}: {detail}")
+        if e.code in (401, 403):
+            # Kalit noto'g'ri: boshqa model ham yordam bermaydi
+            raise RuntimeError(f"Gemini {e.code} (kalit): {detail}")
+        raise _GeminiSkip(f"{model}: HTTP {e.code} {detail}", limit=(e.code == 429))
+    except Exception as e:  # tarmoq / timeout
+        raise _GeminiSkip(f"{model}: {type(e).__name__} {e}")
+
     candidates = data.get("candidates") or []
     if not candidates:
-        raise RuntimeError("Gemini bo'sh javob qaytardi: " + json.dumps(data)[:200])
+        raise _GeminiSkip(f"{model}: bo'sh javob " + json.dumps(data)[:200])
     parts = (candidates[0].get("content") or {}).get("parts") or []
-    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
-    if not text.strip():
-        raise RuntimeError("Gemini matn qaytarmadi")
-    return text.strip()
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+    if not text:
+        raise _GeminiSkip(f"{model}: matn yo'q (finishReason={candidates[0].get('finishReason')})")
+    return text
+
+
+def _ask_gemini(messages, system):
+    """Bir nechta bepul modelni navbat bilan sinaydi: biri band yoki limitda bo'lsa, keyingisi javob beradi."""
+    chain = []
+    for m in (GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"):
+        if m and m not in chain:
+            chain.append(m)
+    errors, all_limit = [], True
+    for model in chain:
+        for attempt in range(2):
+            try:
+                return _gemini_once(messages, system, model)
+            except _GeminiSkip as e:
+                errors.append(str(e))
+                app.logger.warning("Linko AI: %s", e)
+                if e.limit:
+                    break          # bu model limitda -> darhol keyingi modelga
+                all_limit = False
+                if attempt == 0:
+                    time.sleep(0.8)
+    if all_limit:
+        raise AILimitError()
+    raise RuntimeError(" | ".join(errors)[-400:])
 
 
 def _ask_anthropic(messages, system):
@@ -6030,6 +6094,190 @@ def api_ai_send():
     except Exception as e:
         app.logger.warning("Linko AI xatosi: %s", e)
         return jsonify({"error": "ai_error", "message": f"AI bilan bog'lanishda xato: {str(e)[:200]}"}), 502
+
+
+# ---------- Linko Map: 3D xarita, jonli samolyotlar, sun'iy yo'ldoshlar ----------
+_map_cache = {}
+_nominatim_last = [0.0]
+MAP_UA = "LinkoApp/1.0 (+https://linkoo.onrender.com)"
+
+
+def _map_cache_get(key, ttl):
+    item = _map_cache.get(key)
+    if item and time.time() - item[0] < ttl:
+        return item[1]
+    return None
+
+
+def _map_cache_set(key, value):
+    if len(_map_cache) > 600:
+        for k in sorted(_map_cache, key=lambda k: _map_cache[k][0])[:200]:
+            _map_cache.pop(k, None)
+    _map_cache[key] = (time.time(), value)
+
+
+def _http_json(url, timeout=15):
+    req = urllib.request.Request(url, headers={"User-Agent": MAP_UA, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+@app.route("/map")
+def map_page():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    return render_template(
+        "map.html",
+        maptiler_key=MAPTILER_KEY,
+        start_mode="explore" if request.args.get("mode") == "explore" else "tour",
+        username=session["username"],
+        avatar_letter=session["avatar_letter"],
+        active="map",
+    )
+
+
+@app.route("/api/map/planes")
+def api_map_planes():
+    """Berilgan nuqta atrofidagi samolyotlar (adsb.lol, bo'lmasa OpenSky). 8 soniya keshlanadi."""
+    if "user_id" not in session:
+        return jsonify({"error": "kirish kerak"}), 401
+    try:
+        lat = max(-85.0, min(85.0, float(request.args.get("lat", 0))))
+        lon = max(-180.0, min(180.0, float(request.args.get("lon", 0))))
+        dist = max(10, min(250, int(float(request.args.get("dist", 100)))))
+    except ValueError:
+        return jsonify({"error": "bad_params"}), 400
+
+    key = f"pl:{lat:.1f}:{lon:.1f}:{dist}"
+    cached = _map_cache_get(key, 8)
+    if cached is not None:
+        return jsonify({"ac": cached})
+
+    planes = None
+    try:
+        data = _http_json(f"https://api.adsb.lol/v2/point/{lat:.3f}/{lon:.3f}/{dist}", timeout=12)
+        planes = []
+        for a in data.get("ac") or []:
+            if a.get("lat") is None or a.get("lon") is None:
+                continue
+            alt = a.get("alt_baro")
+            ground = alt == "ground"
+            planes.append({
+                "h": a.get("hex", ""), "c": (a.get("flight") or "").strip(), "ty": a.get("t") or "",
+                "la": a["lat"], "lo": a["lon"], "al": 0 if ground else (alt or a.get("alt_geom") or 0),
+                "gs": a.get("gs") or 0, "tr": a.get("track") or a.get("true_heading") or 0, "g": ground,
+            })
+    except Exception as e:
+        app.logger.warning("Map planes (adsb.lol): %s", e)
+
+    if planes is None:
+        try:
+            dlat = dist * 1.852 / 111.0
+            dlon = dlat / max(0.2, abs(math.cos(math.radians(lat))))
+            q = urllib.parse.urlencode({"lamin": lat - dlat, "lamax": lat + dlat, "lomin": lon - dlon, "lomax": lon + dlon})
+            data = _http_json("https://opensky-network.org/api/states/all?" + q, timeout=12)
+            planes = []
+            for s in data.get("states") or []:
+                if s[5] is None or s[6] is None:
+                    continue
+                planes.append({
+                    "h": s[0], "c": (s[1] or "").strip(), "ty": "", "la": s[6], "lo": s[5],
+                    "al": round((s[7] or 0) / 0.3048), "gs": round((s[9] or 0) * 1.94384),
+                    "tr": s[10] or 0, "g": bool(s[8]),
+                })
+        except Exception as e:
+            app.logger.warning("Map planes (OpenSky): %s", e)
+
+    if planes is None:
+        return jsonify({"error": "unavailable"}), 503
+    planes = planes[:400]
+    _map_cache_set(key, planes)
+    return jsonify({"ac": planes})
+
+
+@app.route("/api/map/sats")
+def api_map_sats():
+    """CelesTrak orbita ma'lumotlari (stansiyalar, yorqin yo'ldoshlar, GPS, Starlink). 6 soat keshlanadi."""
+    if "user_id" not in session:
+        return jsonify({"error": "kirish kerak"}), 401
+    cached = _map_cache_get("sats", 6 * 3600)
+    if cached is not None:
+        return jsonify({"sats": cached})
+
+    groups = [("stations", "stations", None), ("visual", "visual", None), ("gps-ops", "gps", None), ("starlink", "starlink", 500)]
+    out, seen = [], set()
+    for group, label, limit in groups:
+        try:
+            data = _http_json(f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=json", timeout=25)
+        except Exception as e:
+            app.logger.warning("Map sats (%s): %s", group, e)
+            continue
+        if limit and len(data) > limit:
+            step = len(data) / limit
+            data = [data[int(i * step)] for i in range(limit)]
+        for o in data:
+            nid = o.get("NORAD_CAT_ID")
+            if nid in seen:
+                continue
+            seen.add(nid)
+            try:
+                out.append({
+                    "n": o["OBJECT_NAME"], "g": label, "ep": o["EPOCH"], "mm": o["MEAN_MOTION"], "e": o["ECCENTRICITY"],
+                    "i": o["INCLINATION"], "ra": o["RA_OF_ASC_NODE"], "ap": o["ARG_OF_PERICENTER"], "ma": o["MEAN_ANOMALY"],
+                })
+            except KeyError:
+                continue
+
+    if not out:
+        stale = _map_cache.get("sats")
+        if stale:
+            return jsonify({"sats": stale[1]})
+        return jsonify({"error": "unavailable"}), 503
+    _map_cache_set("sats", out)
+    return jsonify({"sats": out})
+
+
+@app.route("/api/map/search")
+def api_map_search():
+    """Joy qidirish (OpenStreetMap Nominatim). Natijalar 1 kun keshlanadi."""
+    if "user_id" not in session:
+        return jsonify({"error": "kirish kerak"}), 401
+    q = (request.args.get("q") or "").strip()[:120]
+    lang = (request.args.get("lang") or current_lang())[:5]
+    if len(q) < 2:
+        return jsonify({"results": []})
+    key = f"sr:{lang}:{q.lower()}"
+    cached = _map_cache_get(key, 86400)
+    if cached is not None:
+        return jsonify({"results": cached})
+
+    # Nominatim qoidasi: soniyasiga ko'pi bilan 1 ta so'rov
+    wait = 1.05 - (time.time() - _nominatim_last[0])
+    if wait > 0:
+        time.sleep(wait)
+    _nominatim_last[0] = time.time()
+    try:
+        url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
+            {"q": q, "format": "jsonv2", "limit": 6, "accept-language": lang})
+        data = _http_json(url, timeout=12)
+    except Exception as e:
+        app.logger.warning("Map search: %s", e)
+        return jsonify({"results": [], "error": "unavailable"}), 503
+
+    results = []
+    for it in data:
+        try:
+            bb = [float(x) for x in it.get("boundingbox", [])]
+            results.append({
+                "name": it.get("name") or it.get("display_name", "").split(",")[0],
+                "display": it.get("display_name", ""),
+                "lat": float(it["lat"]), "lon": float(it["lon"]),
+                "bbox": bb if len(bb) == 4 else None,
+            })
+        except (KeyError, ValueError):
+            continue
+    _map_cache_set(key, results)
+    return jsonify({"results": results})
 
 
 @app.route("/feed/activity")

@@ -724,6 +724,13 @@ TRANSLATIONS = {
         "set_sub_storage": "Kesh va fayllar",
         "set_sub_about": "Versiya va ma'lumot",
         "set_no_results": "Hech narsa topilmadi",
+        "dash_ai_sub": "Yozing yoki gapiring: savol bering, tarjima qiling, g'oya so'rang",
+        "dash_ai_cta": "Gaplashish",
+        "dash_map_title": "Linko Map",
+        "dash_map_sub": "Everestdan Xitoy va Buxorogacha 3D sayohat, jonli samolyotlar va sun'iy yo'ldoshlar",
+        "dash_map_cta": "Sayohatni boshlash",
+        "dash_map_free": "Xarita",
+        "dash_quick": "Tezkor kirish",
     },
 
     "ru": {
@@ -1426,6 +1433,13 @@ TRANSLATIONS = {
         "set_sub_storage": "Кэш и файлы",
         "set_sub_about": "Версия и сведения",
         "set_no_results": "Ничего не найдено",
+        "dash_ai_sub": "Пишите или говорите: задавайте вопросы, переводите, ищите идеи",
+        "dash_ai_cta": "Поговорить",
+        "dash_map_title": "Linko Map",
+        "dash_map_sub": "3D-путешествие от Эвереста до Китая и Бухары, самолёты и спутники онлайн",
+        "dash_map_cta": "Начать путешествие",
+        "dash_map_free": "Карта",
+        "dash_quick": "Быстрый доступ",
     },
 
     "zh": {
@@ -2128,6 +2142,13 @@ TRANSLATIONS = {
         "set_sub_storage": "缓存与文件",
         "set_sub_about": "版本与信息",
         "set_no_results": "没有找到内容",
+        "dash_ai_sub": "打字或语音：提问、翻译、寻找灵感",
+        "dash_ai_cta": "开始对话",
+        "dash_map_title": "Linko Map",
+        "dash_map_sub": "从珠峰到中国和布哈拉的3D之旅，实时航班与卫星",
+        "dash_map_cta": "开始旅程",
+        "dash_map_free": "地图",
+        "dash_quick": "快速入口",
     },
 
     "en": {
@@ -2830,5 +2851,12 @@ TRANSLATIONS = {
         "set_sub_storage": "Cache and files",
         "set_sub_about": "Version and info",
         "set_no_results": "Nothing found",
+        "dash_ai_sub": "Type or talk: ask questions, translate, get ideas",
+        "dash_ai_cta": "Start talking",
+        "dash_map_title": "Linko Map",
+        "dash_map_sub": "A 3D journey from Everest to China and Bukhara, with live planes and satellites",
+        "dash_map_cta": "Start the journey",
+        "dash_map_free": "Map",
+        "dash_quick": "Quick access",
     },
 }

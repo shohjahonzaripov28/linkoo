@@ -5,6 +5,52 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Linko</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    /* ---- Bosh sahifa: Linko AI va Linko Map kartalari ---- */
+    .hero-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin: 6px 0 22px; }
+    @media (min-width: 760px) { .hero-grid { grid-template-columns: 1fr 1fr; } }
+    .hero-card {
+      position: relative; overflow: hidden; display: block; min-height: 200px;
+      border-radius: 24px; text-decoration: none; color: #eaf4ff;
+      background: radial-gradient(circle at 75% 40%, #0d1d40, #050914 75%);
+      border: 1px solid rgba(120, 200, 255, .22);
+      box-shadow: 0 12px 40px rgba(2, 6, 20, .45);
+      transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+      isolation: isolate;
+    }
+    .hero-map { background: radial-gradient(circle at 75% 45%, #1a1342, #070614 75%); border-color: rgba(192, 132, 252, .25); }
+    .hero-card:hover { transform: translateY(-3px); border-color: rgba(125, 211, 252, .55); box-shadow: 0 18px 50px rgba(30, 80, 200, .35); }
+    .hero-canvas { position: absolute; top: 0; right: 0; width: 62%; height: 100%; z-index: -1; }
+    .hero-body { position: relative; padding: 20px 20px 18px; max-width: 58%; display: flex; flex-direction: column; gap: 6px; min-height: 200px; box-sizing: border-box; }
+    .hero-tag { font: 600 10.5px Consolas, "Courier New", monospace; letter-spacing: 2px; color: #7dd3fc; display: inline-flex; align-items: center; gap: 6px; }
+    .hero-map .hero-tag { color: #d8b4fe; }
+    .hero-tag i { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; animation: heroPulse 1.6s infinite; }
+    @keyframes heroPulse { 50% { opacity: .3; } }
+    .hero-card h2 { margin: 2px 0 0; font-size: 24px; font-weight: 800;
+      background: linear-gradient(90deg, #e0f2fe, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero-map h2 { background: linear-gradient(90deg, #f5d0fe, #93c5fd); -webkit-background-clip: text; background-clip: text; }
+    .hero-card p { margin: 0; font-size: 13.5px; line-height: 1.45; color: rgba(220, 235, 255, .78); }
+    .hero-cta { margin-top: auto; align-self: flex-start; font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 12px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: #fff; box-shadow: 0 6px 18px rgba(99, 102, 241, .4); }
+    .hero-map .hero-cta { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+
+    .quick-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    @media (min-width: 760px) { .quick-grid { grid-template-columns: repeat(6, 1fr); } }
+    .quick-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 6px; border-radius: 18px;
+      background: rgba(var(--fg), 0.05); border: 1px solid rgba(var(--fg), 0.1); text-decoration: none; color: var(--text);
+      transition: transform .2s ease, background .2s ease; }
+    .quick-tile:hover { transform: translateY(-2px); background: rgba(var(--fg), 0.09); }
+    .q-ico { width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: #fff; }
+    .q-ico svg { width: 22px; height: 22px; }
+    .q1 { background: linear-gradient(135deg, #3b82f6, #6366f1); }
+    .q2 { background: linear-gradient(135deg, #10b981, #0ea5e9); }
+    .q3 { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+    .q4 { background: linear-gradient(135deg, #ec4899, #8b5cf6); }
+    .q5 { background: linear-gradient(135deg, #06b6d4, #3b82f6); }
+    .q6 { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+    .q-lbl { font-size: 12px; font-weight: 600; text-align: center; }
+    @media (max-width: 420px) { .hero-body { max-width: 64%; } .hero-card h2 { font-size: 21px; } .hero-canvas { width: 58%; } }
+  </style>
 </head>
 <body>
   {% from '_icons.html' import icon, empty_state %}
@@ -52,46 +98,40 @@
     </a>
     {% endif %}
 
-    <p class="section-title">{{ t.main_sections }}</p>
-    <div class="compact-grid">
-      <a href="{{ url_for('ai_page') }}" class="compact-card">
-        <div class="icon-badge badge-ai">{{ icon('sparkles', 22) }}</div>
-        <div class="tile-label">{{ t.tile_ai }}</div>
+    <div class="hero-grid">
+      <a href="{{ url_for('ai_page') }}" class="hero-card hero-ai">
+        <canvas class="hero-canvas" data-kind="ai" aria-hidden="true"></canvas>
+        <div class="hero-body">
+          <span class="hero-tag"><i></i>LINKO AI · ONLINE</span>
+          <h2>{{ t.tile_ai }}</h2>
+          <p>{{ t.dash_ai_sub }}</p>
+          <span class="hero-cta">{{ t.dash_ai_cta }} →</span>
+        </div>
+      </a>
+      <a href="{{ url_for('map_page') }}" class="hero-card hero-map">
+        <canvas class="hero-canvas" data-kind="globe" aria-hidden="true"></canvas>
+        <div class="hero-body">
+          <span class="hero-tag"><i></i>LINKO MAP · 3D</span>
+          <h2>{{ t.dash_map_title }}</h2>
+          <p>{{ t.dash_map_sub }}</p>
+          <span class="hero-cta">{{ t.dash_map_cta }} →</span>
+        </div>
       </a>
     </div>
 
-    <p class="section-title">{{ t.recent_chats }}</p>
-    <div class="feed-list">
-      {% if recent_chats|length == 0 %}
-        {{ empty_state('chat', t.no_recent_chats) }}
-      {% endif %}
-      {% for u in recent_chats %}
-      <a href="{{ url_for('dm', other_username=u.username) }}" class="person-row {% if u.unread %}has-unread{% endif %}">
-        <span class="avatar-wrap">
-        {% if u.avatar_file %}
-          <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
-        {% else %}
-          <div class="avatar-circle small">{{ u.avatar_letter }}</div>
-        {% endif %}
-          {% if u.online %}<i class="presence-dot on"></i>{% endif %}
-        </span>
-        <div class="person-main">
-          <div class="person-name">{{ u.nickname if u.nickname else u.username }}</div>
-          <div class="person-sub">
-            {% if u.unread %}{{ t.new_messages.replace('{n}', u.unread|string) }}
-            {% else %}{% if u.mine %}{{ t.you_prefix }}{% endif %}{% if u.has_image %}📷 {{ t.photo_msg }}{% else %}{{ u.preview }}{% endif %}{% endif %}
-          </div>
-        </div>
-        <div class="person-meta">
-          <span class="person-time">{{ u.time }}</span>
-          {% if u.unread %}<span class="unread-badge">{{ u.unread if u.unread < 100 else '99+' }}</span>{% endif %}
-        </div>
-      </a>
-      {% endfor %}
+    <p class="section-title">{{ t.dash_quick }}</p>
+    <div class="quick-grid">
+      <a href="{{ url_for('shaxsiy') }}" class="quick-tile"><span class="q-ico q1">{{ icon('chat', 22) }}</span><span class="q-lbl">{{ t.tile_personal }}</span></a>
+      <a href="{{ url_for('groups_list') }}" class="quick-tile"><span class="q-ico q2">{{ icon('groups', 22) }}</span><span class="q-lbl">{{ t.tile_groups }}</span></a>
+      <a href="{{ url_for('people') }}" class="quick-tile"><span class="q-ico q3">{{ icon('contacts', 22) }}</span><span class="q-lbl">{{ t.tile_contacts }}</span></a>
+      <a href="{{ url_for('shop') }}" class="quick-tile"><span class="q-ico q4">{{ icon('shop', 22) }}</span><span class="q-lbl">{{ t.tile_shop }}</span></a>
+      <a href="{{ url_for('feed') }}" class="quick-tile"><span class="q-ico q5">{{ icon('feed', 22) }}</span><span class="q-lbl">{{ t.tile_feed }}</span></a>
+      <a href="{{ url_for('map_page', mode='explore') }}" class="quick-tile"><span class="q-ico q6">{{ icon('globe', 22) }}</span><span class="q-lbl">{{ t.dash_map_free }}</span></a>
     </div>
 
   </div>
 
   {% include 'navbar.html' %}
+  <script src="{{ url_for('static', filename='dash.js') }}"></script>
 </body>
 </html>

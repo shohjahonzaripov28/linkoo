@@ -1718,6 +1718,17 @@ applyLang();
 applySound();
 resize();
 requestAnimationFrame((n) => { last = n; requestAnimationFrame(frame); });
+
+// Boshqa sahifadan savol bilan kelinsa (masalan, Linko Map'dagi "Linko AI'dan so'rash"): /ai?q=...
+(function () {
+  let q = null;
+  try { q = new URLSearchParams(location.search).get("q"); } catch (e) { /* eski brauzer */ }
+  if (!q) return;
+  q = q.slice(0, 2000);
+  try { history.replaceState(null, "", location.pathname); } catch (e) { /* bo'lmasa ham ishlaydi */ }
+  input.value = q;
+  setTimeout(() => sendMessage(q), Math.max(0, (INTRO_END - clock) * 1000) + 300);
+})();
 </script>
 </body>
 </html>
