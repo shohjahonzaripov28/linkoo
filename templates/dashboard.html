@@ -125,36 +125,6 @@
       </a>
     </div>
 
-    <p class="section-title">{{ t.dash_quick }}</p>
-    <div class="feat-row">
-      <a href="{{ url_for('shaxsiy') }}" class="feat-card f1">
-        <span class="feat-ico">{{ icon('chat', 24) }}</span>
-        {% if unread_total %}<span class="feat-badge">{{ unread_total if unread_total < 100 else '99+' }}</span>{% endif %}
-        <b>{{ t.tile_personal }}</b><small>{{ t.tile_personal_sub }}</small>
-        <span class="feat-big">{{ icon('chat', 96) }}</span>
-      </a>
-      <a href="{{ url_for('groups_list') }}" class="feat-card f2">
-        <span class="feat-ico">{{ icon('groups', 24) }}</span>
-        <b>{{ t.tile_groups }}</b><small>{{ t.tile_groups_sub }}</small>
-        <span class="feat-big">{{ icon('groups', 96) }}</span>
-      </a>
-      <a href="{{ url_for('shop') }}" class="feat-card f3">
-        <span class="feat-ico">{{ icon('shop', 24) }}</span>
-        <b>{{ t.tile_shop }}</b><small>{{ t.tile_shop_sub }}</small>
-        <span class="feat-big">{{ icon('shop', 96) }}</span>
-      </a>
-      <a href="{{ url_for('feed') }}" class="feat-card f4">
-        <span class="feat-ico">{{ icon('feed', 24) }}</span>
-        {% if feed_new.total %}<span class="feat-badge">{{ feed_new.total if feed_new.total < 100 else '99+' }}</span>{% endif %}
-        <b>{{ t.tile_feed }}</b><small>{{ t.tile_feed_sub }}</small>
-        <span class="feat-big">{{ icon('feed', 96) }}</span>
-      </a>
-      <a href="{{ url_for('people') }}" class="feat-card f5">
-        <span class="feat-ico">{{ icon('contacts', 24) }}</span>
-        <b>{{ t.tile_contacts }}</b><small>{{ t.tile_contacts_sub }}</small>
-        <span class="feat-big">{{ icon('contacts', 96) }}</span>
-      </a>
-    </div>
 
   </div>
 

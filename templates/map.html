@@ -7,152 +7,141 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <style>
     /* ================================================================
-       Linko Map: kinematik video-sayohat + erkin xarita
+       Linko Map: tumanli kinematik sayohat (canvas) + erkin xarita
        ================================================================ */
     body.map-page {
-      margin: 0; padding: 0 !important;
+      --mist: #0b1120; --ink: #f1f4f9; --ink2: rgba(241,244,249,.66); --line: rgba(241,244,249,.22); --glass: rgba(11,17,32,.42);
+      margin: 0; padding: 0 !important; display: block !important;
       height: 100vh; height: 100dvh; overflow: hidden;
-      background: #000 !important; color: #fff;
+      background: var(--mist) !important; animation: none !important; color: var(--ink);
+      font-family: "Helvetica Neue", "Segoe UI", Roboto, system-ui, -apple-system, sans-serif;
     }
+    html[data-theme="light"] body.map-page {
+      --mist: #eceef0; --ink: #171b22; --ink2: rgba(23,27,34,.62); --line: rgba(23,27,34,.2); --glass: rgba(255,255,255,.5);
+    }
+    body.map-page::before, body.map-page::after { display: none !important; }
     .lm-fixed { position: fixed; top: 0; bottom: 0; left: 0; right: 0; }
 
-    /* --- Video sahnalari --- */
-    #stage { z-index: 1; background: #000; overflow: hidden; }
-    .scene { position: absolute; inset: 0; opacity: 0; will-change: opacity; }
-    .scene img, .scene video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .scene video { opacity: 0; transition: opacity .5s; }
-    .scene video.ready { opacity: 1; }
-    /* Video yuklanayotganda kichik aylanuvchi belgi */
-    .scene.wait::after {
-      content: ""; position: absolute; left: 50%; top: 42%; width: 34px; height: 34px; margin-left: -17px;
-      border-radius: 50%; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff;
-      animation: lmSpin .8s linear infinite;
-    }
-    @keyframes lmSpin { to { transform: rotate(360deg); } }
-    #shade {
-      z-index: 2; pointer-events: none;
-      background:
-        linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%),
-        linear-gradient(0deg, rgba(0,0,0,.75) 0%, rgba(0,0,0,.15) 45%, rgba(0,0,0,0) 65%);
-    }
-
-    /* --- Scroll qatlami (ko'rinmas, faqat scroll uchun) --- */
-    #story { z-index: 3; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    #cv { z-index: 1; width: 100%; height: 100%; display: block; }
+    #story { z-index: 3; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
     #story::-webkit-scrollbar { display: none; }
     #track { width: 1px; }
 
-    /* --- Matn --- */
-    #caption {
-      position: fixed; z-index: 4; left: 0; right: 0; bottom: 0;
-      padding: 0 32px calc(46px + env(safe-area-inset-bottom));
-      pointer-events: none; max-width: 760px;
+    /* --- Katta yozuv (ekran bo'ylab) --- */
+    #big {
+      position: fixed; z-index: 4; left: 0; right: 0; top: 50%; margin-top: -0.6em;
+      text-align: center; white-space: nowrap; pointer-events: none;
+      font-weight: 200; font-size: clamp(46px, 11.5vw, 190px); line-height: 1.2;
+      letter-spacing: .32em; text-indent: .32em; color: var(--ink); opacity: 0;
+      will-change: opacity, transform;
     }
-    .cap-tag { font: 600 12px Consolas, "Courier New", monospace; letter-spacing: 3px; color: #9fdcff; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
-    .cap-title { margin: 8px 0 2px; font-size: clamp(34px, 6vw, 72px); font-weight: 800; line-height: 1.02; letter-spacing: -1px; text-shadow: 0 4px 30px rgba(0,0,0,.45); }
-    .cap-stat { font: 700 clamp(22px, 3vw, 34px) Consolas, "Courier New", monospace; background: linear-gradient(90deg, #7dd3fc, #c4b5fd, #f9a8d4); -webkit-background-clip: text; background-clip: text; color: transparent; margin: 6px 0 4px; }
-    .cap-text { margin: 10px 0 0; font-size: clamp(15px, 1.6vw, 19px); line-height: 1.55; color: rgba(255,255,255,.92); max-width: 600px; text-shadow: 0 2px 14px rgba(0,0,0,.7); }
-    .cap-start { pointer-events: auto; margin-top: 18px; display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 22px; border-radius: 14px; border: none; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: #fff; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 10px 30px rgba(59,130,246,.45); }
-    .cap-hint { margin-top: 14px; font-size: 13px; color: rgba(255,255,255,.7); animation: lmBob 1.6s infinite; }
-    @keyframes lmBob { 50% { transform: translateY(6px); } }
 
-    /* --- Asboblar paneli (tezlik / balandlik) --- */
-    #hud {
-      position: fixed; z-index: 4; right: 24px; top: calc(86px + env(safe-area-inset-top));
-      display: flex; gap: 10px; pointer-events: none; opacity: 0; transition: opacity .4s;
-    }
-    #hud.show { opacity: 1; }
-    .hud-box { min-width: 108px; padding: 10px 14px; border-radius: 14px; background: rgba(0,10,25,.45); border: 1px solid rgba(160,220,255,.35); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-    .hud-box small { display: block; font: 600 10px Consolas, monospace; letter-spacing: 2px; color: #9fdcff; }
-    .hud-box b { font: 700 24px Consolas, "Courier New", monospace; color: #fff; }
-    .hud-box i { font-style: normal; font: 11px Consolas, monospace; color: rgba(255,255,255,.7); margin-left: 4px; }
+    /* --- Pastki matn --- */
+    #cap { position: fixed; z-index: 4; left: 0; bottom: 0; pointer-events: none; opacity: 0;
+      padding: 0 28px calc(34px + env(safe-area-inset-bottom)); max-width: 520px; will-change: opacity, transform; }
+    .cap-idx { font-size: 11px; letter-spacing: .32em; color: var(--ink2); }
+    .cap-idx b { font-weight: 600; color: var(--ink); }
+    .cap-name { margin: 10px 0 0; font-size: clamp(20px, 2.2vw, 28px); font-weight: 300; letter-spacing: .02em; }
+    .cap-stat { margin: 4px 0 0; font-size: clamp(14px, 1.3vw, 16px); font-weight: 600; letter-spacing: .18em; color: var(--ink2); }
+    .cap-text { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14.5px; line-height: 1.6; font-weight: 400; color: var(--ink2); }
+    .cap-go { pointer-events: auto; margin-top: 18px; height: 44px; padding: 0 22px; border-radius: 999px; border: 1px solid var(--ink);
+      background: var(--ink); color: var(--mist); font: inherit; font-size: 13px; letter-spacing: .2em; font-weight: 600; cursor: pointer; display: none; }
+    .cap-go.show { display: inline-block; }
+
+    /* --- Boshlash ishorasi --- */
+    #hint { position: fixed; z-index: 4; left: 50%; bottom: calc(26px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none;
+      font-size: 10px; letter-spacing: .4em; text-indent: .4em; color: var(--ink2); transition: opacity .4s; }
+    #hint i { width: 1px; height: 46px; background: var(--line); position: relative; overflow: hidden; }
+    #hint i::after { content: ""; position: absolute; left: 0; top: -40%; width: 1px; height: 40%; background: var(--ink); animation: lmDrop 1.8s ease-in-out infinite; }
+    @keyframes lmDrop { to { top: 100%; } }
+
+    /* --- O'ng pastdagi doira (umumiy progress) --- */
+    #ring { position: fixed; z-index: 4; right: 26px; bottom: calc(30px + env(safe-area-inset-bottom)); width: 46px; height: 46px; pointer-events: none; }
+    #ring circle { fill: none; stroke-width: 1; }
+    #ring .bg { stroke: var(--line); }
+    #ring .fg { stroke: var(--ink); stroke-dasharray: 138.2; stroke-dashoffset: 138.2; transform: rotate(-90deg); transform-origin: 50% 50%; }
+    #ring span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; letter-spacing: .1em; color: var(--ink2); }
 
     /* --- Yuqori panel --- */
-    .lm-top {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 6;
-      display: flex; align-items: center; gap: 10px;
-      padding: calc(12px + env(safe-area-inset-top)) 16px 10px; pointer-events: none;
-    }
+    .lm-top { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; align-items: center; gap: 8px;
+      padding: calc(14px + env(safe-area-inset-top)) 18px 10px; pointer-events: none; }
     .lm-top > * { pointer-events: auto; }
-    .lm-back { color: #fff; text-decoration: none; font-size: 22px; padding: 6px 8px; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
-    .lm-title { flex: 1; min-width: 0; font-weight: 800; font-size: 18px; text-shadow: 0 1px 10px rgba(0,0,0,.6); }
-    .lm-btn {
-      height: 38px; min-width: 38px; padding: 0 12px; border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.28); background: rgba(10,16,32,.5);
-      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-      color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
-    }
-    .lm-btn svg { width: 18px; height: 18px; flex: none; }
-    .lm-btn.on { background: rgba(59,130,246,.55); border-color: rgba(147,197,253,.9); }
-    .lm-btn.primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); border: none; }
-
-    #progress { position: fixed; z-index: 7; top: 0; left: 0; height: 3px; width: 0; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899); }
-    #dots { position: fixed; z-index: 5; right: 14px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 7px; }
-    #dots button { width: 8px; height: 8px; padding: 0; border: none; border-radius: 50%; background: rgba(255,255,255,.35); cursor: pointer; transition: transform .2s, background .2s; }
-    #dots button.on { background: #fff; transform: scale(1.5); }
-    #credit { position: fixed; z-index: 5; right: 12px; bottom: 8px; font-size: 10px; color: rgba(255,255,255,.55); }
-    #credit a { color: inherit; }
+    .lm-back { color: var(--ink); text-decoration: none; display: inline-flex; padding: 6px; }
+    .lm-back svg { width: 22px; height: 22px; }
+    .lm-brand { flex: 1; min-width: 0; font-size: 11px; font-weight: 500; letter-spacing: .42em; color: var(--ink); white-space: nowrap; overflow: hidden; }
+    .lm-btn { height: 36px; min-width: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--glass);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--ink);
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      font: inherit; font-size: 11px; font-weight: 600; letter-spacing: .16em; cursor: pointer; white-space: nowrap; }
+    .lm-btn svg { width: 16px; height: 16px; flex: none; }
+    .lm-btn.on { background: var(--ink); color: var(--mist); border-color: var(--ink); }
+    .lm-btn.icon { padding: 0; width: 36px; }
+    .lm-btn .ti-sun { display: none; }
+    html[data-theme="light"] .lm-btn .ti-sun { display: inline-flex; }
+    html[data-theme="light"] .lm-btn .ti-moon { display: none; }
+    #progress { position: fixed; z-index: 11; top: 0; left: 0; height: 1px; width: 0; background: var(--ink); opacity: .7; }
 
     /* --- Erkin xarita --- */
-    #mapwrap { z-index: 8; display: none; background: radial-gradient(circle at 50% 40%, #16305e, #070d1f 75%); }
+    #mapwrap { z-index: 8; display: none; background: var(--mist); }
     body.explore #mapwrap { display: block; }
-    body.explore #story, body.explore #caption, body.explore #hud, body.explore #dots, body.explore #credit { display: none; }
+    body.explore #story, body.explore #big, body.explore #cap, body.explore #hint, body.explore #ring { display: none; }
     #map { position: absolute; inset: 0; }
-    #mapbar { position: absolute; z-index: 3; left: 14px; right: 14px; top: calc(64px + env(safe-area-inset-top)); display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+    #mapbar { position: absolute; z-index: 3; left: 14px; right: 14px; top: calc(62px + env(safe-area-inset-top)); display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
     .lm-search { position: relative; z-index: 4; flex: 1 1 240px; max-width: 460px; }
-    .lm-search input { width: 100%; box-sizing: border-box; height: 42px; border-radius: 14px; border: 1px solid rgba(15,23,42,.15); background: rgba(255,255,255,.96); color: #0f172a; padding: 0 14px; font-size: 16px; outline: none; box-shadow: 0 6px 20px rgba(0,0,0,.2); }
-    .lm-results { position: absolute; top: 46px; left: 0; right: 0; background: #fff; color: #0f172a; border-radius: 14px; overflow: hidden; display: none; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
-    .lm-results button { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid #eef2f7; padding: 10px 14px; font: inherit; font-size: 14px; color: inherit; cursor: pointer; }
-    .lm-results button:hover { background: #eff6ff; }
-    .lm-results small { display: block; color: #64748b; font-size: 12px; }
+    .lm-search input { width: 100%; box-sizing: border-box; height: 42px; border-radius: 999px; border: 1px solid var(--line); background: var(--glass);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: var(--ink); padding: 0 18px; font: inherit; font-size: 16px; outline: none; }
+    .lm-search input::placeholder { color: var(--ink2); }
+    .lm-results { position: absolute; top: 48px; left: 0; right: 0; background: var(--mist); color: var(--ink); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: none; box-shadow: 0 14px 40px rgba(0,0,0,.25); }
+    .lm-results button { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line); padding: 11px 16px; font: inherit; font-size: 14px; color: inherit; cursor: pointer; }
+    .lm-results button:last-child { border-bottom: none; }
+    .lm-results button:hover { background: var(--glass); }
+    .lm-results small { display: block; color: var(--ink2); font-size: 12px; }
     .lm-mapbtns { display: flex; gap: 6px; flex-wrap: wrap; }
-    .lm-mapbtns .lm-btn { height: 42px; background: rgba(255,255,255,.96); color: #0f172a; border-color: rgba(15,23,42,.12); box-shadow: 0 6px 20px rgba(0,0,0,.18); backdrop-filter: none; }
-    .lm-mapbtns .lm-btn.on { background: #2563eb; color: #fff; }
+    .lm-mapbtns .lm-btn { height: 42px; }
     .me-dot { width: 16px; height: 16px; border-radius: 50%; background: #2563eb; border: 3px solid #fff; animation: meRing 1.8s infinite; }
     @keyframes meRing { 0% { box-shadow: 0 0 0 0 rgba(37,99,235,.5); } 100% { box-shadow: 0 0 0 22px rgba(37,99,235,0); } }
 
-    #toast { position: fixed; z-index: 20; left: 50%; bottom: 34px; transform: translateX(-50%); max-width: min(92vw, 420px); padding: 10px 16px; border-radius: 14px; background: rgba(10,20,44,.94); color: #fff; font-size: 13.5px; text-align: center; opacity: 0; pointer-events: none; transition: opacity .25s; }
+    #toast { position: fixed; z-index: 20; left: 50%; bottom: 34px; transform: translateX(-50%); max-width: min(92vw, 420px); padding: 10px 18px; border-radius: 999px;
+      background: var(--ink); color: var(--mist); font-size: 13px; text-align: center; opacity: 0; pointer-events: none; transition: opacity .25s; }
     #toast.show { opacity: 1; }
-    #fade { z-index: 9; background: #000; opacity: 0; pointer-events: none; transition: opacity .6s; }
+    #fade { z-index: 9; background: var(--mist); opacity: 0; pointer-events: none; transition: opacity .7s ease; }
     #fade.on { opacity: 1; }
 
     @media (max-width: 899px) {
       body.map-page .bottom-nav { display: none; }
-      #caption { padding: 0 20px calc(30px + env(safe-area-inset-bottom)); }
-      #hud { right: 12px; left: 12px; justify-content: flex-end; top: calc(64px + env(safe-area-inset-top)); }
-      .hud-box { min-width: 0; padding: 8px 10px; }
-      .hud-box b { font-size: 18px; }
-      #dots { display: none; }
+      #cap { padding: 0 22px calc(30px + env(safe-area-inset-bottom)); max-width: none; right: 70px; }
+      .cap-text { font-size: 13.5px; }
+      #hint { bottom: auto; top: 64%; }
+      #ring { right: 18px; bottom: calc(30px + env(safe-area-inset-bottom)); width: 40px; height: 40px; }
       .lm-top .lm-btn .lbl, .lm-mapbtns .lbl { display: none; }
+      .lm-top .lm-btn { padding: 0; width: 36px; }
     }
     @media (min-width: 900px) {
-      .lm-fixed, .lm-top, #caption, #progress { left: 236px; }
-      #caption { padding-left: 56px; }
+      .lm-fixed, .lm-top, #cap, #big, #progress { left: 236px; }
+      #cap { padding-left: 48px; }
+      .lm-top { padding-left: 30px; padding-right: 30px; }
+      #ring { right: 40px; }
     }
+    html.reduce-motion #hint i::after { animation: none; }
   </style>
 </head>
 <body class="map-page">
-  <div id="stage" class="lm-fixed"></div>
-  <div id="shade" class="lm-fixed"></div>
+  <canvas id="cv" class="lm-fixed" aria-hidden="true"></canvas>
   <div id="progress"></div>
 
   <div id="story" class="lm-fixed"><div id="track"></div></div>
 
-  <div id="caption">
-    <div class="cap-tag" id="cap-tag"></div>
-    <div class="cap-title" id="cap-title"></div>
+  <div id="big" aria-hidden="true"></div>
+  <div id="cap">
+    <div class="cap-idx"><b id="cap-n">01</b> — 12 &nbsp;·&nbsp; <span id="cap-tag"></span></div>
+    <div class="cap-name" id="cap-name"></div>
     <div class="cap-stat" id="cap-stat"></div>
     <p class="cap-text" id="cap-text"></p>
-    <div id="cap-extra"></div>
+    <button type="button" class="cap-go" id="cap-go"></button>
   </div>
-
-  <div id="hud">
-    <div class="hud-box"><small>SPEED</small><b id="hud-spd">0</b><i id="hud-spd-u">kt</i></div>
-    <div class="hud-box"><small>ALTITUDE</small><b id="hud-alt">0</b><i id="hud-alt-u">ft</i></div>
-  </div>
-
-  <nav id="dots" aria-hidden="true"></nav>
-  <div id="credit">Video: <a href="https://www.pexels.com" target="_blank" rel="noopener">Pexels</a></div>
+  <div id="hint"><span id="hint-t">SCROLL</span><i></i></div>
+  <svg id="ring" viewBox="0 0 46 46" aria-hidden="true"><circle class="bg" cx="23" cy="23" r="22"/><circle class="fg" id="ring-fg" cx="23" cy="23" r="22"/></svg>
 
   <div id="mapwrap" class="lm-fixed">
     <div id="map"></div>
@@ -162,8 +151,8 @@
         <div class="lm-results" id="search-results"></div>
       </div>
       <div class="lm-mapbtns">
-        <button type="button" class="lm-btn" id="locate-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span class="lbl" data-t="locate"></span></button>
-        <button type="button" class="lm-btn" id="style-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><span class="lbl" id="style-lbl"></span></button>
+        <button type="button" class="lm-btn" id="locate-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span class="lbl" data-t="locate"></span></button>
+        <button type="button" class="lm-btn" id="style-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><span class="lbl" id="style-lbl"></span></button>
         <button type="button" class="lm-btn" id="tilt-btn">3D</button>
       </div>
     </div>
@@ -171,10 +160,10 @@
   <div id="fade" class="lm-fixed"></div>
 
   <header class="lm-top">
-    <a href="{{ url_for('dashboard') }}" class="lm-back" aria-label="Back">←</a>
-    <div class="lm-title">Linko Map</div>
-    <button type="button" class="lm-btn" id="voice-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg></button>
-    <button type="button" class="lm-btn" id="mode-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/><path d="M8 2v16M16 6v16"/></svg><span class="lbl" id="mode-lbl"></span></button>
+    <a href="{{ url_for('dashboard') }}" class="lm-back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></a>
+    <div class="lm-brand">LINKO&nbsp;&nbsp;MAP</div>
+    <button type="button" class="lm-btn icon" data-theme-toggle aria-label="Theme"><span class="ti-moon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span><span class="ti-sun"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span></button>
+    <button type="button" class="lm-btn" id="mode-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/><path d="M8 2v16M16 6v16"/></svg><span class="lbl" id="mode-lbl"></span></button>
   </header>
 
   <div id="toast" role="status"></div>
@@ -185,7 +174,7 @@
     window.LINKO_MAP = {
       lang: {{ lang|tojson }},
       maptilerKey: {{ maptiler_key|tojson }},
-      mediaBase: {{ media_base|tojson }},
+      frameBase: "/static/map/p",
       startMode: {{ start_mode|tojson }}
     };
   </script>

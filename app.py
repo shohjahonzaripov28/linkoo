@@ -165,8 +165,9 @@ import locations
 import catalog
 
 def current_lang():
-    lang = session.get("lang", "uz")
-    return lang if lang in TRANSLATIONS else "uz"
+    # Asosiy til - English. Boshqa tilni foydalanuvchi Sozlamalar > Til bo'limidan tanlaydi.
+    lang = session.get("lang", "en")
+    return lang if lang in TRANSLATIONS else "en"
 
 
 @app.teardown_appcontext
@@ -1617,7 +1618,15 @@ opacity:0;transform:translateY(12px);animation:lkWord .6s ease 1.15s forwards}
 @keyframes lkWord{to{opacity:1;transform:none}}
 </style>
 <script>(function(){
-try{if(sessionStorage.getItem("lk_splash"))return;sessionStorage.setItem("lk_splash","1");}catch(e){return;}
+var path=location.pathname,auth=path.indexOf("/login")===0||path.indexOf("/register")===0;
+/* Kirish/ro'yxatdan o'tish formasi yuborilsa, keyingi sahifada logo (tovush bilan) yana chiqadi */
+document.addEventListener("submit",function(){if(auth){try{sessionStorage.setItem("lk_splash_next","1");}catch(e){}}},true);
+var show=false;
+try{
+if(!sessionStorage.getItem("lk_splash")){show=true;sessionStorage.setItem("lk_splash","1");}
+if(!auth&&sessionStorage.getItem("lk_splash_next")){show=true;sessionStorage.removeItem("lk_splash_next");}
+}catch(e){return;}
+if(!show)return;
 if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)return;
 var d=document.documentElement;d.classList.add("lk-splashing");
 var el=document.createElement("div");el.id="lk-splash";
@@ -1625,6 +1634,33 @@ el.innerHTML='<svg viewBox="0 0 512 512"><defs><linearGradient id="lkg" x1="0" y
 '<circle class="lk-ring" cx="256" cy="256" r="120" fill="none" stroke="url(#lkg)" stroke-width="46" stroke-linecap="round" transform="rotate(-3.5 256 256)"/>'+
 '<circle class="lk-dot" cx="342" cy="170" r="34" fill="#fff"/></svg><div class="lk-word">Linko</div><div class="lk-sub">CONNECT · EXPLORE · CREATE</div>';
 d.appendChild(el);
+/* Tovush (WebAudio, fayl yo'q): halqa chizilganda shamol, nuqta chiqqanda "ding", so'z chiqqanda akkord */
+(function(){try{
+var AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+var c=new AC(),played=false,t00=Date.now(),evs=["pointerdown","touchstart","keydown"];
+function tone(m,f,st,dur,vol,type){var o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.value=f;
+g.gain.setValueAtTime(0.0001,st);g.gain.exponentialRampToValueAtTime(vol,st+0.015);g.gain.exponentialRampToValueAtTime(0.0001,st+dur);
+o.connect(g);g.connect(m);o.start(st);o.stop(st+dur+0.05);}
+function play(){
+if(played||Date.now()-t00>1600||c.state!=="running")return;played=true;
+evs.forEach(function(n){removeEventListener(n,unlock,true);});
+var t=c.currentTime+0.03,m=c.createGain();m.gain.value=0.55;m.connect(c.destination);
+var dl=c.createDelay(),fb=c.createGain(),lp=c.createBiquadFilter();dl.delayTime.value=0.19;fb.gain.value=0.3;lp.type="lowpass";lp.frequency.value=2400;
+m.connect(dl);dl.connect(lp);lp.connect(fb);fb.connect(dl);lp.connect(c.destination);
+var n=Math.floor(c.sampleRate*1.5),buf=c.createBuffer(1,n,c.sampleRate),dd=buf.getChannelData(0);for(var i=0;i<n;i++)dd[i]=Math.random()*2-1;
+var ns=c.createBufferSource(),bp=c.createBiquadFilter(),ng=c.createGain();ns.buffer=buf;bp.type="bandpass";bp.Q.value=1.3;
+bp.frequency.setValueAtTime(260,t+0.1);bp.frequency.exponentialRampToValueAtTime(3400,t+1.15);
+ng.gain.setValueAtTime(0.0001,t+0.1);ng.gain.exponentialRampToValueAtTime(0.2,t+0.85);ng.gain.exponentialRampToValueAtTime(0.0001,t+1.3);
+ns.connect(bp);bp.connect(ng);ng.connect(m);ns.start(t+0.1);ns.stop(t+1.5);
+tone(m,1318.5,t+1.05,1.3,0.2,"sine");tone(m,2637,t+1.05,0.45,0.05,"sine");
+[523.25,659.25,783.99,987.77].forEach(function(f,k){tone(m,f,t+1.15+k*0.06,1.7,0.06,"triangle");});
+setTimeout(function(){try{c.close();}catch(e){}},4500);
+}
+function unlock(){try{c.resume().then(play);}catch(e){}}
+if(c.state==="running")play();else{try{c.resume().then(play).catch(function(){});}catch(e){}
+evs.forEach(function(n){addEventListener(n,unlock,true);});
+setTimeout(function(){evs.forEach(function(n){removeEventListener(n,unlock,true);});},1700);}
+}catch(e){}})();
 setTimeout(function(){el.classList.add("out");d.classList.remove("lk-splashing");},2100);
 setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},2800);
 })();</script>"""
@@ -5765,7 +5801,7 @@ def settings_stub(section):
         return redirect(url_for("settings_page"))
 
     me = session["username"]
-    title = SETTINGS_STUBS[section].get(current_lang(), SETTINGS_STUBS[section]["uz"])
+    title = SETTINGS_STUBS[section].get(current_lang(), SETTINGS_STUBS[section]["en"])
     conn = get_db()
     prefs = get_prefs(conn, me)
     extra = {}
