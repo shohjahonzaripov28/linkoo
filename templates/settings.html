@@ -138,6 +138,11 @@
     <section class="st-group">
       <h2 class="st-head">{{ t.set_group_help }}</h2>
       <div class="settings-list">
+        <a href="{{ url_for('founder_page') }}" class="settings-row">
+          <div class="settings-icon-badge tone-blue">{{ icon('sparkles', 18) }}</div>
+          <div class="settings-row-label">{{ t.menu_founder }}<small>{{ t.set_sub_founder }}</small></div>
+          <span class="chevron">{{ icon('chevron', 16) }}</span>
+        </a>
         <a href="{{ url_for('settings_about') }}" class="settings-row">
           <div class="settings-icon-badge tone-gray">{{ icon('info', 18) }}</div>
           <div class="settings-row-label">{{ t.menu_about }}<small>{{ t.set_sub_about }}</small></div>

@@ -232,7 +232,7 @@ def unhandled_exception(e):
 
 OPEN_ENDPOINTS = {
     "static", "media", "login", "register", "forgot_password",
-    "set_language", "privacy_page", "home", "version", "google_auth", "web_manifest", "favicon",
+    "set_language", "privacy_page", "founder_page", "home", "version", "google_auth", "web_manifest", "favicon",
 }
 
 
@@ -5951,6 +5951,12 @@ def settings_about():
         avatar_letter=session["avatar_letter"],
         active="profile",
     )
+
+
+@app.route("/founder")
+def founder_page():
+    """Linko yaratuvchisi haqida 3D sahifa (ochiq, login shart emas)."""
+    return render_template("founder.html", lang=current_lang())
 
 
 @app.route("/ai")
