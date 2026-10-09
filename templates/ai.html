@@ -5,103 +5,1607 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Linko - {{ t.tile_ai }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body class="in-chat">
-  <div class="glass-card chat-card">
-    <div class="chat-header">
-      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
-      <div class="dm-title">
-        <div class="avatar-circle small">✨</div>
-        <h1 style="font-size:18px;">{{ t.tile_ai }}</h1>
-      </div>
-      <button id="clear-btn" class="clear-btn" title="{{ t.new_chat }}">🗑️</button>
-    </div>
-
-    <div id="messages" class="messages-box">
-      <div class="msg-row msg-left">
-        <div class="msg-bubble msg-other">
-          <div class="msg-text">{{ t.ai_welcome_message }}</div>
-        </div>
-      </div>
-    </div>
-
-    <form id="send-form" class="send-form">
-      <input type="text" id="message-input" placeholder="{{ t.ai_placeholder }}" autocomplete="off" maxlength="2000">
-      <button type="submit" class="btn-primary send-btn">→</button>
-    </form>
-  </div>
-
-  <script>
-    const T = {
-      connectionError: "{{ t.ai_connection_error }}",
-      newChatMessage: "{{ t.ai_new_chat_message }}",
-    };
-
-    const messagesBox = document.getElementById("messages");
-    const form = document.getElementById("send-form");
-    const input = document.getElementById("message-input");
-    const clearBtn = document.getElementById("clear-btn");
-
-    let history = [];
-
-    function escapeHtml(text) {
-      const div = document.createElement("div");
-      div.textContent = text;
-      return div.innerHTML;
+  <style>
+    /* ================================================================
+       Linko AI sahifasi uchun maxsus uslublar (faqat shu sahifada)
+       ================================================================ */
+    body.ai-page {
+      margin: 0;
+      padding: 0 !important;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      background: #02040c !important;
+      color: #e6f6ff;
+    }
+    #stage {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      display: block;
+      z-index: 0;
+      touch-action: none;
+      cursor: crosshair;
     }
 
-    function addBubble(text, isMe, isLoading = false) {
-      const row = document.createElement("div");
-      row.className = "msg-row " + (isMe ? "msg-right" : "msg-left");
-      if (isLoading) row.id = "loading-bubble";
-      row.innerHTML = `
-        <div class="msg-bubble ${isMe ? "msg-mine" : "msg-other"}">
-          <div class="msg-text">${isLoading ? "..." : escapeHtml(text)}</div>
-        </div>
-      `;
-      messagesBox.appendChild(row);
-      messagesBox.scrollTop = messagesBox.scrollHeight;
-      return row;
+    /* --- Yuqori panel --- */
+    .ai-top {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: calc(12px + env(safe-area-inset-top)) 14px 10px;
+      pointer-events: none;
+    }
+    .ai-top > * { pointer-events: auto; }
+    .ai-back {
+      color: #9fdcff;
+      text-decoration: none;
+      font-size: 22px;
+      line-height: 1;
+      padding: 6px 8px;
+      border-radius: 12px;
+    }
+    .ai-title { flex: 1; min-width: 0; cursor: pointer; user-select: none; }
+    .ai-title h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: .3px;
+      background: linear-gradient(90deg, #7dd3fc, #a78bfa 60%, #f0abfc);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .ai-hud {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: #78dcff;
+      text-shadow: 0 0 8px rgba(80, 200, 255, .8);
+      white-space: nowrap;
+    }
+    .ai-hud.blink { animation: aiBlink .9s steps(2, start) infinite; }
+    .ai-hud.warm { color: #ffb36b; text-shadow: 0 0 8px rgba(255, 150, 60, .8); }
+    @keyframes aiBlink { to { opacity: .2; } }
+
+    .ai-tools { display: flex; align-items: center; gap: 6px; }
+    .ai-btn, .ai-select {
+      height: 36px;
+      min-width: 36px;
+      border-radius: 12px;
+      border: 1px solid rgba(120, 200, 255, .22);
+      background: rgba(8, 14, 32, .55);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: #cfeeff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0 8px;
+      font: inherit;
+      font-size: 13px;
+      transition: background .2s, border-color .2s, box-shadow .2s;
+    }
+    .ai-btn svg { width: 18px; height: 18px; }
+    .ai-btn:hover, .ai-select:hover { border-color: rgba(120, 200, 255, .5); }
+    .ai-btn.on {
+      background: rgba(40, 150, 255, .28);
+      border-color: rgba(120, 210, 255, .8);
+      box-shadow: 0 0 14px rgba(70, 180, 255, .45);
+    }
+    .ai-btn.off { opacity: .55; }
+    .ai-select { padding: 0 6px; appearance: none; -webkit-appearance: none; text-align: center; }
+    .ai-select option { background: #0b1226; color: #e6f6ff; }
+
+    /* --- Kamera ko'rinishi (kichik oyna) --- */
+    #cam-view {
+      position: fixed;
+      z-index: 6;
+      top: calc(62px + env(safe-area-inset-top));
+      right: 14px;
+      width: 104px;
+      height: 78px;
+      object-fit: cover;
+      border-radius: 14px;
+      border: 1px solid rgba(120, 210, 255, .6);
+      box-shadow: 0 0 18px rgba(60, 170, 255, .35);
+      transform: scaleX(-1);
+      display: none;
+      background: #000;
+    }
+    #cam-view.show { display: block; }
+
+    /* --- Chat paneli --- */
+    .ai-panel {
+      position: fixed;
+      z-index: 5;
+      left: max(12px, calc(50% - 300px));
+      right: max(12px, calc(50% - 300px));
+      bottom: calc(96px + env(safe-area-inset-bottom));
+      max-height: 40vh;
+      max-height: 40dvh;
+      display: flex;
+      flex-direction: column;
+      background: rgba(5, 10, 26, .58);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(120, 200, 255, .18);
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+      overflow: hidden;
+    }
+    .ai-messages {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px 12px 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      scrollbar-width: thin;
+    }
+    .ai-msg {
+      max-width: 86%;
+      padding: 9px 13px;
+      border-radius: 16px;
+      font-size: 14.5px;
+      line-height: 1.45;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    .ai-msg.me {
+      align-self: flex-end;
+      background: linear-gradient(135deg, rgba(59, 130, 246, .85), rgba(139, 92, 246, .85));
+      color: #fff;
+      border-bottom-right-radius: 5px;
+    }
+    .ai-msg.bot {
+      align-self: flex-start;
+      background: rgba(20, 40, 70, .55);
+      border: 1px solid rgba(110, 200, 255, .25);
+      color: #dff4ff;
+      border-bottom-left-radius: 5px;
+    }
+    .ai-msg.err { border-color: rgba(255, 140, 120, .45); color: #ffd6cc; }
+    .ai-dots span {
+      display: inline-block; width: 6px; height: 6px; margin: 0 2px;
+      border-radius: 50%; background: #7dd3fc;
+      animation: aiDot 1s infinite ease-in-out;
+    }
+    .ai-dots span:nth-child(2) { animation-delay: .15s; }
+    .ai-dots span:nth-child(3) { animation-delay: .3s; }
+    @keyframes aiDot { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+
+    .ai-form {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      border-top: 1px solid rgba(120, 200, 255, .12);
+    }
+    .ai-form input {
+      flex: 1;
+      min-width: 0;
+      height: 44px;
+      border-radius: 14px;
+      border: 1px solid rgba(120, 200, 255, .22);
+      background: rgba(0, 0, 0, .35);
+      color: #fff;
+      padding: 0 14px;
+      font-size: 16px; /* iPhone'da avtomatik zoom bo'lmasligi uchun */
+      outline: none;
+    }
+    .ai-form input:focus { border-color: rgba(120, 210, 255, .7); }
+    .ai-form .ai-btn { height: 44px; min-width: 44px; border-radius: 14px; }
+    .ai-send { background: linear-gradient(135deg, #3b82f6, #8b5cf6) !important; border: none !important; color: #fff !important; }
+    #mic-btn.on { animation: micPulse 1.2s infinite; }
+    @keyframes micPulse { 50% { box-shadow: 0 0 22px rgba(70, 190, 255, .9); } }
+
+    /* --- Qisqa xabar (toast) --- */
+    #ai-toast {
+      position: fixed;
+      z-index: 20;
+      left: 50%;
+      top: calc(70px + env(safe-area-inset-top));
+      transform: translateX(-50%) translateY(-10px);
+      max-width: min(92vw, 420px);
+      padding: 10px 16px;
+      border-radius: 14px;
+      background: rgba(10, 20, 44, .92);
+      border: 1px solid rgba(120, 200, 255, .35);
+      color: #dff4ff;
+      font-size: 13.5px;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s, transform .25s;
+    }
+    #ai-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* Telefon: tor ekranda tugmalar ixchamroq */
+    @media (max-width: 480px) {
+      .ai-title h1 { font-size: 16px; }
+      .ai-btn, .ai-select { height: 34px; min-width: 34px; padding: 0 6px; }
+      .ai-tools { gap: 4px; }
     }
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const message = input.value.trim();
-      if (!message) return;
-      input.value = "";
-
-      addBubble(message, true);
-      const loadingRow = addBubble("", false, true);
-
-      try {
-        const res = await fetch("/api/ai/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ history, message }),
-        });
-        const data = await res.json();
-        loadingRow.remove();
-
-        if (data.error) {
-          addBubble("⚠️ " + data.error, false);
-        } else {
-          addBubble(data.reply, false);
-          history.push({ role: "user", content: message });
-          history.push({ role: "assistant", content: data.reply });
-        }
-      } catch (err) {
-        loadingRow.remove();
-        addBubble("⚠️ " + T.connectionError, false);
+    /* Kompyuter: chapda yon menyu, chat o'ng tomonda */
+    @media (min-width: 900px) {
+      .ai-top { left: 236px; padding: 18px 24px 10px; }
+      #cam-view { top: 74px; right: 428px; width: 136px; height: 102px; }
+      .ai-panel {
+        left: auto;
+        right: 24px;
+        top: 74px;
+        bottom: 24px;
+        width: 380px;
+        max-height: none;
       }
-    });
+      #ai-toast { left: calc(50% + 118px); }
+    }
+  </style>
+</head>
+<body class="ai-page">
+  <canvas id="stage" aria-hidden="true"></canvas>
+  <video id="cam-view" playsinline muted></video>
 
-    clearBtn.addEventListener("click", () => {
-      history = [];
-      messagesBox.innerHTML = "";
-      addBubble(T.newChatMessage, false);
-    });
-  </script>
+  <header class="ai-top" id="ai-top">
+    <a href="{{ url_for('dashboard') }}" class="ai-back" aria-label="Back">←</a>
+    <div class="ai-title" id="ai-title">
+      <h1>{{ t.tile_ai }}</h1>
+      <div class="ai-hud blink" id="hud">INITIALIZING...</div>
+    </div>
+    <div class="ai-tools">
+      <select id="lang-select" class="ai-select">
+        <option value="en">EN</option>
+        <option value="ru">RU</option>
+        <option value="tr">TR</option>
+        <option value="zh">中文</option>
+        <option value="uz">UZ</option>
+      </select>
+      <button type="button" class="ai-btn" id="cam-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      </button>
+      <button type="button" class="ai-btn" id="snd-btn">
+        <svg id="snd-on-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>
+        <svg id="snd-off-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
+      </button>
+      <button type="button" class="ai-btn" id="clear-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="ai-panel" id="panel">
+    <div id="messages" class="ai-messages"></div>
+    <form id="send-form" class="ai-form" autocomplete="off">
+      <button type="button" class="ai-btn" id="mic-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/></svg>
+      </button>
+      <input type="text" id="message-input" maxlength="2000" enterkeyhint="send">
+      <button type="submit" class="ai-btn ai-send" id="send-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+      </button>
+    </form>
+  </section>
+
+  <div id="ai-toast" role="status"></div>
 
   {% include 'navbar.html' %}
+
+<script>
+"use strict";
+/* =====================================================================
+   LINKO AI — zarrachali humanoid + suhbat
+   Tarkib:
+     1. Sozlamalar (CONFIG)
+     2. Tillar (UI matnlari)
+     3. Humanoid va Linko logotipi shakllari (protsedural)
+     4. Chizish sikli (animatsiya)
+     5. Ovoz effektlari (WebAudio)
+     6. Gapirish (speechSynthesis) va eshitish (SpeechRecognition)
+     7. Kamera (harakat + yuzni kuzatish)
+     8. Chat (server bilan ishlash)
+   ===================================================================== */
+
+/* =====================================================================
+   1. SOZLAMALAR — hammasi shu yerda
+   ===================================================================== */
+
+// Zarrachalar soni. Sekin ishlasa, kamaytiring (masalan 3000 / 2000).
+const PARTICLE_COUNT = 5000;        // kompyuter uchun
+const PARTICLE_COUNT_LITE = 3000;   // telefon va kuchsiz qurilmalar uchun
+
+// Kuchsiz qurilmani aniqlash (telefon, 4 GB RAM yoki 4 yadroli protsessor)
+const LITE = matchMedia("(pointer: coarse)").matches ||
+             (navigator.deviceMemory || 8) <= 4 ||
+             (navigator.hardwareConcurrency || 8) <= 4;
+
+const CONFIG = {
+  particleCount: LITE ? PARTICLE_COUNT_LITE : PARTICLE_COUNT,
+  maxDPR: LITE ? 1 : 1.5,      // ekran aniqligi chegarasi (kichik = tezroq)
+
+  colors: {
+    blue:   [70, 200, 255],    // humanoid tashqi qatlami
+    dust:   [140, 225, 255],   // yelkadan uchayotgan "chang"
+    orange: [255, 150, 55],    // bosh ichidagi issiq yadro
+    gold:   [255, 210, 110],   // bo'yin va ko'krakdagi energiya chiziqlari
+    orb:    [160, 230, 255],   // shar / quvvat manbai
+    white:  [255, 255, 255],   // logotip nuqtasi
+    // Linko logotipi gradienti (logo.svg dagi ranglar)
+    logo:   [[59, 130, 246], [139, 92, 246], [236, 72, 153]]
+  },
+  background: [2, 4, 12],
+
+  trailFade: 0.32,       // 0..1, kichik = uzunroq iz
+  particleSize: 7,       // zarracha kattaligi (px)
+  glowLevels: 12,        // yorqinlik bosqichlari
+  contourLines: LITE ? 52 : 62,  // humanoiddagi gorizontal chiziqlar soni
+  shares: { gold: 0.06, dust: 0.04 },
+  arcTurns: 0.92,        // boshidagi kometa aylanasi
+
+  // Boshlanish animatsiyasi (sekund)
+  timeline: {
+    orbHold: 0.6, emit: 2.8,
+    formStart: 3.6, formStagger: 1.6, formDuration: 1.5,
+    online: 6.9
+  },
+
+  breathPeriod: 4.0,     // nafas olish davri
+  breathAmount: 0.012,
+  scanPeriod: 3.2,       // yorug' skan chizig'i tezligi
+  dustPeriod: 3.0,
+  coreGlow: 0.55,        // boshdagi to'q sariq nur kuchi
+
+  headTurn: 0.5,         // boshning maksimal burilishi (radian)
+  pointerRadius: 0.11,   // kursor/barmoq ta'sir radiusi
+  pointerPush: 0.010,    // kursor kuchi
+  spring: 0.045,         // zarrachalarning joyiga qaytish kuchi
+  damping: 0.86,
+
+  logoIdleSeconds: 75,   // shuncha vaqt jim tursa, Linko logotipiga aylanadi
+  logoHold: 3.5,         // logotip ko'rinib turadigan vaqt
+  maxHistory: 20         // AI'ga yuboriladigan oxirgi xabarlar soni
+};
+
+/* =====================================================================
+   2. TILLAR — sahifadagi matnlar (uz / en / ru / tr / zh)
+   ===================================================================== */
+
+const I18N = {
+  uz: {
+    welcome: "Salom! Men Linko AI'man. Yozing yoki mikrofonni bosib gapiring.",
+    placeholder: "Savolingizni yozing...",
+    newChat: "Yangi suhbat boshlandi.",
+    connErr: "Bog'lanishda xato yuz berdi.",
+    no_key: "AI kaliti sozlanmagan (GEMINI_API_KEY).",
+    limit: "Bugungi bepul limit tugadi. Keyinroq urinib ko'ring.",
+    user_limit: "Juda ko'p so'rov yubordingiz. Biroz kuting.",
+    ai_error: "AI javob bera olmadi. Qaytadan urinib ko'ring.",
+    micNo: "Bu brauzerda ovozli yozish yo'q. Chrome yoki Edge'dan foydalaning.",
+    micDenied: "Mikrofonga ruxsat berilmadi.",
+    camNo: "Kamera topilmadi yoki bu brauzerda ishlamaydi.",
+    camDenied: "Kameraga ruxsat berilmadi.",
+    camOn: "Kamera yoqildi: bosh qimirlating yoki qo'l silkiting 👋",
+    voiceUz: "O'zbekcha ovoz topilmadi, turkcha ovoz bilan o'qiladi.",
+    voiceNo: "Bu qurilmada shu til uchun ovoz yo'q.",
+    tMic: "Ovoz bilan yozish", tCam: "Kamera", tSnd: "Ovoz", tClear: "Yangi suhbat",
+    tLang: "AI ovozi tili", tSend: "Yuborish"
+  },
+  en: {
+    welcome: "Hi! I'm Linko AI. Type, or tap the mic and talk to me.",
+    placeholder: "Ask me anything...",
+    newChat: "New chat started.",
+    connErr: "Connection error.",
+    no_key: "AI key is not configured (GEMINI_API_KEY).",
+    limit: "Today's free limit is used up. Please try again later.",
+    user_limit: "Too many requests. Please wait a moment.",
+    ai_error: "The AI couldn't answer. Please try again.",
+    micNo: "Voice input isn't supported in this browser. Try Chrome or Edge.",
+    micDenied: "Microphone permission was denied.",
+    camNo: "No camera found, or it isn't supported in this browser.",
+    camDenied: "Camera permission was denied.",
+    camOn: "Camera on: move your head or wave your hand 👋",
+    voiceUz: "No Uzbek voice found, using a Turkish voice.",
+    voiceNo: "No voice for this language on this device.",
+    tMic: "Voice input", tCam: "Camera", tSnd: "Sound", tClear: "New chat",
+    tLang: "AI voice language", tSend: "Send"
+  },
+  ru: {
+    welcome: "Привет! Я Linko AI. Напишите или нажмите на микрофон и говорите.",
+    placeholder: "Задайте вопрос...",
+    newChat: "Начат новый диалог.",
+    connErr: "Ошибка соединения.",
+    no_key: "Ключ AI не настроен (GEMINI_API_KEY).",
+    limit: "Бесплатный лимит на сегодня исчерпан. Попробуйте позже.",
+    user_limit: "Слишком много запросов. Подождите немного.",
+    ai_error: "AI не смог ответить. Попробуйте ещё раз.",
+    micNo: "Голосовой ввод не поддерживается. Используйте Chrome или Edge.",
+    micDenied: "Доступ к микрофону запрещён.",
+    camNo: "Камера не найдена или не поддерживается.",
+    camDenied: "Доступ к камере запрещён.",
+    camOn: "Камера включена: двигайте головой или помашите рукой 👋",
+    voiceUz: "Узбекский голос не найден, используется турецкий.",
+    voiceNo: "На этом устройстве нет голоса для этого языка.",
+    tMic: "Голосовой ввод", tCam: "Камера", tSnd: "Звук", tClear: "Новый чат",
+    tLang: "Язык голоса AI", tSend: "Отправить"
+  },
+  tr: {
+    welcome: "Merhaba! Ben Linko AI. Yazın ya da mikrofona dokunup konuşun.",
+    placeholder: "Bir şey sorun...",
+    newChat: "Yeni sohbet başladı.",
+    connErr: "Bağlantı hatası.",
+    no_key: "AI anahtarı ayarlanmamış (GEMINI_API_KEY).",
+    limit: "Bugünkü ücretsiz limit doldu. Lütfen daha sonra tekrar deneyin.",
+    user_limit: "Çok fazla istek. Lütfen biraz bekleyin.",
+    ai_error: "AI yanıt veremedi. Lütfen tekrar deneyin.",
+    micNo: "Bu tarayıcı sesli girişi desteklemiyor. Chrome veya Edge kullanın.",
+    micDenied: "Mikrofon izni verilmedi.",
+    camNo: "Kamera bulunamadı veya desteklenmiyor.",
+    camDenied: "Kamera izni verilmedi.",
+    camOn: "Kamera açık: başınızı hareket ettirin ya da el sallayın 👋",
+    voiceUz: "Özbekçe ses bulunamadı, Türkçe ses kullanılıyor.",
+    voiceNo: "Bu cihazda bu dil için ses yok.",
+    tMic: "Sesli giriş", tCam: "Kamera", tSnd: "Ses", tClear: "Yeni sohbet",
+    tLang: "AI ses dili", tSend: "Gönder"
+  },
+  zh: {
+    welcome: "你好！我是 Linko AI。可以打字，也可以点麦克风和我说话。",
+    placeholder: "请输入您的问题...",
+    newChat: "已开始新对话。",
+    connErr: "连接出错。",
+    no_key: "AI 密钥未配置（GEMINI_API_KEY）。",
+    limit: "今天的免费额度已用完，请稍后再试。",
+    user_limit: "请求过多，请稍等片刻。",
+    ai_error: "AI 无法回答，请重试。",
+    micNo: "此浏览器不支持语音输入，请使用 Chrome 或 Edge。",
+    micDenied: "麦克风权限被拒绝。",
+    camNo: "未找到摄像头，或此浏览器不支持。",
+    camDenied: "摄像头权限被拒绝。",
+    camOn: "摄像头已开启：转动头部或挥挥手 👋",
+    voiceUz: "未找到乌兹别克语语音，将使用土耳其语语音。",
+    voiceNo: "此设备没有该语言的语音。",
+    tMic: "语音输入", tCam: "摄像头", tSnd: "声音", tClear: "新对话",
+    tLang: "AI 语音语言", tSend: "发送"
+  }
+};
+const LOCALES = { uz: "uz-UZ", en: "en-US", ru: "ru-RU", tr: "tr-TR", zh: "zh-CN" };
+
+function lsGet(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* bo'lmasa ham ishlayveradi */ } }
+
+const APP_LANG = {{ lang|tojson }};
+let LANG = lsGet("linko_ai_lang", I18N[APP_LANG] ? APP_LANG : "en");
+if (!I18N[LANG]) LANG = "en";
+let L = I18N[LANG];
+
+/* =====================================================================
+   3. SHAKLLAR
+   Koordinatalar "birlik"da: x o'ngga, y pastga, markaz = sahna markazi.
+   ===================================================================== */
+
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d", { alpha: false });
+const TAU = Math.PI * 2;
+const TL = CONFIG.timeline;
+const N = CONFIG.particleCount;
+const LEVELS = CONFIG.glowLevels;
+const TOP = -0.62, BOTTOM = 0.6;
+const INTRO_END = TL.formStart + TL.formStagger + TL.formDuration + 0.1;
+
+// --- Oldindan chizilgan porlovchi nuqtalar (har kadrda gradient yaratilmaydi) ---
+function makeDot(rgb, alpha, size) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d");
+  const r = size / 2;
+  const R = rgb[0], G = rgb[1], B = rgb[2];
+  const cr = Math.round(R + (255 - R) * 0.6), cg = Math.round(G + (255 - G) * 0.6), cb = Math.round(B + (255 - B) * 0.6);
+  const grd = g.createRadialGradient(r, r, 0, r, r, r);
+  grd.addColorStop(0.0, `rgba(${cr},${cg},${cb},${alpha})`);
+  grd.addColorStop(0.18, `rgba(${R},${G},${B},${alpha})`);
+  grd.addColorStop(0.45, `rgba(${R},${G},${B},${alpha * 0.28})`);
+  grd.addColorStop(1.0, `rgba(${R},${G},${B},0)`);
+  g.fillStyle = grd;
+  g.fillRect(0, 0, size, size);
+  return c;
+}
+function makeGlow(rgb, size) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d");
+  const r = size / 2;
+  const grd = g.createRadialGradient(r, r, 0, r, r, r);
+  const s = rgb.join(",");
+  grd.addColorStop(0.0, `rgba(${s},1)`);
+  grd.addColorStop(0.2, `rgba(${s},0.5)`);
+  grd.addColorStop(0.5, `rgba(${s},0.14)`);
+  grd.addColorStop(1.0, `rgba(${s},0)`);
+  g.fillStyle = grd;
+  g.fillRect(0, 0, size, size);
+  return c;
+}
+function mixColor(a, b, k) {
+  return [Math.round(a[0] + (b[0] - a[0]) * k), Math.round(a[1] + (b[1] - a[1]) * k), Math.round(a[2] + (b[2] - a[2]) * k)];
+}
+// Logotip gradientidan 6 ta rang: ko'k -> binafsha -> pushti
+const LOGO_STEPS = 6;
+const LOGO_COLORS = [];
+for (let k = 0; k < LOGO_STEPS; k++) {
+  const t = k / (LOGO_STEPS - 1);
+  const C = CONFIG.colors.logo;
+  LOGO_COLORS.push(t < 0.55 ? mixColor(C[0], C[1], t / 0.55) : mixColor(C[1], C[2], (t - 0.55) / 0.45));
+}
+
+// SPR[rang][yorqinlik]. Ranglar: 0 ko'k, 1 to'q sariq, 2 oltin, 3 chang, 4..9 logotip, 10 oq
+const COL_LOGO0 = 4, COL_WHITE = 4 + LOGO_STEPS;
+const SPR = [];
+[CONFIG.colors.blue, CONFIG.colors.orange, CONFIG.colors.gold, CONFIG.colors.dust]
+  .concat(LOGO_COLORS, [CONFIG.colors.white])
+  .forEach((col) => {
+    const lv = [];
+    for (let l = 0; l < LEVELS; l++) lv.push(makeDot(col, (l + 1) / LEVELS, 32));
+    SPR.push(lv);
+  });
+const ORB_CORE = makeDot(CONFIG.colors.orb, 1, 64);
+const GLOW_BLUE = makeGlow(CONFIG.colors.blue, 128);
+const GLOW_ORB = makeGlow(CONFIG.colors.orb, 128);
+const GLOW_ORANGE = makeGlow(CONFIG.colors.orange, 128);
+const GLOW_VIOLET = makeGlow(CONFIG.colors.logo[1], 128);
+
+// --- Humanoid silueti ---
+const HEAD = { cy: -0.36, rx: 0.175, ry: 0.26 };
+
+// y balandlikdagi tananing yarim kengligi (bosh + bo'yin + yelkalar)
+function halfWidth(y) {
+  let w = 0;
+  const hd = (y - HEAD.cy) / HEAD.ry;
+  if (hd > -1 && hd < 1) {
+    let h = HEAD.rx * Math.sqrt(1 - hd * hd);
+    if (hd > 0) h *= 1 - 0.3 * hd * hd;          // jag' torayadi
+    w = h;
+  }
+  if (y > -0.2 && y < 0.1) w = Math.max(w, 0.078); // bo'yin
+  if (y > -0.02) {                                  // yelka va ko'krak
+    const t = Math.min(1, (y + 0.02) / 0.24);
+    const e = 1 - Math.pow(1 - t, 2.4);
+    w = Math.max(w, 0.08 + 0.4 * e + 0.04 * Math.max(0, (y - 0.22) / 0.4));
+  }
+  return w;
+}
+function gauss(dx, dy, sx, sy) { return Math.exp(-(dx * dx) / (sx * sx) - (dy * dy) / (sy * sy)); }
+
+// Yuz va ko'krakdagi "bo'rtiqlar": burun, ko'z, qosh, yonoq, lab, iyak
+function featureDepth(x, y) {
+  let f = 0;
+  if (y < -0.1) {
+    const ax = Math.abs(x);
+    f += 0.55 * gauss(x, y + 0.29, 0.022, 0.065);
+    f -= 0.35 * gauss(ax - 0.068, y + 0.375, 0.035, 0.022);
+    f += 0.18 * gauss(x * 0.6, y + 0.42, 0.07, 0.015);
+    f += 0.15 * gauss(ax - 0.11, y + 0.27, 0.035, 0.05);
+    f += 0.12 * gauss(x, y + 0.195, 0.04, 0.012);
+    f += 0.15 * gauss(x, y + 0.145, 0.04, 0.025);
+  } else if (y > 0.15) {
+    f += 0.15 * gauss(Math.abs(x) - 0.17, y - 0.33, 0.12, 0.08);
+  }
+  return f;
+}
+// Nuqtani soxta-3D sirtga proyeksiya qiladi. Natija global o'zgaruvchilarda (obyekt yaratilmaydi).
+let SZ = 0, SF = 0, SY = 0;
+function surface(x, y) {
+  const hw = halfWidth(y);
+  const u = hw > 0 ? x / hw : 1;
+  SZ = Math.sqrt(Math.max(0, 1 - u * u));
+  SF = featureDepth(x, y);
+  SY = y + (y < -0.1 ? 0.03 : 0.05) * (SZ * 0.6 + SF);
+}
+
+// --- Zarracha ma'lumotlari (bir marta ajratiladi) ---
+const F = () => new Float32Array(N);
+const tx = F(), ty = F(), tz = F(), tb = F(), sz = F();
+const pcx = F(), pcy = F(), emit = F(), sdx = F(), sdy = F(), sp0 = F(), ia0 = F();
+const delay = F(), swirl = F(), ph = F(), gv = F(), ddx = F(), ddy = F();
+const headW = F(), jawW = F();
+const lx = F(), ly = F(), lb = F(), md = F();       // logotip nishonlari
+const lcol = new Uint8Array(N);
+const pox = F(), poy = F(), pvx = F(), pvy = F();   // fizika (kursor, portlash)
+const type = new Uint8Array(N);                     // 0 ko'k, 1 to'q sariq, 2 oltin, 3 chang
+
+const nGold = Math.round(N * CONFIG.shares.gold);
+const nDust = Math.round(N * CONFIG.shares.dust);
+const nShape = N - nGold - nDust;
+
+function setShape(i, x, y) {
+  surface(x, y);
+  tx[i] = x; ty[i] = SY;
+  tz[i] = SZ * halfWidth(y) * 0.9 + SF * 0.05;      // chuqurlik (bosh burilishi uchun)
+  let b = 0.18 + 0.82 * Math.pow(1 - SZ, 2.2) + 0.6 * Math.abs(SF);  // chetlari yorqinroq
+  if (y > 0.38) b *= Math.max(0.05, 1 - (y - 0.38) / 0.24);           // pastga qarab so'nadi
+  type[i] = 0;
+  sz[i] = 0.75 + Math.random() * 0.5 + (1 - SZ) * 0.35;
+  if (y < -0.1) {                                                       // yuz ichidagi issiq yadro
+    const o = gauss(x, y + 0.32, 0.085, 0.13);
+    if (Math.random() < o * 0.9) { type[i] = 1; b = 0.45 + 0.55 * o; sz[i] *= 1.15; }
+  }
+  tb[i] = Math.min(1.2, b);
+}
+
+(function buildShape() {
+  const lines = [];
+  let total = 0;
+  for (let k = 0; k < CONFIG.contourLines; k++) {
+    const y = TOP + (BOTTOM - TOP) * (k / (CONFIG.contourLines - 1));
+    const hw = halfWidth(y);
+    if (hw < 0.01) continue;
+    const weight = 2 * hw * (y < -0.1 ? 1.7 : 1);
+    lines.push(y, hw, weight);
+    total += weight;
+  }
+  let idx = 0;
+  for (let l = 0; l < lines.length && idx < nShape; l += 3) {
+    const y = lines[l], hw = lines[l + 1];
+    const n = Math.round(nShape * lines[l + 2] / total);
+    for (let j = 0; j < n && idx < nShape; j++) {
+      const u = (j + 0.5 + (Math.random() - 0.5) * 0.3) / n;
+      setShape(idx++, (-1 + 2 * u) * hw, y);
+    }
+  }
+  while (idx < nShape) {
+    const l = 3 * Math.floor(Math.random() * (lines.length / 3));
+    setShape(idx++, (Math.random() * 2 - 1) * lines[l + 1], lines[l]);
+  }
+})();
+
+// Quvvat manbai (ko'krakning pastki markazi)
+surface(0, 0.42);
+const DOT_Y = SY;
+
+// Oltin energiya chiziqlari: bo'yindan ko'krakka, quvvat manbaiga yig'iladi
+(function buildGold() {
+  const X0 = [-0.055, -0.027, 0, 0.027, 0.055];
+  for (let j = 0; j < nGold; j++) {
+    const i = nShape + j, line = j % X0.length, v = Math.random();
+    const y = -0.17 + v * 0.59;
+    const spread = (1 + 5.5 * Math.pow(Math.sin(v * Math.PI), 1.2)) * (1 - v * v * v);
+    const x = X0[line] * spread + 0.005 * Math.sin(v * 40 + line * 2);
+    surface(x, y);
+    tx[i] = x; ty[i] = SY; tz[i] = SZ * halfWidth(y) * 0.9 + 0.01;
+    gv[i] = v; tb[i] = 1; sz[i] = 0.8 + Math.random() * 0.4; type[i] = 2;
+  }
+})();
+
+// O'ng yelkadan uchib ketayotgan raqamli chang
+(function buildDust() {
+  surface(0.4, 0.15);
+  const baseY = SY;
+  for (let j = 0; j < nDust; j++) {
+    const i = nShape + nGold + j;
+    tx[i] = 0.4 + Math.random() * 0.04;
+    ty[i] = baseY + (Math.random() - 0.5) * 0.03;
+    ddx[i] = 0.25 + Math.random() * 0.45;
+    ddy[i] = -0.04 - Math.random() * 0.22;
+    tb[i] = 0.75; sz[i] = 0.6 + Math.random() * 0.5; type[i] = 3;
+  }
+})();
+
+// Bosh burilishi va jag' harakati uchun og'irliklar
+function clamp(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+for (let i = 0; i < N; i++) {
+  if (type[i] === 3) continue;
+  headW[i] = clamp((-0.03 - ty[i]) / 0.13);                         // boshda 1, ko'krakda 0
+  if (Math.abs(tx[i]) < 0.15) jawW[i] = clamp((ty[i] + 0.2) / 0.02) * clamp((-0.085 - ty[i]) / 0.03);
+}
+
+// --- Linko logotipi (logo.svg: ochiq gradient halqa + oq nuqta) ---
+(function buildLogo() {
+  const RR = 0.3, SW = 0.115, OY = -0.03;             // halqa radiusi, qalinligi, markaz
+  const a0 = -3.5 * Math.PI / 180;
+  const arc = (560 / (TAU * 120)) * TAU;               // svg dagi stroke-dasharray bo'yicha
+  const pts = [];                                     // x, y, rangIndeks, yorqinlik
+  const M = N - nDust;
+  const nDot = Math.round(M * 0.12), nRing = M - nDot;
+  const RINGS = 6;
+  const lens = [];
+  let totalLen = 0;
+  for (let r = 0; r < RINGS; r++) {
+    const o = (r / (RINGS - 1) - 0.5) * SW;           // markaziy chiziqdan siljish
+    const rad = RR + o;
+    const ext = Math.sqrt(Math.max(0, (SW / 2) * (SW / 2) - o * o)) / rad; // dumaloq uchlar
+    const len = rad * (arc + 2 * ext);
+    lens.push(rad, ext, len);
+    totalLen += len;
+  }
+  function gradIndex(x, y) {                           // diagonal gradient (yuqori chap -> past o'ng)
+    const X = 256 + (x / RR) * 120, Y = 256 + ((y - OY) / RR) * 120;
+    return COL_LOGO0 + Math.min(LOGO_STEPS - 1, Math.max(0, Math.round(((X + Y) / 1024) * (LOGO_STEPS - 1))));
+  }
+  for (let r = 0; r < RINGS; r++) {
+    const rad = lens[r * 3], ext = lens[r * 3 + 1];
+    const n = Math.round(nRing * lens[r * 3 + 2] / totalLen);
+    const edge = Math.abs(r / (RINGS - 1) - 0.5) * 2;  // chetki halqalar yorqinroq
+    for (let j = 0; j < n; j++) {
+      const th = a0 - ext + (arc + 2 * ext) * ((j + Math.random() * 0.3) / n);
+      const x = Math.cos(th) * rad, y = OY + Math.sin(th) * rad;
+      pts.push(x, y, gradIndex(x, y), 0.2 + 0.2 * edge);   // zich joy: yorqinlik pastroq, aks holda oqarib ketadi
+    }
+  }
+  const dcx = (86 / 120) * RR, dcy = OY - (86 / 120) * RR, dr = (34 / 120) * RR;
+  let k = 0;
+  while (pts.length / 4 < M) {
+    const ring = (k % 4) + 1, rad = dr * ring / 4;
+    const th = Math.random() * TAU;
+    pts.push(dcx + Math.cos(th) * rad, dcy + Math.sin(th) * rad, COL_WHITE, 0.22 + 0.05 * ring);
+    k++;
+  }
+  // Tasodifiy taqsimlash: zarrachalar aylanib, aralashib yig'iladi
+  const order = [];
+  for (let i = 0; i < N; i++) if (type[i] !== 3) order.push(i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = order[i]; order[i] = order[j]; order[j] = t;
+  }
+  for (let j = 0; j < order.length; j++) {
+    const i = order[j];
+    lx[i] = pts[j * 4]; ly[i] = pts[j * 4 + 1]; lcol[i] = pts[j * 4 + 2]; lb[i] = pts[j * 4 + 3];
+    md[i] = Math.random() * 0.7;
+  }
+})();
+
+// --- Kometa va yig'ilish vaqtlari ---
+for (let i = 0; i < N; i++) {
+  const e = TL.orbHold + Math.random() * TL.emit;
+  emit[i] = e;
+  const a = (e - TL.orbHold) / TL.emit;
+  const th = Math.PI / 2 + a * TAU * CONFIG.arcTurns, r = 1 - 0.35 * a;
+  pcx[i] = Math.cos(th) * r; pcy[i] = Math.sin(th) * r;
+  sdx[i] = (Math.random() + Math.random() - 1) * 0.4;
+  sdy[i] = (Math.random() + Math.random() - 1) * 0.4;
+  const age0 = TL.formStart - e;
+  sp0[i] = 1 - Math.exp(-age0 * 1.4);
+  ia0[i] = 0.12 + 0.55 * Math.exp(-age0 * 1.6);
+  delay[i] = TL.formStagger * (0.75 * (ty[i] + 0.65) / 1.3 + 0.25 * Math.random());
+  swirl[i] = (Math.random() - 0.5) * 0.7;
+  ph[i] = Math.random();
+}
+
+/* =====================================================================
+   4. CHIZISH SIKLI
+   ===================================================================== */
+
+function ease(k) {
+  if (k <= 0) return 0;
+  if (k >= 1) return 1;
+  return k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+}
+
+const BG = CONFIG.background;
+const FADE_STYLE = `rgba(${BG[0]},${BG[1]},${BG[2]},${CONFIG.trailFade})`;
+const topEl = document.getElementById("ai-top");
+const panelEl = document.getElementById("panel");
+
+let W = 0, H = 0, dpr = 1, spriteSize = 7;
+let S = 1, CX = 0, CY = 0;          // joriy o'lcham va markaz (silliq o'zgaradi)
+let tS = 1, tCX = 0, tCY = 0;       // maqsadli qiymatlar
+let RX = 1, RY = 1;                 // kometa aylanasi
+let firstLayout = true;
+let dprCap = CONFIG.maxDPR;
+
+// Humanoid joylashadigan bo'sh joyni topadi (tepa panel, chat va menyu orasida)
+function layout() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const nav = document.querySelector(".bottom-nav");
+  const nr = nav ? nav.getBoundingClientRect() : null;
+  const sidebar = !!nr && nr.height > vh * 0.7;
+  if (nr && !sidebar) panelEl.style.bottom = Math.round(vh - nr.top + 10) + "px";
+  else panelEl.style.bottom = "";
+  const top = topEl.getBoundingClientRect().bottom + 6;
+  let left = sidebar ? nr.right : 0, right = vw, bottom = vh;
+  const pr = panelEl.getBoundingClientRect();
+  if (pr.height > vh * 0.55) right = pr.left - 12;  // chat o'ng tomonda (kompyuter)
+  else bottom = pr.top - 6;                          // chat pastda (telefon)
+  const sw = Math.max(120, right - left), sh = Math.max(120, bottom - top);
+  tS = Math.min(sh * 0.95 / 1.3, sw * 0.92 / 1.1) * dpr;
+  tCX = (left + sw / 2) * dpr;
+  tCY = (top + sh / 2) * dpr;
+  RX = Math.max(0.6, Math.min(tCX, W - tCX) / tS * 0.85);
+  RY = Math.max(0.6, Math.min(tCY, H - tCY) / tS * 0.85);
+  if (firstLayout) { S = tS; CX = tCX; CY = tCY; firstLayout = false; }
+}
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, dprCap);
+  W = Math.floor(window.innerWidth * dpr);
+  H = Math.floor(window.innerHeight * dpr);
+  canvas.width = W;
+  canvas.height = H;
+  ctx.fillStyle = `rgb(${BG.join(",")})`;
+  ctx.fillRect(0, 0, W, H);
+  firstLayout = true;
+  layout();
+  spriteSize = CONFIG.particleSize * dpr * Math.max(0.7, Math.min(1.5, S / (420 * dpr)));
+}
+window.addEventListener("resize", resize);
+if (window.ResizeObserver) new ResizeObserver(() => layout()).observe(panelEl);
+
+// --- Holat ---
+let clock = 0, last = performance.now();
+const REDUCED = document.documentElement.classList.contains("reduce-motion");
+if (REDUCED) clock = INTRO_END + 0.5;           // "harakatni kamaytirish" yoqilgan bo'lsa, intro o'tkazib yuboriladi
+
+let yaw = 0, pitch = 0, yawT = 0, pitchT = 0;   // bosh burilishi
+let talk = 0, talkPulse = 0;                    // gapirish darajasi
+let listenLv = 0, thinkLv = 0;
+let mt = 0, logoTarget = 0, logoUntil = 0;      // logotipga aylanish
+let lastActivity = 0;
+let busy = false, listening = false, visualTalkUntil = 0;
+
+// Kursor / barmoq
+let ptrX = 0, ptrY = 0, ptrOn = false, ptrSeen = -99, ptrTouch = false;
+// Kamera kuzatuvi
+let faceX = 0.5, faceY = 0.45, faceSeen = -99, moveX = 0.5, moveY = 0.5, moveSeen = -99;
+
+function showLogo() {
+  logoTarget = 1;
+  logoUntil = clock + 2.2 + CONFIG.logoHold;
+  lastActivity = clock;
+  Sound.morph();
+}
+
+// Portlash: zarrachalar (cx, cy) nuqtadan tarqaladi va keyin joyiga qaytadi
+function burst(cx, cy, power) {
+  for (let i = 0; i < N; i++) {
+    const dx = tx[i] - cx, dy = ty[i] - cy;
+    const d = Math.sqrt(dx * dx + dy * dy) + 0.06;
+    const p = power * (0.5 + ph[i]);
+    pvx[i] += (dx / d) * p + (ph[i] - 0.5) * power * 0.6;
+    pvy[i] += (dy / d) * p + (swirl[i]) * power * 0.6;
+  }
+}
+
+// HUD holati (faqat o'zgarganda DOM yangilanadi)
+const hudEl = document.getElementById("hud");
+let hudState = "";
+function setHud(state) {
+  if (state === hudState) return;
+  hudState = state;
+  const map = {
+    init: ["INITIALIZING...", "blink"], online: ["ONLINE", ""], listening: ["LISTENING", "blink"],
+    thinking: ["THINKING...", "blink"], speaking: ["SPEAKING", "warm"]
+  };
+  hudEl.textContent = map[state][0];
+  hudEl.className = "ai-hud " + map[state][1];
+  if (state === "online" && clock < INTRO_END + 2) Sound.chime();
+}
+
+function frame(now) {
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.05) dt = 0.05;
+  if (dt < 0) dt = 0;
+  clock += dt;
+  const fs = dt * 60;                 // kadr tezligiga moslash
+  const t = clock;
+  const intro = t < INTRO_END;
+
+  // O'lcham va markaz silliq o'zgaradi (chat kattalashganda humanoid sekin kichrayadi)
+  const lf = Math.min(1, dt * 5);
+  S += (tS - S) * lf; CX += (tCX - CX) * lf; CY += (tCY - CY) * lf;
+
+  // Oldingi kadrni xiralashtirish (iz effekti)
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = FADE_STYLE;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "lighter";
+
+  // --- Holatlarni yangilash ---
+  if (camOn) camTick(t);
+  if (t - faceSeen < 1.2) {                       // kamera: yuz topildi
+    yawT = (faceX - 0.5) * 1.3; pitchT = (faceY - 0.45) * 0.8;
+  } else if (t - moveSeen < 0.8) {               // kamera: harakat bor
+    yawT = (moveX - 0.5) * 0.9; pitchT = (moveY - 0.5) * 0.4;
+  } else if (t - ptrSeen < 3) {                  // kursor / barmoq
+    yawT = ptrX * 1.1; pitchT = (ptrY + 0.3) * 0.45;
+  } else {                                       // o'z-o'zidan sekin qarab turish
+    yawT = 0.18 * Math.sin(t * 0.23) + 0.08 * Math.sin(t * 0.61);
+    pitchT = 0.05 * Math.sin(t * 0.31);
+  }
+  const hm = CONFIG.headTurn;
+  yawT = yawT > hm ? hm : yawT < -hm ? -hm : yawT;
+  pitchT = pitchT > 0.3 ? 0.3 : pitchT < -0.3 ? -0.3 : pitchT;
+  const hf = Math.min(1, dt * 4);
+  yaw += (yawT - yaw) * hf; pitch += (pitchT - pitch) * hf;
+  const cosY = Math.cos(yaw), sinY = Math.sin(yaw), sinP = Math.sin(pitch);
+
+  const speakingNow = Voice.speaking || t < visualTalkUntil;
+  talkPulse *= Math.pow(0.86, fs);
+  const talkT = speakingNow ? (0.35 + 0.65 * talkPulse) * (0.55 + 0.45 * Math.abs(Math.sin(t * 12.5 + Math.sin(t * 3.1)))) : 0;
+  talk += (talkT - talk) * Math.min(1, dt * 14);
+  listenLv += ((listening ? 1 : 0) - listenLv) * Math.min(1, dt * 4);
+  thinkLv += ((busy ? 1 : 0) - thinkLv) * Math.min(1, dt * 4);
+
+  if (intro) setHud("init");
+  else if (listening) setHud("listening");
+  else if (busy) setHud("thinking");
+  else if (speakingNow) setHud("speaking");
+  else setHud("online");
+
+  // Logotip: jim turganda yoki "yangi suhbat"da
+  if (!intro && !busy && !listening && !speakingNow && logoTarget === 0 && t - lastActivity > CONFIG.logoIdleSeconds) showLogo();
+  if (logoTarget === 1 && t > logoUntil) { logoTarget = 0; lastActivity = t; }
+  mt += ((logoTarget ? 1 : -1) * dt) / 2.2;
+  mt = mt < 0 ? 0 : mt > 1 ? 1 : mt;
+  const morphing = mt > 0;
+  const logoVis = ease(mt);
+
+  const breath = Math.sin(t * TAU / CONFIG.breathPeriod);
+  const bs = 1 + CONFIG.breathAmount * breath + listenLv * 0.006 * Math.sin(t * 9);
+  const pulse = 0.84 + 0.16 * breath;
+  let fa = clamp((t - (TL.formStart + 1.6)) / 1.8) * (1 - logoVis);  // humanoid qanchalik "tayyor"
+  const scanSpeed = 1 + thinkLv * 2.5;
+  const scanY = TOP + ((t * scanSpeed / CONFIG.scanPeriod) % 1) * 1.35;
+  const dustIn = clamp((t - TL.online) / 1.0);
+  const damp = Math.pow(CONFIG.damping, fs);
+  const spring = CONFIG.spring * fs;
+  const ptrActive = ptrOn && !intro;
+  const PR = CONFIG.pointerRadius, PR2 = PR * PR, PUSH = CONFIG.pointerPush * fs;
+
+  // Orqa fon nurlari
+  drawGlow(GLOW_BLUE, 0, 0.05, 1.9, (0.10 + listenLv * 0.08 * (0.6 + 0.4 * Math.sin(t * 6))) * fa);
+  drawGlow(GLOW_ORANGE, sinY * 0.12, -0.33, 0.62 + talk * 0.12,
+           (CONFIG.coreGlow + talk * 0.55) * fa * (0.85 + 0.15 * breath));
+  if (morphing) drawGlow(GLOW_VIOLET, 0, -0.03, 1.3, 0.12 * logoVis);
+
+  const sp = spriteSize;
+  const shift = (t / CONFIG.dustPeriod);
+
+  for (let i = 0; i < N; i++) {
+    const kind = type[i];
+    let x, y, a, c = kind;
+
+    // ---- 1-bosqich: kometa izi ----
+    if (t < TL.formStart) {
+      const e = emit[i];
+      if (t < e) continue;
+      const age = t - e, s = 1 - Math.exp(-age * 1.4);
+      x = pcx[i] * RX + sdx[i] * s;
+      y = pcy[i] * RY + sdy[i] * s;
+      a = 0.12 + 0.55 * Math.exp(-age * 1.6);
+      c = 0;
+    } else {
+      // ---- Humanoiddagi "uy" joyi ----
+      let hx, hy, ha;
+      if (kind === 3) {
+        if (t < TL.online) { hx = tx[i]; hy = ty[i]; ha = 0; }
+        else {
+          const lt = (shift + ph[i]) % 1;
+          hx = tx[i] + ddx[i] * lt + 0.02 * Math.sin(lt * 9 + ph[i] * 20);
+          hy = ty[i] + ddy[i] * lt;
+          ha = Math.sin(lt * Math.PI) * 0.75 * dustIn * (1 - logoVis);
+        }
+      } else {
+        let bx = tx[i], by = ty[i];
+        const w = headW[i];
+        if (w > 0) {                                   // bosh burilishi (soxta 3D)
+          const z = tz[i];
+          bx += w * (bx * (cosY - 1) + z * sinY);
+          by += w * (z * sinP * 0.6);
+        }
+        if (jawW[i] > 0) by += jawW[i] * talk * 0.022; // gapirganda jag' ochiladi
+        hx = bx * bs + 0.0015 * Math.sin(t * 1.7 + ph[i] * 40);
+        hy = BOTTOM + (by - BOTTOM) * bs + 0.0015 * Math.cos(t * 1.3 + ph[i] * 30);
+        if (kind === 2) {                              // oltin chiziqlarda energiya oqimi
+          const ww = 0.5 + 0.5 * Math.sin((gv[i] * 2.5 - t * (0.9 + talk * 1.5)) * TAU);
+          ha = (0.3 + 0.7 * ww * ww * ww * ww) * tb[i];
+        } else {
+          ha = tb[i] * pulse + 0.07 * Math.sin(t * 3 + ph[i] * 50);
+          const d = (ty[i] - scanY) * 28;              // gorizontal skan chizig'i
+          ha += 0.5 * fa * Math.exp(-d * d);
+          if (kind === 1) ha *= 1 + talk * 0.8;        // gapirganda yuz yadrosi yorishadi
+          ha += listenLv * 0.12 * (1 - headW[i] * 0.5);
+        }
+        // ---- Linko logotipiga aylanish ----
+        if (morphing) {
+          const k = ease((mt * 2.2 - md[i]) / 1.5);
+          if (k > 0) {
+            const ls = 1 + 0.01 * breath;
+            const wob = 0.12 * Math.sin(t * 0.7);
+            const cw = Math.cos(wob), sw = Math.sin(wob);
+            const qx = (lx[i] * cw - (ly[i] + 0.03) * sw) * ls;
+            const qy = (lx[i] * sw + (ly[i] + 0.03) * cw) * ls - 0.03;
+            const vx = qx - hx, vy = qy - hy;
+            const sw2 = Math.sin(k * Math.PI) * swirl[i];
+            hx = hx + vx * k - vy * sw2;
+            hy = hy + vy * k + vx * sw2;
+            const la = lb[i] * (0.85 + 0.15 * pulse);
+            ha = ha + (la - ha) * k;
+            if (k > 0.5) c = lcol[i];
+          }
+        }
+      }
+
+      if (intro) {
+        // ---- 2-bosqich: zarrachalar humanoidga oqib keladi ----
+        const k = (t - TL.formStart - delay[i]) / TL.formDuration;
+        if (k < 1) {
+          const f = ease(k);
+          const sx = pcx[i] * RX + sdx[i] * sp0[i], sy = pcy[i] * RY + sdy[i] * sp0[i];
+          const vx = hx - sx, vy = hy - sy;
+          const w2 = Math.sin(f * Math.PI) * swirl[i];
+          x = sx + vx * f - vy * w2;
+          y = sy + vy * f + vx * w2;
+          a = ia0[i] + (ha - ia0[i]) * f;
+          if (f < 0.7) c = 0;
+        } else { x = hx; y = hy; a = ha; }
+      } else {
+        // ---- Fizika: kursordan qochish va portlashdan keyin qaytish ----
+        let ox = pox[i], oy = poy[i], vx = pvx[i], vy = pvy[i];
+        if (ptrActive) {
+          const dx = hx + ox - ptrX, dy = hy + oy - ptrY;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < PR2 && d2 > 1e-7) {
+            const d = Math.sqrt(d2), f = (1 - d / PR) * PUSH;
+            vx += (dx / d) * f; vy += (dy / d) * f;
+          }
+        }
+        if (ox !== 0 || oy !== 0 || vx !== 0 || vy !== 0) {
+          vx = (vx - ox * spring) * damp;
+          vy = (vy - oy * spring) * damp;
+          ox += vx * fs; oy += vy * fs;
+          if (Math.abs(ox) + Math.abs(oy) + Math.abs(vx) + Math.abs(vy) < 1e-5) { ox = oy = vx = vy = 0; }
+          pox[i] = ox; poy[i] = oy; pvx[i] = vx; pvy[i] = vy;
+        }
+        x = hx + ox; y = hy + oy; a = ha;
+      }
+    }
+
+    if (a <= 0.02) continue;
+    let lv = (a * LEVELS) | 0;
+    if (lv >= LEVELS) lv = LEVELS - 1;
+    const s = sz[i] * sp;
+    ctx.drawImage(SPR[c][lv], CX + x * S - s * 0.5, CY + y * S - s * 0.5, s, s);
+  }
+
+  // Shar / quvvat manbai
+  orbAt(t, bs);
+  const orbPulse = 1 + 0.18 * Math.sin(t * (5 + thinkLv * 7)) + listenLv * 0.25 * Math.sin(t * 9);
+  const orbA = 1 - logoVis * 0.85;
+  drawGlow(GLOW_ORB, OX, OY, (0.3 + listenLv * 0.12) * orbPulse, 0.75 * orbA);
+  drawGlow(ORB_CORE, OX, OY, 0.075 * orbPulse, orbA);
+
+  requestAnimationFrame(frame);
+}
+
+// Shar harakati: kometa yoyi bo'ylab, keyin ko'krakka joylashadi
+let OX = 0, OY = 0;
+function orbAt(t, bs) {
+  const endY = BOTTOM + (DOT_Y - BOTTOM) * bs;
+  if (t < TL.orbHold + TL.emit) {
+    const a = clamp((t - TL.orbHold) / TL.emit);
+    const th = Math.PI / 2 + a * TAU * CONFIG.arcTurns, r = 1 - 0.35 * a;
+    OX = Math.cos(th) * RX * r; OY = Math.sin(th) * RY * r;
+  } else {
+    const th = Math.PI / 2 + TAU * CONFIG.arcTurns, r = 0.65;
+    const sx = Math.cos(th) * RX * r, sy = Math.sin(th) * RY * r;
+    const k = ease((t - TL.orbHold - TL.emit) / 1.6);
+    OX = sx + (0 - sx) * k; OY = sy + (endY - sy) * k;
+  }
+}
+
+function drawGlow(img, ux, uy, sizeUnits, alpha) {
+  if (alpha <= 0.001) return;
+  const s = sizeUnits * S;
+  ctx.globalAlpha = Math.min(1, alpha);
+  ctx.drawImage(img, CX + ux * S - s / 2, CY + uy * S - s / 2, s, s);
+  ctx.globalAlpha = 1;
+}
+
+// --- Kursor va barmoq bilan o'ynash ---
+function toUnits(e) {
+  ptrX = (e.clientX * dpr - CX) / S;
+  ptrY = (e.clientY * dpr - CY) / S;
+}
+let lastTap = 0, lastTapX = 0, lastTapY = 0;
+canvas.addEventListener("pointermove", (e) => {
+  toUnits(e);
+  ptrSeen = clock;
+  ptrTouch = e.pointerType !== "mouse";
+  if (!ptrTouch) ptrOn = true;
+});
+canvas.addEventListener("pointerdown", (e) => {
+  toUnits(e);
+  ptrSeen = clock; ptrOn = true; lastActivity = clock;
+  const now = performance.now();
+  const dx = e.clientX - lastTapX, dy = e.clientY - lastTapY;
+  if (now - lastTap < 320 && dx * dx + dy * dy < 1600) {   // ikki marta bosish = portlash
+    burst(ptrX, ptrY, 0.03);
+    Sound.whoosh();
+    lastTap = 0;
+  } else {
+    burst(ptrX, ptrY, 0.006);
+    lastTap = now; lastTapX = e.clientX; lastTapY = e.clientY;
+  }
+});
+function ptrEnd(e) { if (e.pointerType !== "mouse") ptrOn = false; }
+canvas.addEventListener("pointerup", ptrEnd);
+canvas.addEventListener("pointercancel", ptrEnd);
+canvas.addEventListener("pointerleave", () => { ptrOn = false; });
+document.getElementById("ai-title").addEventListener("click", () => { if (clock > INTRO_END) showLogo(); });
+
+/* =====================================================================
+   5. OVOZ EFFEKTLARI (WebAudio — fayl kerak emas)
+   ===================================================================== */
+
+const Sound = {
+  ctx: null, master: null, noiseBuf: null, ambient: null,
+  on: lsGet("linko_ai_sound", "1") === "1",
+
+  unlock() {  // brauzer ovozni faqat foydalanuvchi bosgandan keyin ruxsat beradi
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try { this.ctx = new AC(); } catch (e) { return; }
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.on ? 0.5 : 0;
+      this.master.connect(this.ctx.destination);
+      const len = this.ctx.sampleRate;
+      this.noiseBuf = this.ctx.createBuffer(1, len, len);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      this.startAmbient();
+      if (clock < INTRO_END) this.powerUp();
+    }
+    if (this.ctx.state === "suspended") this.ctx.resume();
+  },
+  ready() { return this.ctx && this.on && this.ctx.state === "running"; },
+
+  setOn(v) {
+    this.on = v;
+    lsSet("linko_ai_sound", v ? "1" : "0");
+    if (this.master) this.master.gain.setTargetAtTime(v ? 0.5 : 0, this.ctx.currentTime, 0.05);
+    if (!v) Voice.stop();
+  },
+
+  tone(freq, dur, type, vol, slideTo, delay) {
+    if (!this.ready()) return;
+    const c = this.ctx, t0 = c.currentTime + (delay || 0);
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(freq, t0);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  },
+  noise(dur, vol, fFrom, fTo) {
+    if (!this.ready()) return;
+    const c = this.ctx, t0 = c.currentTime;
+    const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = this.noiseBuf;
+    f.type = "bandpass"; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(fFrom, t0);
+    f.frequency.exponentialRampToValueAtTime(fTo, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + dur * 0.3);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    s.connect(f); f.connect(g); g.connect(this.master);
+    s.start(t0); s.stop(t0 + dur + 0.05);
+  },
+  startAmbient() {  // past, yumshoq fon g'uvillashi
+    if (this.ambient || !this.ctx) return;
+    const c = this.ctx, g = c.createGain(), f = c.createBiquadFilter();
+    f.type = "lowpass"; f.frequency.value = 320;
+    g.gain.value = 0.03;
+    [55, 82.4, 110.3].forEach((fr, k) => {
+      const o = c.createOscillator();
+      o.type = k === 2 ? "triangle" : "sine";
+      o.frequency.value = fr;
+      o.connect(f); o.start();
+    });
+    const lfo = c.createOscillator(), lg = c.createGain();
+    lfo.frequency.value = 1 / CONFIG.breathPeriod; lg.gain.value = 0.012;
+    lfo.connect(lg); lg.connect(g.gain); lfo.start();
+    f.connect(g); g.connect(this.master);
+    this.ambient = g;
+  },
+  powerUp() { this.tone(70, 2.6, "sawtooth", 0.05, 520); this.noise(2.4, 0.08, 300, 3200); },
+  chime()   { this.tone(660, 0.5, "sine", 0.12); this.tone(990, 0.7, "sine", 0.09, null, 0.12); this.tone(1320, 0.9, "sine", 0.06, null, 0.24); },
+  blip()    { this.tone(880, 0.09, "sine", 0.08, 1320); },
+  receive() { this.tone(740, 0.12, "sine", 0.07); this.tone(1110, 0.16, "sine", 0.06, null, 0.08); },
+  whoosh()  { this.noise(0.7, 0.18, 2400, 250); this.tone(180, 0.5, "triangle", 0.06, 60); },
+  morph()   { this.noise(1.6, 0.06, 400, 2600); this.tone(330, 1.4, "sine", 0.05, 660); }
+};
+["pointerdown", "keydown", "touchstart"].forEach((ev) =>
+  window.addEventListener(ev, () => Sound.unlock(), { passive: true }));
+
+/* =====================================================================
+   6. GAPIRISH VA ESHITISH
+   ===================================================================== */
+
+const toastEl = document.getElementById("ai-toast");
+let toastTimer = 0;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3200);
+}
+
+const Voice = {
+  speaking: false, gen: 0, warnedUz: false, warnedNo: {},
+  synth: window.speechSynthesis || null,
+
+  pick(code) {
+    const vs = this.synth ? this.synth.getVoices() : [];
+    const cand = vs.filter((v) => v.lang && v.lang.toLowerCase().replace("_", "-").indexOf(code) === 0);
+    if (!cand.length) return null;
+    const good = cand.find((v) => /natural|neural|online|google|premium|enhanced/i.test(v.name));
+    return good || cand[0];
+  },
+  // Javob qaysi tilda ekanini taxmin qiladi
+  detect(text) {
+    if (/[一-鿿]/.test(text)) return "zh";
+    if (/[Ѐ-ӿ]/.test(text)) return "ru";
+    // Lotin yozuvi: o'zbek, turk va ingliz so'zlarini sanab, eng ko'pini tanlaydi
+    const low = " " + text.toLowerCase().replace(/[^a-zçğıöşüʻ'’]+/g, " ") + " ";
+    const n = (re) => (low.match(re) || []).length;
+    const scores = {
+      tr: n(/[ğış]/g) * 2 + n(/ (ve|bir|için|ne|evet|merhaba|nasıl|değil|ben|sen|var|yok|çok) /g),
+      uz: n(/[og][ʻ'’]/g) * 2 + n(/ (va|uchun|men|siz|qanday|nima|salom|bilan|ham|emas|yoki|kerak|bor) /g),
+      en: n(/ (the|and|you|is|are|i|to|of|what|can|with|your|it|this|do|how) /g)
+    };
+    let best = (LANG === "ru" || LANG === "zh") ? "en" : LANG, top = 0;
+    for (const k in scores) if (scores[k] > top) { top = scores[k]; best = k; }
+    return best;
+  },
+  clean(text) {
+    return text.replace(/https?:\/\/\S+/g, " ")
+               .replace(/[*#_`>~|]/g, " ")
+               .replace(/\s+/g, " ").trim();
+  },
+  chunks(text) {
+    const parts = text.replace(/([.!?。！？;])\s*/g, "$1\u0001").split("\u0001");
+    const out = [];
+    let cur = "";
+    for (const p of parts) {
+      if (!p.trim()) continue;
+      if ((cur + " " + p).length > 180 && cur) { out.push(cur); cur = p; }
+      else cur = cur ? cur + " " + p : p;
+    }
+    if (cur) out.push(cur);
+    return out;
+  },
+  speak(raw) {
+    const text = this.clean(raw);
+    // Ovoz o'chiq bo'lsa ham humanoid "gapirayotgandek" ko'rinadi
+    visualTalkUntil = clock + Math.min(9, 1 + text.length * 0.045);
+    if (!this.synth || !Sound.on || !text) return;
+    let lang = this.detect(text);
+    let voice = this.pick(lang);
+    if (!voice && lang === "uz") {
+      voice = this.pick("tr");
+      if (!this.warnedUz) { toast(L.voiceUz); this.warnedUz = true; }
+      if (voice) lang = "tr";
+    }
+    if (!voice && !this.warnedNo[lang]) { toast(L.voiceNo); this.warnedNo[lang] = true; }
+    this.stop();
+    const my = ++this.gen;
+    const list = this.chunks(text);
+    list.forEach((chunk, k) => {
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.lang = voice ? voice.lang : LOCALES[lang];
+      if (voice) u.voice = voice;
+      u.rate = 1.0; u.pitch = 0.95;
+      u.onstart = () => { if (my === this.gen) { this.speaking = true; talkPulse = 1; } };
+      u.onboundary = () => { if (my === this.gen) talkPulse = 1; };
+      u.onend = u.onerror = () => {
+        if (my === this.gen && k === list.length - 1) { this.speaking = false; visualTalkUntil = 0; lastActivity = clock; }
+      };
+      this.synth.speak(u);
+    });
+  },
+  stop() {
+    this.gen++;
+    this.speaking = false;
+    visualTalkUntil = 0;
+    if (this.synth) this.synth.cancel();
+  }
+};
+if (Voice.synth) {
+  Voice.synth.getVoices();
+  if ("onvoiceschanged" in Voice.synth) Voice.synth.onvoiceschanged = () => Voice.synth.getVoices();
+}
+window.addEventListener("pagehide", () => Voice.stop());
+
+// Mikrofon orqali gapirish -> matn
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById("mic-btn");
+let rec = null;
+function toggleMic() {
+  if (!SR) { toast(L.micNo); return; }
+  if (listening && rec) { rec.stop(); return; }
+  if (busy) return;
+  Voice.stop();
+  rec = new SR();
+  rec.lang = LOCALES[LANG];
+  rec.interimResults = true;
+  rec.continuous = false;
+  rec.maxAlternatives = 1;
+  let finalText = "";
+  rec.onresult = (e) => {
+    let interim = "";
+    for (let k = e.resultIndex; k < e.results.length; k++) {
+      const r = e.results[k];
+      if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript;
+    }
+    input.value = (finalText + " " + interim).trim();
+  };
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") toast(L.micDenied);
+  };
+  rec.onend = () => {
+    listening = false;
+    micBtn.classList.remove("on");
+    lastActivity = clock;
+    if (finalText.trim()) sendMessage(finalText.trim());
+  };
+  try {
+    rec.start();
+    listening = true;
+    micBtn.classList.add("on");
+    Sound.blip();
+  } catch (e) { listening = false; }
+}
+micBtn.addEventListener("click", toggleMic);
+
+/* =====================================================================
+   7. KAMERA: yuzni kuzatish (MediaPipe) + harakatni sezish (qo'l silkitish)
+   Video hech qayerga yuborilmaydi — hammasi qurilmaning o'zida.
+   ===================================================================== */
+
+const camBtn = document.getElementById("cam-btn");
+const camView = document.getElementById("cam-view");
+const MP_VER = "0.10.14";
+const MP_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@" + MP_VER;
+const FACE_MODEL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
+
+let camOn = false, camStream = null, faceDetector = null, faceLoading = false;
+let camLast = 0, faceLast = 0;
+const MW = 48, MH = 36;
+const mCanvas = document.createElement("canvas");
+mCanvas.width = MW; mCanvas.height = MH;
+const mCtx = mCanvas.getContext("2d", { willReadFrequently: true });
+const prevGray = new Uint8Array(MW * MH);
+let motionPrimed = false, lastMx = 0.5, lastDir = 0, waveCooldown = 0;
+const reversals = [];
+
+async function loadFaceDetector() {
+  if (faceDetector || faceLoading) return;
+  faceLoading = true;
+  try {
+    const vision = await import(MP_BASE + "/vision_bundle.mjs");
+    const files = await vision.FilesetResolver.forVisionTasks(MP_BASE + "/wasm");
+    const opts = (delegate) => ({
+      baseOptions: { modelAssetPath: FACE_MODEL, delegate },
+      runningMode: "VIDEO",
+      minDetectionConfidence: 0.5
+    });
+    try { faceDetector = await vision.FaceDetector.createFromOptions(files, opts("GPU")); }
+    catch (e) { faceDetector = await vision.FaceDetector.createFromOptions(files, opts("CPU")); }
+  } catch (e) {
+    console.warn("Yuz modeli yuklanmadi, faqat harakat sezgichi ishlaydi:", e);
+  }
+  faceLoading = false;
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast(L.camNo); return; }
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: "user" }, audio: false
+    });
+  } catch (e) {
+    toast(e && e.name === "NotAllowedError" ? L.camDenied : L.camNo);
+    return;
+  }
+  camView.srcObject = camStream;
+  try { await camView.play(); } catch (e) { /* ba'zi brauzerlarda kerak emas */ }
+  camView.classList.add("show");
+  camBtn.classList.add("on");
+  camOn = true;
+  motionPrimed = false;
+  // Kamera ishlayotganda chizish yengilroq bo'lsin
+  dprCap = 1; resize();
+  toast(L.camOn);
+  loadFaceDetector();
+}
+function stopCamera() {
+  camOn = false;
+  if (camStream) camStream.getTracks().forEach((tr) => tr.stop());
+  camStream = null;
+  camView.srcObject = null;
+  camView.classList.remove("show");
+  camBtn.classList.remove("on");
+  dprCap = CONFIG.maxDPR; resize();
+}
+camBtn.addEventListener("click", () => (camOn ? stopCamera() : startCamera()));
+
+// Har ~80 ms da kameradan bitta kichik kadr tahlil qilinadi
+function camTick(t) {
+  if (camView.readyState < 2) return;
+  const now = performance.now();
+  if (now - camLast < 80) return;
+  camLast = now;
+
+  // a) Harakat sezgichi: oldingi kadr bilan farq
+  mCtx.drawImage(camView, 0, 0, MW, MH);
+  const d = mCtx.getImageData(0, 0, MW, MH).data;
+  let count = 0, sx = 0, sy = 0;
+  for (let p = 0, q = 0; p < MW * MH; p++, q += 4) {
+    const g = (d[q] * 77 + d[q + 1] * 150 + d[q + 2] * 29) >> 8;
+    const diff = g > prevGray[p] ? g - prevGray[p] : prevGray[p] - g;
+    prevGray[p] = g;
+    if (diff > 28) { count++; sx += p % MW; sy += (p / MW) | 0; }
+  }
+  if (!motionPrimed) { motionPrimed = true; return; }
+  const frac = count / (MW * MH);
+  if (frac > 0.015) {
+    const mx = 1 - (sx / count) / MW;          // ko'zgu kabi (chap-o'ng almashadi)
+    const my = (sy / count) / MH;
+    moveX = mx; moveY = my; moveSeen = t;
+    // b) Qo'l silkitish: harakat markazi chap-o'ng tez-tez almashsa
+    if (frac > 0.035) {
+      const dlt = mx - lastMx;
+      if (Math.abs(dlt) > 0.035) {
+        const dir = dlt > 0 ? 1 : -1;
+        if (lastDir !== 0 && dir !== lastDir) reversals.push(t);
+        lastDir = dir;
+        lastMx = mx;
+      }
+    }
+  }
+  while (reversals.length && t - reversals[0] > 1.4) reversals.shift();
+  if (reversals.length >= 3 && t > waveCooldown && t > INTRO_END) {
+    burst((moveX - 0.5) * 0.8, (moveY - 0.5) * 0.8, 0.032);
+    Sound.whoosh();
+    lastActivity = t;
+    waveCooldown = t + 2.5;
+    reversals.length = 0;
+  }
+
+  // c) Yuzni topish (model yuklangan bo'lsa)
+  if (faceDetector && now - faceLast > 110) {
+    faceLast = now;
+    try {
+      const res = faceDetector.detectForVideo(camView, now);
+      if (res && res.detections && res.detections.length) {
+        const bb = res.detections[0].boundingBox;
+        const vw = camView.videoWidth || 320, vh = camView.videoHeight || 240;
+        faceX = 1 - (bb.originX + bb.width / 2) / vw;
+        faceY = (bb.originY + bb.height / 2) / vh;
+        faceSeen = t;
+      }
+    } catch (e) { /* bitta kadr o'tkazib yuboriladi */ }
+  }
+}
+
+/* =====================================================================
+   8. CHAT
+   ===================================================================== */
+
+const messagesBox = document.getElementById("messages");
+const form = document.getElementById("send-form");
+const input = document.getElementById("message-input");
+const langSelect = document.getElementById("lang-select");
+const sndBtn = document.getElementById("snd-btn");
+let history = [];
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+function addBubble(text, who, loading) {
+  const el = document.createElement("div");
+  el.className = "ai-msg " + who;
+  if (loading) el.innerHTML = '<span class="ai-dots"><span></span><span></span><span></span></span>';
+  else el.innerHTML = escapeHtml(text.replace(/\*\*(.+?)\*\*/g, "$1")).replace(/\n/g, "<br>");
+  messagesBox.appendChild(el);
+  messagesBox.scrollTop = messagesBox.scrollHeight;
+  return el;
+}
+function showWelcome() {
+  messagesBox.innerHTML = "";
+  addBubble(L.welcome, "bot");
+}
+
+function applyLang() {
+  L = I18N[LANG];
+  langSelect.value = LANG;
+  input.placeholder = L.placeholder;
+  micBtn.title = L.tMic; micBtn.setAttribute("aria-label", L.tMic);
+  camBtn.title = L.tCam; camBtn.setAttribute("aria-label", L.tCam);
+  sndBtn.title = L.tSnd; sndBtn.setAttribute("aria-label", L.tSnd);
+  langSelect.title = L.tLang; langSelect.setAttribute("aria-label", L.tLang);
+  document.getElementById("clear-btn").title = L.tClear;
+  document.getElementById("send-btn").title = L.tSend;
+  if (!history.length) showWelcome();
+}
+langSelect.addEventListener("change", () => {
+  LANG = langSelect.value;
+  lsSet("linko_ai_lang", LANG);
+  applyLang();
+});
+
+function applySound() {
+  document.getElementById("snd-on-ic").style.display = Sound.on ? "" : "none";
+  document.getElementById("snd-off-ic").style.display = Sound.on ? "none" : "";
+  sndBtn.classList.toggle("off", !Sound.on);
+}
+sndBtn.addEventListener("click", () => { Sound.unlock(); Sound.setOn(!Sound.on); applySound(); });
+
+async function sendMessage(text) {
+  text = (text || "").trim();
+  if (!text || busy) return;
+  Voice.stop();
+  Sound.blip();
+  lastActivity = clock;
+  if (logoTarget) logoTarget = 0;
+  input.value = "";
+  addBubble(text, "me");
+  busy = true;
+  const loading = addBubble("", "bot", true);
+  try {
+    const res = await fetch("/api/ai/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ history, message: text, lang: LANG })
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* JSON emas */ }
+    loading.remove();
+    if (!res.ok || data.error || !data.reply) {
+      addBubble("⚠️ " + (L[data.error] || data.message || L.connErr), "bot err");
+    } else {
+      addBubble(data.reply, "bot");
+      history.push({ role: "user", content: text }, { role: "assistant", content: data.reply });
+      if (history.length > CONFIG.maxHistory) history = history.slice(-CONFIG.maxHistory);
+      Sound.receive();
+      Voice.speak(data.reply);
+    }
+  } catch (err) {
+    loading.remove();
+    addBubble("⚠️ " + L.connErr, "bot err");
+  } finally {
+    busy = false;
+    lastActivity = clock;
+  }
+}
+form.addEventListener("submit", (e) => { e.preventDefault(); sendMessage(input.value); });
+
+document.getElementById("clear-btn").addEventListener("click", () => {
+  Voice.stop();
+  history = [];
+  messagesBox.innerHTML = "";
+  addBubble(L.newChat, "bot");
+  if (clock > INTRO_END) showLogo();
+});
+
+/* =====================================================================
+   ISHGA TUSHIRISH
+   ===================================================================== */
+applyLang();
+applySound();
+resize();
+requestAnimationFrame((n) => { last = n; requestAnimationFrame(frame); });
+</script>
 </body>
 </html>

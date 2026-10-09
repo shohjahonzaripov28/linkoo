@@ -38,6 +38,22 @@ except ImportError:
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", CONFIG_API_KEY)
 
+
+def _local_key(name):
+    """local_keys.py faylidan kalit o'qiydi (bu fayl GitHub'ga yuklanmaydi, .gitignore'da)."""
+    try:
+        import local_keys
+        return (getattr(local_keys, name, "") or "").strip()
+    except ImportError:
+        return ""
+
+
+# Linko AI uchun bepul Google Gemini kaliti: Render'da Environment -> GEMINI_API_KEY,
+# kompyuterda esa local_keys.py fayliga yoziladi.
+GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or _local_key("GEMINI_API_KEY")).strip()
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or _local_key("GEMINI_MODEL") or "gemini-flash-latest"
+GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
 # ---------- Baza: Render'da PostgreSQL (DATABASE_URL), lokalda SQLite ----------
@@ -5879,43 +5895,141 @@ def ai_page():
     )
 
 
+# ---------- Linko AI: avval bepul Gemini, kaliti bo'lmasa Anthropic ----------
+AI_LANG_NAMES = {"uz": "Uzbek", "en": "English", "ru": "Russian", "tr": "Turkish", "zh": "Simplified Chinese"}
+AI_USER_LIMIT = int(os.environ.get("AI_USER_LIMIT", "40"))   # bitta foydalanuvchi soatiga nechta savol bera oladi
+_ai_usage = {}
+
+
+class AILimitError(Exception):
+    pass
+
+
+def _ai_system_prompt(lang_code):
+    lang_name = AI_LANG_NAMES.get(lang_code, "English")
+    return (
+        "You are Linko AI, the friendly assistant inside Linko, a super app with chats, groups, "
+        "a feed, a shop and contacts. You appear as a glowing holographic humanoid and your replies "
+        "are read aloud, so answer in plain spoken text: no markdown, no lists with symbols, no emojis. "
+        "Keep answers short (1-4 sentences) unless the user asks for detail. "
+        "Always reply in the same language the user writes in. "
+        f"If the language is unclear, reply in {lang_name}."
+    )
+
+
+def _ai_clean_history(raw):
+    out = []
+    if isinstance(raw, list):
+        for m in raw[-20:]:
+            if not isinstance(m, dict):
+                continue
+            role, content = m.get("role"), m.get("content")
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                out.append({"role": role, "content": content[:4000]})
+    while out and out[0]["role"] != "user":
+        out.pop(0)
+    return out
+
+
+def _ai_rate_ok(user_id):
+    now = time.time()
+    stamps = [s for s in _ai_usage.get(user_id, []) if now - s < 3600]
+    if len(stamps) >= AI_USER_LIMIT:
+        _ai_usage[user_id] = stamps
+        return False
+    stamps.append(now)
+    _ai_usage[user_id] = stamps
+    return True
+
+
+def _ask_gemini(messages, system, model=None):
+    model = model or GEMINI_MODEL
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:generateContent"
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [
+            {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+            for m in messages
+        ],
+        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.8},
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "ignore")[:300]
+        except Exception:
+            pass
+        if e.code == 429:
+            raise AILimitError()
+        if e.code == 404 and model != GEMINI_FALLBACK_MODEL:
+            return _ask_gemini(messages, system, GEMINI_FALLBACK_MODEL)
+        raise RuntimeError(f"Gemini {e.code}: {detail}")
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise RuntimeError("Gemini bo'sh javob qaytardi: " + json.dumps(data)[:200])
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+    if not text.strip():
+        raise RuntimeError("Gemini matn qaytarmadi")
+    return text.strip()
+
+
+def _ask_anthropic(messages, system):
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    response = client.messages.create(
+        model="claude-sonnet-5",
+        max_tokens=1024,
+        system=system,
+        messages=messages,
+    )
+    return "".join(block.text for block in response.content if block.type == "text").strip()
+
+
 @app.route("/api/ai/send", methods=["POST"])
 def api_ai_send():
     if "user_id" not in session:
         return jsonify({"error": "kirish kerak"}), 401
 
-    if not anthropic:
+    use_gemini = bool(GEMINI_API_KEY) and GEMINI_API_KEY != "bu_yerga_kalitni_yozing"
+    use_anthropic = bool(anthropic) and bool(ANTHROPIC_API_KEY) and ANTHROPIC_API_KEY != "bu_yerga_kalitni_yozing"
+    if not (use_gemini or use_anthropic):
         return jsonify({
-            "error": "Kutubxona o'rnatilmagan. Terminalda: pip install anthropic"
-        }), 500
-
-    if not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "bu_yerga_kalitni_yozing":
-        return jsonify({
-            "error": "API kalit sozlanmagan. config.py fayliga o'z Anthropic API kalitingizni yozing."
+            "error": "no_key",
+            "message": "AI kaliti sozlanmagan. GEMINI_API_KEY ni local_keys.py ga yoki Render Environment'ga qo'ying."
         }), 500
 
     data = request.get_json(silent=True) or {}
-    history = data.get("history", [])
-    message = (data.get("message") or "").strip()
-
+    message = (data.get("message") or "").strip()[:2000]
     if not message:
-        return jsonify({"error": "bo'sh xabar"}), 400
+        return jsonify({"error": "empty", "message": "bo'sh xabar"}), 400
 
-    messages = history + [{"role": "user", "content": message}]
+    if not _ai_rate_ok(session["user_id"]):
+        return jsonify({"error": "user_limit", "message": "Juda ko'p so'rov. Biroz kuting."}), 429
+
+    lang_code = data.get("lang") if data.get("lang") in AI_LANG_NAMES else current_lang()
+    system = _ai_system_prompt(lang_code)
+    messages = _ai_clean_history(data.get("history")) + [{"role": "user", "content": message}]
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model="claude-sonnet-5",
-            max_tokens=1024,
-            messages=messages,
-        )
-        reply_text = "".join(
-            block.text for block in response.content if block.type == "text"
-        )
+        if use_gemini:
+            reply_text = _ask_gemini(messages, system)
+        else:
+            reply_text = _ask_anthropic(messages, system)
         return jsonify({"reply": reply_text})
+    except AILimitError:
+        return jsonify({"error": "limit", "message": "Bepul limit tugadi."}), 429
     except Exception as e:
-        return jsonify({"error": f"AI bilan bog'lanishda xato: {str(e)}"}), 500
+        app.logger.warning("Linko AI xatosi: %s", e)
+        return jsonify({"error": "ai_error", "message": f"AI bilan bog'lanishda xato: {str(e)[:200]}"}), 502
 
 
 @app.route("/feed/activity")

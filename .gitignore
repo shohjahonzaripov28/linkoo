@@ -1,0 +1,11 @@
+# Shaxsiy kalitlar — hech qachon GitHub'ga yuklanmasin
+local_keys.py
+.env
+
+# Foydalanuvchilar bazasi (ichida parollar va xabarlar bor)
+linko.db
+*.db
+
+# Python keshlari
+__pycache__/
+*.pyc
