@@ -20,14 +20,14 @@
       {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
     {% endwith %}
 
-    {% set tab_icons = {'stats': 'chart', 'users': 'users', 'posts': 'feed', 'products': 'box', 'stores': 'store', 'groups': 'groups', 'books': 'book'} %}
+    {% set tab_icons = {'stats': 'chart', 'users': 'users', 'posts': 'feed', 'products': 'box', 'stores': 'store', 'groups': 'groups', 'books': 'book', 'backup': 'archive'} %}
     <nav class="adm-tabs">
       {% for tb in tabs %}
       <a href="{{ url_for('admin_page', tab=tb) }}" class="adm-tab{% if tb == tab %} active{% endif %}">{{ icon(tab_icons[tb], 16) }}<span>{{ t['admin_tab_' ~ tb] }}</span></a>
       {% endfor %}
     </nav>
 
-    {% if tab not in ('stats',) %}
+    {% if tab not in ('stats', 'backup') %}
     <form method="GET" class="home-search adm-search">
       {{ icon('search', 18) }}
       <input type="hidden" name="tab" value="{{ tab }}">
@@ -201,6 +201,39 @@
       </div>
       {% endfor %}
     </div>
+    {# ===================== ZAXIRA / BAZA ===================== #}
+    {% elif tab == 'backup' %}
+    <section class="bk-box {{ 'warn' if db_kind in ('render', 'sqlite') else 'ok' }}">
+      <div class="bk-box-head">{{ icon('archive', 20) }}<b>{{ t.bk_db_title }}</b></div>
+      <div class="bk-db-line"><span>{{ t.bk_db_now }}</span><code>{{ db_host }}</code>{% if db_size %}<em>{{ db_size }}</em>{% endif %}</div>
+      {% if db_kind == 'render' %}<p class="bk-alert">⚠ {{ t.bk_warn_render }}</p>
+      {% elif db_kind == 'sqlite' %}<p class="bk-alert">⚠ {{ t.bk_warn_sqlite }}</p>
+      {% else %}<p class="bk-good">✓ {{ t.bk_good }}</p>{% endif %}
+    </section>
+
+    <section class="bk-box">
+      <div class="bk-box-head">{{ icon('archive', 20) }}<b>{{ t.bk_backup_title }}</b></div>
+      <p class="hint-text">{{ t.bk_backup_text }}</p>
+      <a class="btn-primary bk-dl" href="{{ url_for('admin_backup_download') }}">⬇ {{ t.bk_backup_btn }}</a>
+    </section>
+
+    {% if db_kind != 'sqlite' %}
+    <section class="bk-box">
+      <div class="bk-box-head">{{ icon('swap', 20) }}<b>{{ t.bk_mig_title }}</b></div>
+      {% if mig_target %}
+        <div class="bk-db-line"><span>{{ db_host }}</span> → <code>{{ mig_target }}</code></div>
+        <button type="button" class="btn-primary bk-dl" id="mig-start" {% if job and job.status == 'running' %}disabled{% endif %}>{{ t.bk_mig_btn }}</button>
+      {% else %}
+        <ol class="bk-steps">
+          <li>{{ t.bk_step1 }}</li>
+          <li>{{ t.bk_step2 }}</li>
+          <li>{{ t.bk_step3 }}</li>
+          <li>{{ t.bk_step4 }}</li>
+        </ol>
+      {% endif %}
+      <pre class="bk-log" id="mig-log" {% if not job %}hidden{% endif %}>{{ job.detail if job else '' }}</pre>
+    </section>
+    {% endif %}
     {% endif %}
   </div>
 
@@ -221,6 +254,26 @@
           return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok || d.ok === false) throw new Error(d.message || T.net); return d; });
         });
       }
+      var ms = document.getElementById("mig-start"), mlog = document.getElementById("mig-log");
+      function pollMig() {
+        fetch("/api/admin/migrate/status").then(function (r) { return r.json(); }).then(function (d) {
+          if (!d.job) return;
+          mlog.hidden = false; mlog.textContent = d.job.detail || "";
+          mlog.scrollTop = mlog.scrollHeight;
+          if (d.job.status === "running") setTimeout(pollMig, 2500); else if (ms) ms.disabled = false;
+        }).catch(function () { setTimeout(pollMig, 5000); });
+      }
+      if (ms) ms.addEventListener("click", function () {
+        confirmAsk({{ t.bk_mig_confirm|tojson }}).then(function (ok) {
+          if (!ok) return;
+          ms.disabled = true;
+          post("/api/admin/migrate").then(function () { setTimeout(pollMig, 1500); })
+            .catch(function (err) { ms.disabled = false; toast(err.message || T.net); });
+        });
+      });
+      if (mlog && !mlog.hidden && /running|…|\.\.\.$/.test(mlog.textContent)) pollMig();
+      {% if job and job.status == 'running' %}pollMig();{% endif %}
+
       var ra = document.getElementById("refetch-all");
       if (ra) ra.addEventListener("click", function () {
         ra.disabled = true;

@@ -6517,7 +6517,7 @@ def book_card(b, progress=None):
     if progress and progress.get("pages"):
         pct = min(100, int(round((progress["page"] + 1) * 100 / max(1, progress["pages"]))))
     return {**b, "c1": colors[0], "c2": colors[-1], "kind": book_kind(b), "pct": pct,
-            "loading": b.get("fetch_status") in ("pending", "loading")}
+            "loading": b.get("fetch_status") in ("pending", "loading") and not (b.get("chars") or b.get("file_name"))}
 
 
 def book_pages(book_id, updated_ts, text):
@@ -6531,15 +6531,33 @@ def book_pages(book_id, updated_ts, text):
     return pages
 
 
+LIB_STALE_SECONDS = 240     # "loading" holatida shuncha qotib qolsa, qayta urinib ko'riladi
+LIB_PARALLEL = 3            # bir vaqtda nechta kitob yuklanadi
+
+
+def _lib_set_error(book_id, err):
+    try:
+        conn = get_db()
+        try:
+            conn.execute("UPDATE books SET fetch_status = 'error', fetch_error = ?, fetch_ts = ? WHERE id = ?",
+                         (str(err)[:300], int(time.time()), book_id))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        app.logger.exception("Kutubxona: xato holatini yozib bo'lmadi")
+
+
 def library_fetch_one(book_id):
-    """Bitta kitob matnini manbadan yuklab bazaga yozadi. Ishlagan bo'lsa True."""
+    """Bitta kitob matnini manbadan yuklab bazaga yozadi. Ishlagan bo'lsa True.
+    Har qanday xatoda kitob 'error' holatiga o'tadi (navbat hech qachon qotib qolmaydi)."""
     conn = get_db()
     now = int(time.time())
     try:
         cur = conn.execute(
             """UPDATE books SET fetch_status = 'loading', fetch_ts = ?
                WHERE id = ? AND (fetch_status = 'pending' OR (fetch_status = 'loading' AND COALESCE(fetch_ts, 0) < ?))""",
-            (now, book_id, now - 900),
+            (now, book_id, now - LIB_STALE_SECONDS),
         )
         conn.commit()
         if not cur.rowcount:
@@ -6549,47 +6567,68 @@ def library_fetch_one(book_id):
         conn.close()
     try:
         text = library_fetch.fetch_source(b["source"] if b else "")
-        status, err = "ready", None
+        text = text.replace("\x00", "")  # PostgreSQL matnda NUL belgini qabul qilmaydi
     except Exception as e:
-        text, status, err = None, "error", str(e)[:300]
-    conn = get_db()
+        _lib_set_error(book_id, e)
+        return False
     try:
-        if status == "ready":
+        conn = get_db()
+        try:
             conn.execute(
                 "UPDATE books SET content_text = ?, chars = ?, fetch_status = 'ready', fetch_error = NULL, fetch_ts = ?, updated_ts = ? WHERE id = ?",
                 (text, len(text), int(time.time()), int(time.time()), book_id),
             )
-        else:
-            conn.execute("UPDATE books SET fetch_status = 'error', fetch_error = ?, fetch_ts = ? WHERE id = ?",
-                         (err, int(time.time()), book_id))
-        conn.commit()
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        app.logger.exception("Kutubxona: matn bazaga yozilmadi")
+        _lib_set_error(book_id, "DB: " + str(e))
+        return False
+    return True
+
+
+def _lib_next_ids(limit, skip):
+    conn = get_db()
+    try:
+        now = int(time.time())
+        rows = conn.execute(
+            """SELECT id FROM books WHERE source IS NOT NULL AND source != '' AND status != 'deleted'
+               AND (fetch_status = 'pending' OR (fetch_status = 'loading' AND COALESCE(fetch_ts, 0) < ?))
+               ORDER BY featured DESC, id LIMIT ?""",
+            (now - LIB_STALE_SECONDS, limit + len(skip)),
+        ).fetchall()
     finally:
         conn.close()
-    return status == "ready"
+    return [r["id"] for r in rows if r["id"] not in skip][:limit]
 
 
 def _library_worker():
+    tried = set()  # shu aylanishda urinilgan kitoblar - bir kitobda cheksiz aylanib qolmaslik uchun
     try:
-        time.sleep(3)
+        time.sleep(2)
         while True:
-            conn = get_db()
             try:
-                now = int(time.time())
-                row = conn.execute(
-                    """SELECT id FROM books WHERE source IS NOT NULL AND source != '' AND status != 'deleted'
-                       AND (fetch_status = 'pending' OR (fetch_status = 'loading' AND COALESCE(fetch_ts, 0) < ?))
-                       ORDER BY featured DESC, id LIMIT 1""",
-                    (now - 900,),
-                ).fetchone()
-            finally:
-                conn.close()
-            if not row:
-                break
-            try:
-                library_fetch_one(row["id"])
+                ids = _lib_next_ids(LIB_PARALLEL, tried)
             except Exception:
-                app.logger.exception("Kutubxona: kitob yuklanmadi")
-                time.sleep(5)
+                app.logger.exception("Kutubxona: navbatni o'qib bo'lmadi")
+                break
+            if not ids:
+                break
+            tried.update(ids)
+            threads = []
+            for bid in ids:
+                def job(x=bid):
+                    try:
+                        library_fetch_one(x)
+                    except Exception as e:
+                        app.logger.exception("Kutubxona: kitob yuklanmadi")
+                        _lib_set_error(x, e)
+                th = threading.Thread(target=job, daemon=True)
+                th.start()
+                threads.append(th)
+            for th in threads:
+                th.join(timeout=900)
     finally:
         with _LIB_LOCK:
             _LIB_WORKER["running"] = False
@@ -6912,6 +6951,27 @@ def admin_book_form(book_id=None):
         f=form, c1=cols[0], c2=cols[-1], editing=bool(b), book_langs=BOOK_LANGS, book_genres=BOOK_GENRES,
         error=error, active="profile",
     )
+
+
+@app.route("/api/admin/books/refetch-all", methods=["POST"])
+def api_admin_books_refetch_all():
+    """Matni yo'q yoki xato bo'lgan barcha kitoblarni qayta navbatga qo'yadi."""
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    conn = get_db()
+    cur = conn.execute(
+        """UPDATE books SET fetch_status = 'pending', fetch_error = NULL
+           WHERE source IS NOT NULL AND source != '' AND status != 'deleted'
+           AND (COALESCE(chars, 0) = 0 OR fetch_status IN ('error', 'loading', 'pending'))
+           AND (file_name IS NULL OR file_name = '')"""
+    )
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    with _LIB_LOCK:
+        _LIB_WORKER["running"] = False  # qotib qolgan bo'lsa ham yangisi ishga tushsin
+    start_library_worker()
+    return jsonify({"ok": True, "count": n})
 
 
 @app.route("/api/admin/books/<int:book_id>/<action>", methods=["POST"])
