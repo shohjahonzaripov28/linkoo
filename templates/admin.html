@@ -217,7 +217,7 @@
       <a class="btn-primary bk-dl" href="{{ url_for('admin_backup_download') }}">⬇ {{ t.bk_backup_btn }}</a>
     </section>
 
-    {% if db_kind != 'sqlite' %}
+    {% if db_kind == 'render' or mig_target %}
     <section class="bk-box">
       <div class="bk-box-head">{{ icon('swap', 20) }}<b>{{ t.bk_mig_title }}</b></div>
       {% if mig_target %}
