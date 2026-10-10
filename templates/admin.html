@@ -170,6 +170,7 @@
         {% endfor %}
       </div>
       <a href="{{ url_for('admin_book_form', lang=blang or None) }}" class="btn-primary adm-add">{{ icon('plus', 16) }} {{ t.admin_add_book }}</a>
+      <button type="button" class="adm-btn adm-refetch-all" id="refetch-all">↻ {{ t.admin_refetch_all }}</button>
     </div>
     <div class="feed-list">
       {% if not books %}{{ empty_state('book', t.lib_empty) }}{% endif %}
@@ -182,7 +183,8 @@
           <span class="adm-book-state st-{{ 'pdf' if b.kind == 'pdf' else b.fetch_status }}">
             {% if b.kind == 'pdf' %}PDF
             {% elif b.kind == 'text' %}{{ t.admin_book_ready }} · {{ (b.chars / 1000)|round|int }}k
-            {% elif b.loading %}{{ t.lib_loading_short }}
+            {% elif b.fetch_status == 'loading' %}{{ t.lib_loading_short }}
+            {% elif b.fetch_status == 'pending' %}{{ t.lib_queued }}
             {% elif b.fetch_status == 'error' %}{{ t.admin_book_error }}{% if b.fetch_error %}: {{ b.fetch_error|truncate(80) }}{% endif %}
             {% else %}{{ t.admin_book_empty }}{% endif %}
             {% if b.status != 'active' %} · {{ t.admin_hidden }}{% endif %}
@@ -219,6 +221,14 @@
           return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok || d.ok === false) throw new Error(d.message || T.net); return d; });
         });
       }
+      var ra = document.getElementById("refetch-all");
+      if (ra) ra.addEventListener("click", function () {
+        ra.disabled = true;
+        post("/api/admin/books/refetch-all").then(function (d) { toast(T.done + " (" + d.count + ")"); setTimeout(function () { location.reload(); }, 1500); })
+          .catch(function (err) { ra.disabled = false; toast(err.message || T.net); });
+      });
+      // yuklanayotgan kitoblar bo'lsa, sahifa o'zi yangilanib turadi
+      if (document.querySelector(".st-loading, .st-pending")) setTimeout(function () { location.reload(); }, 15000);
       document.addEventListener("click", function (e) {
         var btn = e.target.closest(".adm-btn[data-act]");
         if (!btn) return;

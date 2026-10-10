@@ -2968,6 +2968,7 @@ _V12 = {
         "admin_confirm_delete_user": "Bu foydalanuvchi va uning barcha ma'lumotlari butunlay o'chiriladi. Davom etasizmi?",
         "admin_done": "Bajarildi",
         "admin_cant_change": "Bu foydalanuvchini o'zgartirib bo'lmaydi",
+        "admin_refetch_all": "Yuklanmaganlarni qayta yuklash", "lib_queued": "Navbatda",
     },
     "ru": {
         "dm_contacts_only_title": "Писать могут только контакты",
@@ -3063,6 +3064,7 @@ _V12 = {
         "admin_confirm_delete_user": "Пользователь и все его данные будут удалены навсегда. Продолжить?",
         "admin_done": "Готово",
         "admin_cant_change": "Этого пользователя нельзя изменить",
+        "admin_refetch_all": "Перезагрузить незагруженные", "lib_queued": "В очереди",
     },
     "zh": {
         "dm_contacts_only_title": "仅联系人可以互发消息",
@@ -3158,6 +3160,7 @@ _V12 = {
         "admin_confirm_delete_user": "该用户及其所有数据将被永久删除。确定继续？",
         "admin_done": "完成",
         "admin_cant_change": "无法修改该用户",
+        "admin_refetch_all": "重新加载未完成的书籍", "lib_queued": "排队中",
     },
     "en": {
         "dm_contacts_only_title": "Only contacts can message each other",
@@ -3253,6 +3256,7 @@ _V12 = {
         "admin_confirm_delete_user": "This user and all their data will be deleted permanently. Continue?",
         "admin_done": "Done",
         "admin_cant_change": "This user can't be changed",
+        "admin_refetch_all": "Retry books without text", "lib_queued": "Queued",
     },
 }
 for _lang, _items in _V12.items():

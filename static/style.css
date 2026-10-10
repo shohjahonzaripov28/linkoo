@@ -3176,3 +3176,4 @@ body.reader-body { display: block; animation: none; background-size: auto; }
 .bk-xl { font-size: 18px; }
 .lib-hero .bk-lg { padding: 1.3em .8em .9em 1.15em; }
 .bk-rule { margin: .8em 0 .6em; }
+.adm-refetch-all { align-self: flex-start; }
