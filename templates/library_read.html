@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="{{ b.lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ b.title }}{% if kind == 'text' %} · {{ page + 1 }}/{{ total }}{% endif %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>
+    // O'qish sozlamalari (shrift, mavzu) - shu qurilmada eslab qolinadi
+    (function () {
+      var s = {};
+      try { s = JSON.parse(localStorage.getItem("linko_reader") || "{}"); } catch (e) { s = {}; }
+      var r = document.documentElement;
+      r.dataset.rtheme = s.theme || "night";
+      r.dataset.rfont = s.font || "serif";
+      r.style.setProperty("--rd-size", (s.size || 19) + "px");
+    })();
+  </script>
+</head>
+<body class="reader-body">
+  {% from '_icons.html' import icon %}
+  <header class="rd-top" id="rd-top">
+    <a href="{{ url_for('library_book', book_id=b.id) }}" class="rd-btn" aria-label="back">←</a>
+    <div class="rd-title"><b>{{ b.title }}</b><small>{{ b.author }}</small></div>
+    {% if kind == 'text' %}
+    <button type="button" class="rd-btn" id="rd-aa" aria-label="{{ t.lib_reader_settings }}">Aa</button>
+    {% else %}<span class="rd-btn ghost"></span>{% endif %}
+  </header>
+
+  {% if kind == 'text' %}
+  <div class="rd-panel" id="rd-panel" hidden>
+    <div class="rd-row">
+      <span>{{ t.lib_font_size }}</span>
+      <div class="rd-seg">
+        <button type="button" data-size="-1">A−</button>
+        <button type="button" data-size="1">A+</button>
+      </div>
+    </div>
+    <div class="rd-row">
+      <span>{{ t.lib_theme }}</span>
+      <div class="rd-seg rd-themes">
+        <button type="button" data-theme="night" class="th-night" aria-label="night"></button>
+        <button type="button" data-theme="sepia" class="th-sepia" aria-label="sepia"></button>
+        <button type="button" data-theme="day" class="th-day" aria-label="day"></button>
+      </div>
+    </div>
+    <div class="rd-row">
+      <span>{{ t.lib_font }}</span>
+      <div class="rd-seg">
+        <button type="button" data-font="serif" style="font-family: Georgia, serif;">Serif</button>
+        <button type="button" data-font="sans">Sans</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="rd-main{% if b.lang == 'zh' %} cjk{% endif %}" id="rd-main">
+    {% if page == 0 %}
+    <div class="rd-start">
+      <small>{{ b.author }}</small>
+      <h1>{{ b.title }}</h1>
+      <span></span>
+    </div>
+    {% endif %}
+    {% for p in paras %}
+      {% if p == '* * *' %}<div class="rd-sep">✦ ✦ ✦</div>
+      {% elif '\n' in p %}<p class="verse">{{ p }}</p>
+      {% else %}<p>{{ p }}</p>{% endif %}
+    {% endfor %}
+    {% if page + 1 >= total %}
+    <div class="rd-end">✦<b>{{ t.lib_the_end }}</b><a href="{{ url_for('library', lang=b.lang) }}">{{ t.lib_back_to_library }}</a></div>
+    {% endif %}
+  </main>
+
+  <footer class="rd-bottom" id="rd-bottom">
+    <a class="rd-nav{% if page == 0 %} off{% endif %}" href="{{ url_for('library_read', book_id=b.id, p=page) if page > 0 else '#' }}" id="rd-prev" aria-label="prev">‹</a>
+    <div class="rd-pos">
+      <input type="range" id="rd-range" min="1" max="{{ total }}" value="{{ page + 1 }}" aria-label="page">
+      <span id="rd-label">{{ page + 1 }} / {{ total }} · {{ ((page + 1) * 100 / total)|round|int }}%</span>
+    </div>
+    <a class="rd-nav{% if page + 1 >= total %} off{% endif %}" href="{{ url_for('library_read', book_id=b.id, p=page + 2) if page + 1 < total else '#' }}" id="rd-next" aria-label="next">›</a>
+  </footer>
+
+  <script>
+    (function () {
+      var BOOK = {{ b.id }}, PAGE = {{ page }}, TOTAL = {{ total }};
+      var base = "{{ url_for('library_read', book_id=b.id) }}";
+      fetch("/api/library/" + BOOK + "/progress", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page: PAGE, pages: TOTAL }) }).catch(function () {});
+
+      function go(p) { if (p >= 1 && p <= TOTAL && p !== PAGE + 1) location.href = base + "?p=" + p; }
+      var range = document.getElementById("rd-range"), label = document.getElementById("rd-label");
+      range.addEventListener("input", function () { label.textContent = range.value + " / " + TOTAL + " · " + Math.round(range.value * 100 / TOTAL) + "%"; });
+      range.addEventListener("change", function () { go(parseInt(range.value, 10)); });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowRight") go(PAGE + 2);
+        if (e.key === "ArrowLeft") go(PAGE);
+      });
+      // barmoq bilan surish: chapga - keyingi, o'ngga - oldingi sahifa
+      var sx = null, sy = null;
+      document.addEventListener("touchstart", function (e) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+      document.addEventListener("touchend", function (e) {
+        if (sx === null) return;
+        var dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+        if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) go(dx < 0 ? PAGE + 2 : PAGE);
+        sx = null;
+      }, { passive: true });
+      // markazga bosilsa - panellar yashiriladi/ko'rinadi (to'liq ekran o'qish)
+      document.getElementById("rd-main").addEventListener("click", function (e) {
+        if (window.getSelection && String(window.getSelection())) return;
+        document.body.classList.toggle("rd-zen");
+      });
+
+      // sozlamalar
+      var st = {};
+      try { st = JSON.parse(localStorage.getItem("linko_reader") || "{}"); } catch (e) { st = {}; }
+      var root = document.documentElement;
+      function save() { try { localStorage.setItem("linko_reader", JSON.stringify(st)); } catch (e) {} }
+      var panel = document.getElementById("rd-panel");
+      document.getElementById("rd-aa").addEventListener("click", function (e) { e.stopPropagation(); panel.hidden = !panel.hidden; });
+      document.addEventListener("click", function (e) { if (!panel.hidden && !e.target.closest("#rd-panel")) panel.hidden = true; });
+      panel.addEventListener("click", function (e) {
+        var b = e.target.closest("button"); if (!b) return;
+        if (b.dataset.size) { st.size = Math.max(14, Math.min(30, (st.size || 19) + parseInt(b.dataset.size, 10))); root.style.setProperty("--rd-size", st.size + "px"); }
+        if (b.dataset.theme) { st.theme = b.dataset.theme; root.dataset.rtheme = st.theme; }
+        if (b.dataset.font) { st.font = b.dataset.font; root.dataset.rfont = st.font; }
+        save();
+      });
+    })();
+  </script>
+
+  {% else %}
+  {# ---------------- PDF ---------------- #}
+  <main class="rd-pdf" id="pdf-wrap">
+    <div class="lib-wait" id="pdf-loading"><span class="spin"></span>{{ t.lib_loading }}</div>
+    <canvas id="pdf-canvas"></canvas>
+  </main>
+  <footer class="rd-bottom">
+    <button type="button" class="rd-nav" id="pdf-prev" aria-label="prev">‹</button>
+    <div class="rd-pos">
+      <input type="range" id="pdf-range" min="1" max="1" value="1" aria-label="page">
+      <span id="pdf-label">…</span>
+    </div>
+    <button type="button" class="rd-nav" id="pdf-next" aria-label="next">›</button>
+  </footer>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    (function () {
+      var BOOK = {{ b.id }}, START = {{ start_page }};
+      var url = "{{ url_for('media', filename=b.file_name) }}";
+      var canvas = document.getElementById("pdf-canvas"), ctx = canvas.getContext("2d");
+      var range = document.getElementById("pdf-range"), label = document.getElementById("pdf-label");
+      var doc = null, cur = 1, busy = false, queued = null, saveT = null;
+      if (!window.pdfjsLib) { document.getElementById("pdf-loading").innerHTML = '<a href="' + url + '">PDF</a>'; return; }
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      function render(n) {
+        if (busy) { queued = n; return; }
+        busy = true; cur = n;
+        doc.getPage(n).then(function (pg) {
+          var wrap = document.getElementById("pdf-wrap");
+          var w = Math.min(wrap.clientWidth - 16, 900);
+          var v1 = pg.getViewport({ scale: 1 });
+          var scale = w / v1.width, dpr = window.devicePixelRatio || 1;
+          var vp = pg.getViewport({ scale: scale * dpr });
+          canvas.width = vp.width; canvas.height = vp.height;
+          canvas.style.width = (vp.width / dpr) + "px"; canvas.style.height = (vp.height / dpr) + "px";
+          return pg.render({ canvasContext: ctx, viewport: vp }).promise;
+        }).then(function () {
+          busy = false; range.value = cur;
+          label.textContent = cur + " / " + doc.numPages + " · " + Math.round(cur * 100 / doc.numPages) + "%";
+          window.scrollTo(0, 0);
+          clearTimeout(saveT);
+          saveT = setTimeout(function () {
+            fetch("/api/library/" + BOOK + "/progress", { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ page: cur - 1, pages: doc.numPages }) }).catch(function () {});
+          }, 600);
+          if (queued) { var q = queued; queued = null; render(q); }
+        }).catch(function () { busy = false; });
+      }
+      function go(n) { if (doc && n >= 1 && n <= doc.numPages) render(n); }
+      pdfjsLib.getDocument({ url: url }).promise.then(function (d) {
+        doc = d; range.max = d.numPages;
+        document.getElementById("pdf-loading").remove();
+        render(Math.min(Math.max(1, START + 1), d.numPages));
+      }).catch(function () { document.getElementById("pdf-loading").innerHTML = '<a href="' + url + '" target="_blank">PDF</a>'; });
+      document.getElementById("pdf-prev").addEventListener("click", function () { go(cur - 1); });
+      document.getElementById("pdf-next").addEventListener("click", function () { go(cur + 1); });
+      range.addEventListener("change", function () { go(parseInt(range.value, 10)); });
+      document.addEventListener("keydown", function (e) { if (e.key === "ArrowRight") go(cur + 1); if (e.key === "ArrowLeft") go(cur - 1); });
+      var sx = null;
+      document.addEventListener("touchstart", function (e) { sx = e.touches[0].clientX; }, { passive: true });
+      document.addEventListener("touchend", function (e) {
+        if (sx === null) return; var dx = e.changedTouches[0].clientX - sx;
+        if (Math.abs(dx) > 70) go(dx < 0 ? cur + 1 : cur - 1); sx = null;
+      }, { passive: true });
+      window.addEventListener("resize", function () { if (doc) render(cur); });
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>

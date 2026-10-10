@@ -108,7 +108,7 @@
         {% endif %}
         {% if not is_mine and seller %}
         <div class="contact-row">
-          <a href="{{ url_for('dm', other_username=seller.username) }}" class="btn-primary secondary-btn">{{ icon('chat', 16) }} {{ t.product_contact_seller }}</a>
+          <a href="{{ url_for('dm', other_username=seller.username, product=p.id) }}" class="btn-primary secondary-btn">{{ icon('chat', 16) }} {{ t.product_contact_seller }}</a>
           {% if store and store.phone %}<a href="tel:{{ store.phone }}" class="btn-primary secondary-btn">{{ icon('phone', 16) }} {{ t.store_call }}</a>{% endif %}
         </div>
         {% endif %}

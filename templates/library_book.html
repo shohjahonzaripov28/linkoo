@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ b.title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  {% from '_library_macros.html' import book_cover, book_tile %}
+  <div class="glass-card feed-card lib-page">
+    <div class="chat-header">
+      <a href="{{ url_for('library', lang=b.lang) }}" class="back-link">←</a>
+      <h1 style="font-size:18px;">{{ t.lib_title }}</h1>
+      {% if is_admin %}
+      <a href="{{ url_for('admin_book_form', book_id=b.id) }}" class="head-btn" title="{{ t.edit }}">{{ icon('edit', 20) }}</a>
+      {% else %}<div style="width:36px;"></div>{% endif %}
+    </div>
+
+    <section class="lib-detail" style="--c1: {{ b.c1 }}; --c2: {{ b.c2 }};">
+      <div class="lib-detail-bg"></div>
+      {{ book_cover(b, 'xl') }}
+      <h1 class="lib-detail-title{% if b.lang == 'zh' %} cjk{% endif %}">{{ b.title }}</h1>
+      <div class="lib-detail-author">{{ b.author }}</div>
+      <div class="lib-meta">
+        <span>{{ langs[b.lang] }}</span>
+        {% if b.genre %}<span>{{ genre_label(b.genre) }}</span>{% endif %}
+        {% if b.year %}<span>{{ b.year }}</span>{% endif %}
+        {% if read_time %}<span>{{ icon('clock', 13) }} {{ read_time }}</span>{% endif %}
+        <span>{{ icon('eye', 13) }} {{ readers }}</span>
+      </div>
+
+      <div class="lib-actions">
+        {% if b.kind != 'none' %}
+        <a class="btn-primary lib-read-btn" href="{{ url_for('library_read', book_id=b.id) }}">
+          {{ icon('book', 18) }} {{ t.lib_continue_btn if progress and progress.page else t.lib_read_btn }}
+          {% if progress and progress.pages %}<small>{{ b.pct }}%</small>{% endif %}
+        </a>
+        {% elif b.loading %}
+        <div class="lib-wait" id="lib-wait" data-id="{{ b.id }}"><span class="spin"></span>{{ t.lib_loading }}</div>
+        {% else %}
+        <div class="lib-wait off">{{ t.lib_not_ready }}</div>
+        {% endif %}
+        <button type="button" class="lib-save{% if saved %} on{% endif %}" id="lib-save" aria-label="{{ t.lib_save }}" title="{{ t.lib_save }}">{{ icon('bookmark', 20) }}</button>
+      </div>
+      {% if progress and progress.pages %}
+      <div class="bk-progress wide big"><i style="width: {{ b.pct }}%;"></i></div>
+      {% endif %}
+    </section>
+
+    {% if b.description %}
+    <h2 class="lib-h">{{ t.lib_about }}</h2>
+    <p class="lib-desc">{{ b.description }}</p>
+    {% endif %}
+
+    {% if more %}
+    <h2 class="lib-h">{{ t.lib_more_lang }}</h2>
+    <div class="lib-row">
+      {% for m in more %}{{ book_tile(m, t) }}{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <script>
+    (function () {
+      var T = {{ {"saved": t.lib_saved_toast, "unsaved": t.lib_unsaved_toast, "net": t.err_network}|tojson }};
+      var toastEl = document.getElementById("toast"), tt;
+      function toast(x) { toastEl.textContent = x; toastEl.hidden = false; clearTimeout(tt); tt = setTimeout(function () { toastEl.hidden = true; }, 1600); }
+      var sb = document.getElementById("lib-save");
+      sb.addEventListener("click", function () {
+        fetch("/api/library/{{ b.id }}/save", { method: "POST" }).then(function (r) { return r.json(); }).then(function (d) {
+          if (!d.ok) throw 0;
+          sb.classList.toggle("on", d.saved); toast(d.saved ? T.saved : T.unsaved);
+        }).catch(function () { toast(T.net); });
+      });
+      // matn hali yuklanayotgan bo'lsa - tayyor bo'lishi bilan sahifa yangilanadi
+      var w = document.getElementById("lib-wait");
+      if (w && w.dataset.id) {
+        var tries = 0;
+        var iv = setInterval(function () {
+          if (++tries > 120) { clearInterval(iv); return; }
+          fetch("/api/library/" + w.dataset.id + "/status").then(function (r) { return r.json(); }).then(function (d) {
+            if (d.ready || d.status === "error") { clearInterval(iv); location.reload(); }
+          }).catch(function () {});
+        }, 4000);
+      }
+    })();
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>

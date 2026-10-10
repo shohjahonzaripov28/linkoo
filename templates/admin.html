@@ -8,129 +8,258 @@
 </head>
 <body>
   {% from '_icons.html' import icon, empty_state %}
-  <div class="glass-card feed-card">
+  {% from '_library_macros.html' import book_cover %}
+  <div class="glass-card feed-card adm-page">
     <div class="chat-header">
       <a href="{{ url_for('settings_page') }}" class="back-link">←</a>
       <h1 style="font-size:20px;">{{ t.admin_panel }}</h1>
-      <div style="width:36px;"></div>
+      <span class="admin-chip">{{ icon('shield', 12) }} {{ t.admin_badge }}</span>
     </div>
 
-    <div class="profile-tabs">
-      <button class="tab-btn active" data-tab="users-tab">{{ t.admin_users }}</button>
-      <button class="tab-btn" data-tab="posts-tab">{{ t.admin_posts }}</button>
-      <button class="tab-btn" data-tab="products-tab">{{ t.admin_products }}</button>
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    {% set tab_icons = {'stats': 'chart', 'users': 'users', 'posts': 'feed', 'products': 'box', 'stores': 'store', 'groups': 'groups', 'books': 'book'} %}
+    <nav class="adm-tabs">
+      {% for tb in tabs %}
+      <a href="{{ url_for('admin_page', tab=tb) }}" class="adm-tab{% if tb == tab %} active{% endif %}">{{ icon(tab_icons[tb], 16) }}<span>{{ t['admin_tab_' ~ tb] }}</span></a>
+      {% endfor %}
+    </nav>
+
+    {% if tab not in ('stats',) %}
+    <form method="GET" class="home-search adm-search">
+      {{ icon('search', 18) }}
+      <input type="hidden" name="tab" value="{{ tab }}">
+      {% if tab == 'books' and blang %}<input type="hidden" name="lang" value="{{ blang }}">{% endif %}
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ t.search_hint }}" enterkeyhint="search">
+    </form>
+    {% endif %}
+
+    {# ===================== STATISTIKA ===================== #}
+    {% if tab == 'stats' %}
+    <div class="adm-stats">
+      {% for key, ic, n in stats %}
+      <div class="adm-stat"><span class="adm-stat-ico">{{ icon(ic, 18) }}</span><b>{{ n|compact }}</b><small>{{ t['admin_stat_' ~ key] }}</small></div>
+      {% endfor %}
+    </div>
+    <h2 class="lib-h">{{ t.admin_new_users }}</h2>
+    <div class="feed-list">
+      {% for u in new_users %}
+      <a class="person-row" href="{{ url_for('user_profile', target_username=u.username) if u.username != username else url_for('profile') }}">
+        {% if u.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">{% else %}<div class="avatar-circle small">{{ u.avatar_letter }}</div>{% endif %}
+        <div class="person-main"><div class="person-name">{{ u.nickname or u.username }}</div><div class="person-sub">@{{ u.username }}</div></div>
+      </a>
+      {% endfor %}
+    </div>
+    <div class="adm-quick">
+      <a href="{{ url_for('admin_book_form') }}" class="btn-primary">{{ icon('plus', 16) }} {{ t.admin_add_book }}</a>
+      <a href="{{ url_for('library') }}" class="btn-primary secondary-btn">{{ icon('book', 16) }} {{ t.lib_title }}</a>
     </div>
 
-    <div id="users-tab" class="tab-panel">
-      <form method="GET" class="new-post-form" style="padding:10px 14px; margin-bottom:12px;">
-        <input type="text" name="q" value="{{ q }}" placeholder="{{ t.search_hint }}" class="shop-input" style="margin-bottom:0;">
-      </form>
-      <div class="feed-list">
-        {% if users|length == 0 %}{{ empty_state('search', t.no_results) }}{% endif %}
-        {% for u in users %}
-        <div class="person-row" style="cursor:default;" data-user="{{ u.username }}">
-          {% if u.avatar_file %}
-            <img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">
-          {% else %}
-            <div class="avatar-circle small">{{ u.avatar_letter }}</div>
+    {# ===================== FOYDALANUVCHILAR ===================== #}
+    {% elif tab == 'users' %}
+    <div class="feed-list">
+      {% if not users %}{{ empty_state('search', t.no_results) }}{% endif %}
+      {% for u in users %}
+      <div class="adm-row" data-user="{{ u.username }}">
+        <a href="{{ url_for('user_profile', target_username=u.username) if u.username != username else url_for('profile') }}" class="adm-row-main">
+          {% if u.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=u.avatar_file) }}" alt="">{% else %}<div class="avatar-circle small">{{ u.avatar_letter }}</div>{% endif %}
+          <span class="person-main">
+            <span class="person-name">{{ u.nickname or u.username }}</span>
+            <span class="person-sub">@{{ u.username }}
+              {% if u.is_admin_user %}<span class="admin-chip">{{ t.admin_badge }}</span>{% endif %}
+              <span class="admin-chip danger blocked-tag" {% if not u.blocked_id %}hidden{% endif %}>{{ t.blocked_label }}</span>
+            </span>
+          </span>
+        </a>
+        {% if u.username != username and not u.env_admin %}
+        <div class="adm-acts">
+          {% if not u.is_admin_user %}
+          <button type="button" class="adm-btn" data-act="block" data-blocked="{{ 1 if u.blocked_id else 0 }}">{{ t.unblock_btn if u.blocked_id else t.block_btn }}</button>
           {% endif %}
-          <div class="person-main">
-            <a href="{{ url_for('user_profile', target_username=u.username) }}" class="person-name" style="color:var(--text); text-decoration:none;">@{{ u.nickname if u.nickname else u.username }}</a>
-            <div class="person-sub">{{ u.username }}
-              {% if u.is_admin_user %} · <span class="admin-chip">{{ t.admin_badge }}</span>{% endif %}
-              <span class="blocked-tag" {% if not u.blocked_id %}style="display:none;"{% endif %}> · <span class="admin-chip danger">{{ t.blocked_label }}</span></span>
-            </div>
-          </div>
-          {% if not u.is_admin_user and u.username != username %}
-          <button class="admin-block-btn {% if u.blocked_id %}is-blocked{% endif %}" data-user="{{ u.username }}" data-blocked="{{ 1 if u.blocked_id else 0 }}">
-            {{ t.unblock_btn if u.blocked_id else t.block_btn }}
-          </button>
+          <button type="button" class="adm-btn" data-act="role">{{ t.admin_remove_admin if u.is_admin_user else t.admin_make_admin }}</button>
+          {% if not u.is_admin_user %}
+          <button type="button" class="adm-btn danger" data-act="delete-user" title="{{ t.delete }}">{{ icon('trash', 15) }}</button>
           {% endif %}
         </div>
-        {% endfor %}
+        {% endif %}
       </div>
+      {% endfor %}
     </div>
 
-    <div id="posts-tab" class="tab-panel" style="display:none;">
-      <div class="feed-list">
-        {% if posts|length == 0 %}{{ empty_state('feed', t.admin_empty) }}{% endif %}
-        {% for post in posts %}
-        <div class="post-card">
-          <div class="post-header">
-            <div style="flex:1;">
-              <div class="post-author">@{{ post.username }}</div>
-              <div class="post-time">{{ post.created_at }}</div>
-            </div>
-            <button class="admin-del-btn" data-kind="posts" data-id="{{ post.id }}" title="{{ t.delete }}">🗑️</button>
-          </div>
-          {% if post.content %}<div class="post-text">{{ post.content }}</div>{% endif %}
-          {% if post.image_file %}<img class="post-image" src="{{ url_for('media', filename=post.image_file) }}" alt="">{% endif %}
+    {# ===================== POSTLAR ===================== #}
+    {% elif tab == 'posts' %}
+    <div class="adm-grid">
+      {% if not posts %}{{ empty_state('feed', t.admin_empty) }}{% endif %}
+      {% for p in posts %}
+      <div class="adm-card" data-id="{{ p.id }}">
+        <a href="{{ url_for('post_page', post_id=p.id) }}" class="adm-card-media">
+          {% if p.media %}
+            {% if p.media[0].kind == 'video' %}<video src="{{ url_for('media', filename=p.media[0].filename) }}" muted preload="metadata"></video>
+            {% else %}<img src="{{ url_for('media', filename=p.media[0].filename) }}" alt="" loading="lazy">{% endif %}
+          {% else %}<span class="adm-card-text">{{ p.content|truncate(120) }}</span>{% endif %}
+        </a>
+        <div class="adm-card-body">
+          <b>@{{ p.display }}</b>
+          <small>{{ p.ago }} · ♥ {{ p.like_count }} · 💬 {{ p.comment_count }}</small>
+          <button type="button" class="adm-btn danger" data-act="delete-post">{{ icon('trash', 14) }} {{ t.delete }}</button>
         </div>
-        {% endfor %}
       </div>
+      {% endfor %}
     </div>
 
-    <div id="products-tab" class="tab-panel" style="display:none;">
-      <div class="feed-list">
-        {% if products|length == 0 %}{{ empty_state('shop', t.admin_empty) }}{% endif %}
-        {% for p in products %}
-        <div class="product-card">
-          {% if p.image_file %}<img class="product-image" src="{{ url_for('media', filename=p.image_file) }}" alt="">{% endif %}
-          <div class="product-info">
-            <div class="product-title">{{ p.title }}</div>
-            <div class="product-price">{{ "{:,}".format(p.price).replace(",", " ") }} {{ t.currency_sum }}</div>
-            <div class="product-seller">{{ t.seller_label }} @{{ p.seller_username }}</div>
-            <button class="product-delete-btn admin-del-btn" data-kind="products" data-id="{{ p.id }}">🗑️ {{ t.delete }}</button>
+    {# ===================== MAHSULOTLAR ===================== #}
+    {% elif tab == 'products' %}
+    <div class="adm-grid">
+      {% if not products %}{{ empty_state('shop', t.admin_empty) }}{% endif %}
+      {% for p in products %}
+      <div class="adm-card{% if p.status != 'active' %} dim{% endif %}" data-id="{{ p.id }}">
+        <a href="{{ url_for('product_page', product_id=p.id) }}" class="adm-card-media">
+          {% if p.image %}<img src="{{ url_for('media', filename=p.image) }}" alt="" loading="lazy">{% else %}<span class="adm-card-text">{{ icon('box', 28) }}</span>{% endif %}
+        </a>
+        <div class="adm-card-body">
+          <b>{{ p.title }}</b>
+          <small>{{ p.price|money }} {{ t.currency_sum }} · @{{ p.seller_username }}</small>
+          <div class="adm-acts">
+            <button type="button" class="adm-btn" data-act="toggle-product">{{ t.admin_show if p.status != 'active' else t.admin_hide }}</button>
+            <button type="button" class="adm-btn danger" data-act="delete-product">{{ icon('trash', 14) }}</button>
           </div>
         </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {# ===================== DO'KONLAR ===================== #}
+    {% elif tab == 'stores' %}
+    <div class="feed-list">
+      {% if not stores %}{{ empty_state('store', t.admin_empty) }}{% endif %}
+      {% for s in stores %}
+      <div class="adm-row" data-user="{{ s.username }}">
+        <a href="{{ url_for('store_page', handle=s.handle) }}" class="adm-row-main">
+          {% if s.logo_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=s.logo_file) }}" alt="">{% else %}<div class="avatar-circle small">{{ icon('store', 18) }}</div>{% endif %}
+          <span class="person-main"><span class="person-name">{{ s.name }}</span><span class="person-sub">@{{ s.username }} · {{ s.pcount }} {{ t.admin_products|lower }}</span></span>
+        </a>
+        <div class="adm-acts"><button type="button" class="adm-btn danger" data-act="delete-store">{{ icon('trash', 15) }} {{ t.delete }}</button></div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {# ===================== GURUHLAR ===================== #}
+    {% elif tab == 'groups' %}
+    <div class="feed-list">
+      {% if not groups %}{{ empty_state('groups', t.admin_empty) }}{% endif %}
+      {% for gr in groups %}
+      <div class="adm-row" data-id="{{ gr.id }}">
+        <a href="{{ url_for('group_chat', group_id=gr.id) }}" class="adm-row-main">
+          {% if gr.avatar_file %}<img class="avatar-circle small" src="{{ url_for('media', filename=gr.avatar_file) }}" alt="">{% else %}<div class="avatar-circle small">{{ icon('megaphone' if gr.kind == 'channel' else 'groups', 18) }}</div>{% endif %}
+          <span class="person-main"><span class="person-name">{{ gr.name }}</span><span class="person-sub">{{ gr.members }} · @{{ gr.created_by }}</span></span>
+        </a>
+        <div class="adm-acts"><button type="button" class="adm-btn danger" data-act="delete-group">{{ icon('trash', 15) }} {{ t.delete }}</button></div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {# ===================== KUTUBXONA ===================== #}
+    {% elif tab == 'books' %}
+    <div class="adm-books-head">
+      <div class="lib-chips">
+        <a href="{{ url_for('admin_page', tab='books') }}" class="lib-chip{% if not blang %} on{% endif %}">{{ t.lib_all }}</a>
+        {% for l in book_langs %}
+        <a href="{{ url_for('admin_page', tab='books', lang=l) }}" class="lib-chip{% if blang == l %} on{% endif %}">{{ langs[l] }} <em>{{ book_counts.get(l, 0) }}</em></a>
         {% endfor %}
       </div>
+      <a href="{{ url_for('admin_book_form', lang=blang or None) }}" class="btn-primary adm-add">{{ icon('plus', 16) }} {{ t.admin_add_book }}</a>
     </div>
+    <div class="feed-list">
+      {% if not books %}{{ empty_state('book', t.lib_empty) }}{% endif %}
+      {% for b in books %}
+      <div class="adm-book{% if b.status != 'active' %} dim{% endif %}" data-id="{{ b.id }}">
+        <a href="{{ url_for('library_book', book_id=b.id) }}">{{ book_cover(b, 'sm') }}</a>
+        <div class="adm-book-body">
+          <b>{{ b.title }}{% if b.featured %} <span class="admin-chip">★</span>{% endif %}</b>
+          <small>{{ b.author }} · {{ langs[b.lang] }} · {{ genre_label(b.genre) }}</small>
+          <span class="adm-book-state st-{{ 'pdf' if b.kind == 'pdf' else b.fetch_status }}">
+            {% if b.kind == 'pdf' %}PDF
+            {% elif b.kind == 'text' %}{{ t.admin_book_ready }} · {{ (b.chars / 1000)|round|int }}k
+            {% elif b.loading %}{{ t.lib_loading_short }}
+            {% elif b.fetch_status == 'error' %}{{ t.admin_book_error }}{% if b.fetch_error %}: {{ b.fetch_error|truncate(80) }}{% endif %}
+            {% else %}{{ t.admin_book_empty }}{% endif %}
+            {% if b.status != 'active' %} · {{ t.admin_hidden }}{% endif %}
+            · 👁 {{ b.views }}
+          </span>
+          <div class="adm-acts">
+            <a class="adm-btn" href="{{ url_for('admin_book_form', book_id=b.id) }}">{{ icon('edit', 14) }} {{ t.edit }}</a>
+            <button type="button" class="adm-btn" data-act="book-toggle">{{ t.admin_show if b.status != 'active' else t.admin_hide }}</button>
+            <button type="button" class="adm-btn" data-act="book-feature">★</button>
+            {% if b.source %}<button type="button" class="adm-btn" data-act="book-refetch" title="{{ t.admin_refetch }}">↻</button>{% endif %}
+            <button type="button" class="adm-btn danger" data-act="book-delete">{{ icon('trash', 14) }}</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 
+  <div class="toast" id="toast" hidden></div>
   <script>
-    const netErrorText = "{{ t.err_network }}";
-    const confirmBlockText = "{{ t.confirm_block }}";
-    const confirmDeleteItem = "{{ t.confirm_delete_item }}";
-    const labels = { block: "{{ t.block_btn }}", unblock: "{{ t.unblock_btn }}" };
-
-    document.querySelectorAll(".tab-btn").forEach((b) => {
-      b.addEventListener("click", () => {
-        document.querySelectorAll(".tab-btn").forEach((x) => x.classList.remove("active"));
-        document.querySelectorAll(".tab-panel").forEach((p) => (p.style.display = "none"));
-        b.classList.add("active");
-        document.getElementById(b.dataset.tab).style.display = "block";
+    (function () {
+      var T = {{ {
+        "net": t.err_network, "confirmBlock": t.confirm_block, "confirmDel": t.confirm_delete_item,
+        "confirmUser": t.admin_confirm_delete_user, "block": t.block_btn, "unblock": t.unblock_btn,
+        "makeAdmin": t.admin_make_admin, "removeAdmin": t.admin_remove_admin, "show": t.admin_show, "hide": t.admin_hide,
+        "done": t.admin_done
+      }|tojson }};
+      var toastEl = document.getElementById("toast"), tt;
+      function toast(x) { toastEl.textContent = x; toastEl.hidden = false; clearTimeout(tt); tt = setTimeout(function () { toastEl.hidden = true; }, 1600); }
+      function confirmAsk(text) { return window.linkoConfirm ? window.linkoConfirm(text) : Promise.resolve(confirm(text)); }
+      function post(url) {
+        return fetch(url, { method: "POST" }).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok || d.ok === false) throw new Error(d.message || T.net); return d; });
+        });
+      }
+      document.addEventListener("click", function (e) {
+        var btn = e.target.closest(".adm-btn[data-act]");
+        if (!btn) return;
+        var act = btn.dataset.act, row = btn.closest("[data-id], [data-user]");
+        var id = row && row.dataset.id, user = row && row.dataset.user;
+        var enc = encodeURIComponent(user || "");
+        var run = function (url, after, ask) {
+          (ask ? confirmAsk(ask) : Promise.resolve(true)).then(function (ok) {
+            if (!ok) return;
+            btn.disabled = true;
+            post(url).then(function (d) { btn.disabled = false; after(d); })
+              .catch(function (err) { btn.disabled = false; toast(err.message || T.net); });
+          });
+        };
+        if (act === "block") {
+          var blocked = btn.dataset.blocked === "1";
+          run("/api/admin/" + (blocked ? "unblock/" : "block/") + enc, function () {
+            btn.dataset.blocked = blocked ? "0" : "1"; btn.textContent = blocked ? T.block : T.unblock;
+            row.querySelector(".blocked-tag").hidden = blocked;
+          }, blocked ? null : T.confirmBlock);
+        } else if (act === "role") {
+          run("/api/admin/role/" + enc, function () { location.reload(); });
+        } else if (act === "delete-user") {
+          run("/api/admin/user/" + enc + "/delete", function () { row.remove(); toast(T.done); }, T.confirmUser);
+        } else if (act === "delete-post") {
+          run("/api/posts/delete/" + id, function () { row.remove(); }, T.confirmDel);
+        } else if (act === "toggle-product") {
+          run("/api/admin/product/" + id + "/toggle", function (d) { row.classList.toggle("dim", d.status !== "active"); btn.textContent = d.status === "active" ? T.hide : T.show; });
+        } else if (act === "delete-product") {
+          run("/api/products/delete/" + id, function () { row.remove(); }, T.confirmDel);
+        } else if (act === "delete-store") {
+          run("/api/admin/store/" + enc + "/delete", function () { row.remove(); }, T.confirmDel);
+        } else if (act === "delete-group") {
+          run("/api/groups/" + id + "/delete", function () { row.remove(); }, T.confirmDel);
+        } else if (act === "book-delete") {
+          run("/api/admin/books/" + id + "/delete", function () { row.remove(); }, T.confirmDel);
+        } else if (act.indexOf("book-") === 0) {
+          run("/api/admin/books/" + id + "/" + act.slice(5), function () { location.reload(); });
+        }
       });
-    });
-
-    document.querySelectorAll(".admin-block-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const isBlocked = btn.dataset.blocked === "1";
-        if (!isBlocked && !(await window.linkoConfirm(confirmBlockText))) return;
-        btn.disabled = true;
-        try {
-          const res = await fetch(`/api/admin/${isBlocked ? "unblock" : "block"}/${btn.dataset.user}`, { method: "POST" });
-          if (!res.ok) throw new Error("bad");
-          btn.dataset.blocked = isBlocked ? "0" : "1";
-          btn.textContent = isBlocked ? labels.block : labels.unblock;
-          btn.classList.toggle("is-blocked", !isBlocked);
-          btn.closest(".person-row").querySelector(".blocked-tag").style.display = isBlocked ? "none" : "inline";
-        } catch (e) { alert(netErrorText); }
-        btn.disabled = false;
-      });
-    });
-
-    document.querySelectorAll(".admin-del-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!(await window.linkoConfirm(confirmDeleteItem))) return;
-        const url = btn.dataset.kind === "posts" ? `/api/posts/delete/${btn.dataset.id}` : `/api/products/delete/${btn.dataset.id}`;
-        try {
-          const res = await fetch(url, { method: "POST" });
-          const data = await res.json();
-          if (data.ok) btn.closest(".post-card, .product-card").remove();
-        } catch (e) { alert(netErrorText); }
-      });
-    });
+    })();
   </script>
 
   {% include 'navbar.html' %}

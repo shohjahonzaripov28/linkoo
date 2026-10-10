@@ -39,6 +39,14 @@
       </div>
     </div>
 
+    {% if shop_product %}
+    <a class="shop-thread-bar" href="{{ url_for('product_page', product_id=shop_product.id) }}">
+      {% if shop_product.image %}<img src="{{ url_for('media', filename=shop_product.image) }}" alt="">{% else %}<span class="stb-ph">{{ icon('box', 20) }}</span>{% endif %}
+      <span class="stb-text"><small>{{ t.shop_chat_about }}</small><b>{{ shop_product.title }}</b><em>{{ shop_product.price }} {{ t.currency_sum }}</em></span>
+      <span class="stb-go">{{ icon('chevron', 16) }}</span>
+    </a>
+    {% endif %}
+
     {% include '_chat_composer.html' %}
   </div>
 

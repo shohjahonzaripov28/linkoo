@@ -97,6 +97,10 @@ class PGCursorWrapper:
     def lastrowid(self):
         return self._lastrowid
 
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
 
 class PGConnWrapper:
     """psycopg2 ulanishini sqlite3.Connection'ga o'xshatib ko'rsatadi,
@@ -163,6 +167,9 @@ app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("RENDER"))
 from translations import LANG_NAMES, TRANSLATIONS
 import locations
 import catalog
+import threading
+import library_fetch
+from library_seed import SEED_BOOKS, BOOK_GENRES, BOOK_LANGS
 
 def current_lang():
     # Asosiy til - English. Boshqa tilni foydalanuvchi Sozlamalar > Til bo'limidan tanlaydi.
@@ -328,17 +335,48 @@ def is_blocked_between(conn, a, b):
     ).fetchone())
 
 
-def can_message(conn, sender, receiver):
-    """(ruxsat, xato_kaliti). Blok va maxfiylik sozlamalarini tekshiradi."""
+def are_contacts(conn, a, b):
+    return bool(conn.execute(
+        "SELECT 1 FROM contacts WHERE (username = ? AND contact_username = ?) OR (username = ? AND contact_username = ?)",
+        (a, b, b, a),
+    ).fetchone())
+
+
+def shop_link(conn, a, b):
+    """Do'kon orqali bog'langanmi: xaridor sotuvchiga mahsulot sahifasidan yozgan yoki buyurtma bergan."""
+    if conn.execute(
+        "SELECT 1 FROM shop_threads WHERE (buyer = ? AND seller = ?) OR (buyer = ? AND seller = ?)", (a, b, b, a)
+    ).fetchone():
+        return True
+    return bool(conn.execute(
+        "SELECT 1 FROM orders WHERE (buyer = ? AND seller = ?) OR (buyer = ? AND seller = ?) LIMIT 1", (a, b, b, a)
+    ).fetchone())
+
+
+def is_admin_user(conn, username):
+    if (username or "").lower() in ADMIN_USERNAMES:
+        return True
+    row = conn.execute("SELECT is_admin FROM users WHERE username = ?", (username,)).fetchone()
+    return bool(row and row["is_admin"])
+
+
+def can_message(conn, sender, receiver, allow_shop=True):
+    """(ruxsat, xato_kaliti). Faqat kontaktlar bir-biriga yoza oladi.
+    Istisno: do'kon suhbati (mahsulot sahifasidan "Sotuvchiga yozish" yoki buyurtma) va admin."""
     if is_blocked_between(conn, sender, receiver):
         return False, "chat_blocked_msg"
-    if get_prefs(conn, receiver)["who_can_message"] == "contacts":
-        ok = conn.execute(
-            "SELECT 1 FROM contacts WHERE username = ? AND contact_username = ?", (receiver, sender)
-        ).fetchone()
-        if not ok:
-            return False, "chat_privacy_msg"
-    return True, ""
+    if are_contacts(conn, sender, receiver):
+        return True, ""
+    if allow_shop and shop_link(conn, sender, receiver):
+        return True, ""
+    if is_admin_user(conn, sender):
+        return True, ""
+    # admin birinchi yozgan bo'lsa, foydalanuvchi javob bera oladi
+    if is_admin_user(conn, receiver) and conn.execute(
+        "SELECT 1 FROM private_messages WHERE sender = ? AND receiver = ? LIMIT 1", (receiver, sender)
+    ).fetchone():
+        return True, ""
+    return False, "chat_contact_required"
 
 
 # ---------- Qurilmalar (sessiyalar) ----------
@@ -912,6 +950,43 @@ def ensure_v11_tables(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows (follower)")
 
 
+def ensure_v12_tables(conn):
+    """v12: faqat-kontakt chat (do'kon suhbati istisno), kutubxona (kitoblar, o'qish holati)."""
+    pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS shop_threads (
+        id {pk}, buyer TEXT NOT NULL, seller TEXT NOT NULL, product_id INTEGER, created_ts BIGINT NOT NULL,
+        UNIQUE(buyer, seller))""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS books (
+        id {pk}, lang TEXT NOT NULL, title TEXT NOT NULL, author TEXT, description TEXT, genre TEXT, year TEXT,
+        cover_file TEXT, colors TEXT, content_text TEXT, file_name TEXT, file_mime TEXT, source TEXT,
+        fetch_status TEXT DEFAULT 'none', fetch_error TEXT, fetch_ts BIGINT, chars INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active', featured INTEGER DEFAULT 0, views INTEGER DEFAULT 0,
+        seed_key TEXT UNIQUE, added_by TEXT, created_ts BIGINT, updated_ts BIGINT)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS book_progress (
+        id {pk}, username TEXT NOT NULL, book_id INTEGER NOT NULL, page INTEGER DEFAULT 0, pages INTEGER DEFAULT 0,
+        updated_ts BIGINT, UNIQUE(username, book_id))""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS book_saves (
+        id {pk}, username TEXT NOT NULL, book_id INTEGER NOT NULL, created_ts BIGINT, UNIQUE(username, book_id))""")
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS idx_shop_threads_seller ON shop_threads (seller)",
+        "CREATE INDEX IF NOT EXISTS idx_books_lang ON books (lang, status)",
+        "CREATE INDEX IF NOT EXISTS idx_book_progress_user ON book_progress (username, updated_ts)",
+    ):
+        conn.execute(stmt)
+    now = int(time.time())
+    have = {r["seed_key"] for r in conn.execute("SELECT seed_key FROM books WHERE seed_key IS NOT NULL").fetchall()}
+    for b in SEED_BOOKS:
+        if b["key"] in have:
+            continue
+        conn.execute(
+            """INSERT OR IGNORE INTO books (lang, title, author, description, genre, year, colors, source, fetch_status,
+               status, featured, views, chars, seed_key, added_by, created_ts, updated_ts)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'active', ?, 0, 0, ?, 'linko', ?, ?)""",
+            (b["lang"], b["title"], b["author"], b["description"], b["genre"], b["year"], b["colors"], b["source"],
+             b["featured"], b["key"], now, now),
+        )
+
+
 def ensure_v10_tables(conn):
     """v10: do'kon profillari, kategoriyalar katalogi, ombor, chegirma, buyurtma holatlari."""
     pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
@@ -1102,6 +1177,7 @@ def init_db_postgres():
     ensure_v9_tables(conn)
     ensure_v10_tables(conn)
     ensure_v11_tables(conn)
+    ensure_v12_tables(conn)
 
     conn.commit()
     conn.close()
@@ -1267,6 +1343,7 @@ def init_db_sqlite():
     ensure_v9_tables(conn)
     ensure_v10_tables(conn)
     ensure_v11_tables(conn)
+    ensure_v12_tables(conn)
 
     conn.commit()
     conn.close()
@@ -1536,6 +1613,9 @@ def delete_user_everything(conn, username):
     conn.execute("DELETE FROM user_sessions WHERE username = ?", (username,))
     conn.execute("DELETE FROM user_settings WHERE username = ?", (username,))
     conn.execute("DELETE FROM user_blocks WHERE blocker = ? OR blocked = ?", (username, username))
+    conn.execute("DELETE FROM shop_threads WHERE buyer = ? OR seller = ?", (username, username))
+    conn.execute("DELETE FROM book_progress WHERE username = ?", (username,))
+    conn.execute("DELETE FROM book_saves WHERE username = ?", (username,))
     for c in conn.execute("SELECT id FROM calls WHERE caller = ? OR callee = ?", (username, username)).fetchall():
         conn.execute("DELETE FROM call_signals WHERE call_id = ?", (c["id"],))
     conn.execute("DELETE FROM calls WHERE caller = ? OR callee = ?", (username, username))
@@ -1872,7 +1952,7 @@ def media(filename):
 
     mimetype, size = meta["mimetype"], int(meta["size"] or 0)
 
-    if mimetype.startswith(("video/", "audio/")):
+    if mimetype.startswith(("video/", "audio/")) or mimetype == "application/pdf":
         start, end = 0, size - 1
         status = 200
         range_header = request.headers.get("Range", "")
@@ -1983,6 +2063,19 @@ def build_post_cards(conn, rows, me):
             f"SELECT post_id FROM likes WHERE username = ? AND post_id IN ({marks})", (me, *ids)
         ).fetchall()
     }
+    # Instagram uslubi: "@ali va yana 9 kishi yoqtirdi" uchun oxirgi layk bosganlar (avatar bilan)
+    likers = {}
+    for r in conn.execute(
+        f"""SELECT l.post_id, u.username, u.nickname, u.avatar_letter, u.avatar_file FROM likes l
+            JOIN users u ON u.username = l.username
+            WHERE l.post_id IN ({marks}) AND l.username NOT IN (SELECT username FROM blocked_users)
+            ORDER BY l.id DESC LIMIT 3000""",
+        ids_t,
+    ).fetchall():
+        lst = likers.setdefault(r["post_id"], [])
+        if len(lst) < 3:
+            lst.append({"username": r["username"], "display": r["nickname"] or r["username"],
+                        "letter": r["avatar_letter"] or r["username"][:1].upper(), "avatar_file": r["avatar_file"]})
     names = list({r["username"] for r in rows})
     nmarks = ",".join("?" for _ in names)
     users = {
@@ -2011,6 +2104,7 @@ def build_post_cards(conn, rows, me):
             "ago": time_ago(p["created_ts"], p["created_at"]),
             "like_count": likes.get(p["id"], 0),
             "liked_by_me": p["id"] in mine,
+            "likers": likers.get(p["id"], []),
             "comment_count": comments.get(p["id"], 0),
             "view_count": views.get(p["id"], 0),
             "share_count": shares.get(p["id"], 0),
@@ -2381,47 +2475,118 @@ def api_post_delete(post_id):
 
 # ---------------- ADMIN ----------------
 
+ADMIN_TABS = ("stats", "users", "posts", "products", "stores", "groups", "books")
+
+
 @app.route("/admin")
 def admin_page():
     if not admin_required():
         flash(tr("admin_only"))
         return redirect(url_for("dashboard"))
 
-    q = request.args.get("q", "").strip().lstrip("@")
+    tab = request.args.get("tab") or "stats"
+    if tab not in ADMIN_TABS:
+        tab = "stats"
+    q = request.args.get("q", "").strip().lstrip("@")[:80]
+    like = f"%{q}%"
     conn = get_db()
-    if q:
-        like = f"%{q}%"
-        users = conn.execute(
-            """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.is_admin, b.id AS blocked_id
-               FROM users u LEFT JOIN blocked_users b ON b.username = u.username
-               WHERE LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.nickname, '')) LIKE LOWER(?)
-               ORDER BY u.id DESC LIMIT 50""",
-            (like, like),
-        ).fetchall()
-    else:
-        users = conn.execute(
-            """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.is_admin, b.id AS blocked_id
-               FROM users u LEFT JOIN blocked_users b ON b.username = u.username
-               ORDER BY u.id DESC LIMIT 50"""
-        ).fetchall()
-    posts = conn.execute("SELECT id, username, content, image_file, created_at FROM posts ORDER BY id DESC LIMIT 30").fetchall()
-    products = conn.execute("SELECT id, seller_username, title, price, image_file FROM products ORDER BY id DESC LIMIT 30").fetchall()
-    conn.close()
+    ctx = {}
 
-    admin_set = ADMIN_USERNAMES
-    users = [
-        {**dict(u), "is_admin_user": bool(u["is_admin"]) or u["username"].lower() in admin_set}
-        for u in users
-    ]
+    def count(sql, params=()):
+        return conn.execute(sql, params).fetchone()["c"]
+
+    if tab == "stats":
+        now = int(time.time())
+        day, week = now - 86400, now - 7 * 86400
+        ctx["stats"] = [
+            ("users", "users", count("SELECT COUNT(*) AS c FROM users")),
+            ("online", "eye", count("SELECT COUNT(*) AS c FROM users WHERE last_seen_ts > ?", (now - 300,))),
+            ("active_day", "chart", count("SELECT COUNT(*) AS c FROM users WHERE last_seen_ts > ?", (day,))),
+            ("blocked", "block", count("SELECT COUNT(*) AS c FROM blocked_users")),
+            ("posts", "feed", count("SELECT COUNT(*) AS c FROM posts")),
+            ("posts_week", "feed", count("SELECT COUNT(*) AS c FROM posts WHERE created_ts > ?", (week,))),
+            ("messages_day", "chat", count("SELECT COUNT(*) AS c FROM private_messages WHERE created_ts > ?", (day,))),
+            ("groups", "groups", count("SELECT COUNT(*) AS c FROM groups")),
+            ("stores", "store", count("SELECT COUNT(*) AS c FROM stores")),
+            ("products", "box", count("SELECT COUNT(*) AS c FROM products")),
+            ("orders", "truck", count("SELECT COUNT(*) AS c FROM orders")),
+            ("books", "book", count("SELECT COUNT(*) AS c FROM books WHERE status != 'deleted'")),
+        ]
+        ctx["new_users"] = conn.execute(
+            "SELECT username, nickname, avatar_letter, avatar_file FROM users ORDER BY id DESC LIMIT 8").fetchall()
+    elif tab == "users":
+        base = """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.is_admin, u.last_seen_ts, b.id AS blocked_id
+                  FROM users u LEFT JOIN blocked_users b ON b.username = u.username"""
+        if q:
+            users = conn.execute(base + """ WHERE LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.nickname, '')) LIKE LOWER(?)
+                                           ORDER BY u.id DESC LIMIT 100""", (like, like)).fetchall()
+        else:
+            users = conn.execute(base + " ORDER BY u.id DESC LIMIT 100").fetchall()
+        ctx["users"] = [{**dict(u), "is_admin_user": bool(u["is_admin"]) or u["username"].lower() in ADMIN_USERNAMES,
+                         "env_admin": u["username"].lower() in ADMIN_USERNAMES} for u in users]
+    elif tab == "posts":
+        sql = "SELECT * FROM posts"
+        params = ()
+        if q:
+            sql += " WHERE LOWER(COALESCE(content, '')) LIKE LOWER(?) OR LOWER(username) LIKE LOWER(?)"
+            params = (like, like)
+        ctx["posts"] = build_post_cards(conn, conn.execute(sql + " ORDER BY id DESC LIMIT 60", params).fetchall(), session["username"])
+    elif tab == "products":
+        sql = "SELECT id, seller_username, title, price, image_file, status FROM products"
+        params = ()
+        if q:
+            sql += " WHERE LOWER(title) LIKE LOWER(?) OR LOWER(seller_username) LIKE LOWER(?)"
+            params = (like, like)
+        rows = conn.execute(sql + " ORDER BY id DESC LIMIT 80", params).fetchall()
+        out = []
+        for r in rows:
+            img = r["image_file"]
+            if not img:
+                m = conn.execute("SELECT filename FROM product_media WHERE product_id = ? ORDER BY position, id LIMIT 1", (r["id"],)).fetchone()
+                img = m["filename"] if m else None
+            out.append({**dict(r), "image": img})
+        ctx["products"] = out
+    elif tab == "stores":
+        sql = """SELECT s.*, (SELECT COUNT(*) FROM products p WHERE p.seller_username = s.username) AS pcount FROM stores s"""
+        params = ()
+        if q:
+            sql += " WHERE LOWER(s.name) LIKE LOWER(?) OR LOWER(s.username) LIKE LOWER(?)"
+            params = (like, like)
+        ctx["stores"] = conn.execute(sql + " ORDER BY s.id DESC LIMIT 80", params).fetchall()
+    elif tab == "groups":
+        sql = """SELECT gr.id, gr.name, gr.kind, gr.created_by, gr.avatar_file,
+                 (SELECT COUNT(*) FROM group_members m WHERE m.group_id = gr.id) AS members FROM groups gr"""
+        params = ()
+        if q:
+            sql += " WHERE LOWER(gr.name) LIKE LOWER(?)"
+            params = (like,)
+        ctx["groups"] = conn.execute(sql + " ORDER BY gr.id DESC LIMIT 80", params).fetchall()
+    elif tab == "books":
+        blang = request.args.get("lang") if request.args.get("lang") in BOOK_LANGS else ""
+        where, params = ["status != 'deleted'"], []
+        if blang:
+            where.append("lang = ?"); params.append(blang)
+        if q:
+            where.append("(LOWER(title) LIKE LOWER(?) OR LOWER(COALESCE(author, '')) LIKE LOWER(?))"); params += [like, like]
+        ctx["books"] = [book_card(dict(r)) for r in conn.execute(
+            f"SELECT {BOOK_LIST_COLS} FROM books WHERE {' AND '.join(where)} ORDER BY lang, featured DESC, id",
+            tuple(params)).fetchall()]
+        ctx["book_counts"] = {r["lang"]: r["c"] for r in conn.execute(
+            "SELECT lang, COUNT(*) AS c FROM books WHERE status != 'deleted' GROUP BY lang").fetchall()}
+        ctx["blang"] = blang
+        ctx["book_langs"] = BOOK_LANGS
+        if any(b["loading"] for b in ctx["books"]):
+            start_library_worker()
+    conn.close()
     return render_template(
         "admin.html",
         username=session["username"],
         avatar_letter=session["avatar_letter"],
-        users=users,
-        posts=posts,
-        products=products,
+        tab=tab,
+        tabs=ADMIN_TABS,
         q=q,
         active="profile",
+        **ctx,
     )
 
 
@@ -2510,6 +2675,41 @@ def api_like(post_id):
     conn.close()
 
     return jsonify({"liked": liked, "like_count": like_count})
+
+
+@app.route("/api/posts/<int:post_id>/likes")
+def api_post_likes(post_id):
+    """Postga layk bosganlar ro'yxati (Instagram kabi hamma ko'radi). Bosilganda profil ochiladi."""
+    if "user_id" not in session:
+        return jsonify({"ok": False}), 401
+    me = session["username"]
+    try:
+        offset = max(0, int(request.args.get("offset") or 0))
+    except ValueError:
+        offset = 0
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM posts WHERE id = ?", (post_id,)).fetchone():
+        conn.close()
+        return jsonify({"ok": False}), 404
+    total = conn.execute(
+        "SELECT COUNT(*) AS c FROM likes WHERE post_id = ? AND username NOT IN (SELECT username FROM blocked_users)",
+        (post_id,),
+    ).fetchone()["c"]
+    rows = conn.execute(
+        """SELECT u.username, u.nickname, u.avatar_letter, u.avatar_file, u.creator_on FROM likes l
+           JOIN users u ON u.username = l.username
+           WHERE l.post_id = ? AND l.username NOT IN (SELECT username FROM blocked_users)
+           ORDER BY l.id DESC LIMIT 60 OFFSET ?""",
+        (post_id, offset),
+    ).fetchall()
+    conn.close()
+    return jsonify({"ok": True, "total": total, "next": offset + len(rows) if offset + len(rows) < total else None, "items": [{
+        "username": r["username"], "display": r["nickname"] or r["username"],
+        "letter": r["avatar_letter"] or r["username"][:1].upper(),
+        "avatar": (url_for("media", filename=r["avatar_file"]) if r["avatar_file"] else ""),
+        "creator": bool(r["creator_on"]), "me": r["username"] == me,
+        "url": url_for("profile") if r["username"] == me else url_for("user_profile", target_username=r["username"]),
+    } for r in rows]})
 
 
 # ---------- Biznes akkaunt, do'kon, savat va buyurtmalar ----------
@@ -4186,32 +4386,94 @@ def dm(other_username):
     if "user_id" not in session:
         return redirect(url_for("login"))
 
+    me = session["username"]
     conn = get_db()
     other = conn.execute(
         "SELECT * FROM users WHERE username = ?", (other_username,)
     ).fetchone()
-    i_blocked = False
-    peer = None
-    muted = False
-    if other:
-        i_blocked = bool(conn.execute(
-            "SELECT 1 FROM user_blocks WHERE blocker = ? AND blocked = ?", (session["username"], other["username"])
-        ).fetchone())
-        peer = presence_info(conn, session["username"], other["username"], None, other["last_seen_ts"])
-        muted = ("dm:" + other["username"]) in muted_keys(conn, session["username"])
-    conn.close()
+    if not other or other["username"] == me:
+        conn.close()
+        return redirect(url_for("people") if not other else url_for("profile"))
 
-    if not other:
-        return redirect(url_for("people"))
+    # "Sotuvchiga yozish" (mahsulot sahifasidan): do'kon suhbati ochiladi, kontakt shart emas
+    try:
+        pid = int(request.args.get("product") or 0)
+    except ValueError:
+        pid = 0
+    if pid:
+        prod = conn.execute(
+            "SELECT id, seller_username FROM products WHERE id = ? AND status = 'active'", (pid,)
+        ).fetchone()
+        if prod and prod["seller_username"] == other["username"] and not is_blocked_between(conn, me, other["username"]):
+            row = conn.execute("SELECT id FROM shop_threads WHERE buyer = ? AND seller = ?", (me, other["username"])).fetchone()
+            if row:
+                conn.execute("UPDATE shop_threads SET product_id = ?, created_ts = ? WHERE id = ?", (pid, int(time.time()), row["id"]))
+            else:
+                conn.execute(
+                    "INSERT INTO shop_threads (buyer, seller, product_id, created_ts) VALUES (?, ?, ?, ?)",
+                    (me, other["username"], pid, int(time.time())),
+                )
+            conn.commit()
+
+    i_blocked = bool(conn.execute(
+        "SELECT 1 FROM user_blocks WHERE blocker = ? AND blocked = ?", (me, other["username"])
+    ).fetchone())
+    peer = presence_info(conn, me, other["username"], None, other["last_seen_ts"])
+    muted = ("dm:" + other["username"]) in muted_keys(conn, me)
+
+    allowed, why = can_message(conn, me, other["username"])
+    dm_gate = None
+    if not allowed:
+        if why == "chat_blocked_msg":
+            dm_gate = {"state": "blocked"}
+        else:
+            incoming = conn.execute(
+                "SELECT id FROM contact_requests WHERE from_username = ? AND to_username = ?", (other["username"], me)
+            ).fetchone()
+            sent = conn.execute(
+                "SELECT 1 FROM contact_requests WHERE from_username = ? AND to_username = ?", (me, other["username"])
+            ).fetchone()
+            if incoming:
+                dm_gate = {"state": "incoming", "request_id": incoming["id"]}
+            elif sent:
+                dm_gate = {"state": "sent"}
+            elif get_prefs(conn, other["username"])["allow_requests"] == "nobody":
+                dm_gate = {"state": "closed"}
+            else:
+                dm_gate = {"state": "none"}
+
+    # Do'kon suhbati bo'lsa, qaysi mahsulot haqida ekanini tepada ko'rsatamiz
+    shop_product = None
+    th = conn.execute(
+        """SELECT product_id FROM shop_threads WHERE (buyer = ? AND seller = ?) OR (buyer = ? AND seller = ?)
+           ORDER BY created_ts DESC LIMIT 1""",
+        (me, other["username"], other["username"], me),
+    ).fetchone()
+    if th and th["product_id"] and not are_contacts(conn, me, other["username"]):
+        sp = conn.execute(
+            "SELECT id, title, price, image_file, seller_username FROM products WHERE id = ?", (th["product_id"],)
+        ).fetchone()
+        if sp:
+            img = sp["image_file"]
+            if not img:
+                m = conn.execute(
+                    "SELECT filename FROM product_media WHERE product_id = ? ORDER BY position, id LIMIT 1", (sp["id"],)
+                ).fetchone()
+                img = m["filename"] if m else None
+            shop_product = {"id": sp["id"], "title": sp["title"], "price": fmt_money(sp["price"]), "image": img,
+                            "i_am_seller": sp["seller_username"] == me}
+    conn.close()
 
     return render_template(
         "dm.html",
         i_blocked=i_blocked,
         peer=peer,
         chat_muted=muted,
-        can_post=True,
+        can_post=allowed,
+        dm_gate=dm_gate,
+        shop_product=shop_product,
         other_display=other["nickname"] or other["username"],
-        username=session["username"],
+        username=me,
         avatar_letter=session["avatar_letter"],
         other_username=other["username"],
         other_avatar=other["avatar_letter"],
@@ -5105,7 +5367,7 @@ def api_call_start():
     if not target or to == me:
         conn.close()
         return jsonify({"error": "user"}), 404
-    ok, why = can_message(conn, me, to)
+    ok, why = can_message(conn, me, to, allow_shop=False)
     if not ok:
         conn.close()
         return jsonify({"error": why, "message": tr(why)}), 403
@@ -5771,7 +6033,7 @@ SETTINGS_STUBS = {
 
 # Har bir bo'limdagi sozlamalar (kalit nomlari PREF_DEFAULTS'dan)
 SETTINGS_SCHEMA = {
-    "privacy-settings": ["allow_requests", "who_can_message", "show_online", "read_receipts"],
+    "privacy-settings": ["allow_requests", "show_online", "read_receipts"],
     "notifications": ["notif_sound", "notif_browser", "notif_preview", "notif_calls"],
     "interface": ["font_size", "reduce_motion"],
     "chat-settings": ["wallpaper", "translate_lang", "shrink_images"],
@@ -6224,6 +6486,537 @@ def api_map_search():
     return jsonify({"results": results})
 
 
+# =====================================================================
+#  KUTUBXONA (Library): 4 tilda kitoblar, o'qish oynasi, admin boshqaruvi
+# =====================================================================
+BOOK_LIST_COLS = ("id, lang, title, author, description, genre, year, cover_file, colors, file_name, file_mime, source, "
+                  "fetch_status, fetch_error, chars, status, featured, views, seed_key, created_ts, updated_ts")
+MAX_BOOK_FILE = 40 * 1024 * 1024
+_PAGES_CACHE = {}
+_LIB_WORKER = {"running": False}
+_LIB_LOCK = threading.Lock()
+
+
+def book_row(conn, book_id, with_text=False):
+    cols = BOOK_LIST_COLS + (", content_text" if with_text else "")
+    r = conn.execute(f"SELECT {cols} FROM books WHERE id = ?", (book_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def book_kind(b):
+    if b.get("file_name") and (b.get("file_mime") or "") == "application/pdf":
+        return "pdf"
+    if (b.get("chars") or 0) > 0:
+        return "text"
+    return "none"
+
+
+def book_card(b, progress=None):
+    colors = (b.get("colors") or "#4338ca,#a855f7").split(",")
+    pct = 0
+    if progress and progress.get("pages"):
+        pct = min(100, int(round((progress["page"] + 1) * 100 / max(1, progress["pages"]))))
+    return {**b, "c1": colors[0], "c2": colors[-1], "kind": book_kind(b), "pct": pct,
+            "loading": b.get("fetch_status") in ("pending", "loading")}
+
+
+def book_pages(book_id, updated_ts, text):
+    key = (book_id, updated_ts or 0)
+    pages = _PAGES_CACHE.get(key)
+    if pages is None:
+        pages = library_fetch.split_pages(text or "")
+        if len(_PAGES_CACHE) > 40:
+            _PAGES_CACHE.clear()
+        _PAGES_CACHE[key] = pages
+    return pages
+
+
+def library_fetch_one(book_id):
+    """Bitta kitob matnini manbadan yuklab bazaga yozadi. Ishlagan bo'lsa True."""
+    conn = get_db()
+    now = int(time.time())
+    try:
+        cur = conn.execute(
+            """UPDATE books SET fetch_status = 'loading', fetch_ts = ?
+               WHERE id = ? AND (fetch_status = 'pending' OR (fetch_status = 'loading' AND COALESCE(fetch_ts, 0) < ?))""",
+            (now, book_id, now - 900),
+        )
+        conn.commit()
+        if not cur.rowcount:
+            return False
+        b = conn.execute("SELECT source FROM books WHERE id = ?", (book_id,)).fetchone()
+    finally:
+        conn.close()
+    try:
+        text = library_fetch.fetch_source(b["source"] if b else "")
+        status, err = "ready", None
+    except Exception as e:
+        text, status, err = None, "error", str(e)[:300]
+    conn = get_db()
+    try:
+        if status == "ready":
+            conn.execute(
+                "UPDATE books SET content_text = ?, chars = ?, fetch_status = 'ready', fetch_error = NULL, fetch_ts = ?, updated_ts = ? WHERE id = ?",
+                (text, len(text), int(time.time()), int(time.time()), book_id),
+            )
+        else:
+            conn.execute("UPDATE books SET fetch_status = 'error', fetch_error = ?, fetch_ts = ? WHERE id = ?",
+                         (err, int(time.time()), book_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return status == "ready"
+
+
+def _library_worker():
+    try:
+        time.sleep(3)
+        while True:
+            conn = get_db()
+            try:
+                now = int(time.time())
+                row = conn.execute(
+                    """SELECT id FROM books WHERE source IS NOT NULL AND source != '' AND status != 'deleted'
+                       AND (fetch_status = 'pending' OR (fetch_status = 'loading' AND COALESCE(fetch_ts, 0) < ?))
+                       ORDER BY featured DESC, id LIMIT 1""",
+                    (now - 900,),
+                ).fetchone()
+            finally:
+                conn.close()
+            if not row:
+                break
+            try:
+                library_fetch_one(row["id"])
+            except Exception:
+                app.logger.exception("Kutubxona: kitob yuklanmadi")
+                time.sleep(5)
+    finally:
+        with _LIB_LOCK:
+            _LIB_WORKER["running"] = False
+
+
+def start_library_worker():
+    """Matni hali yuklanmagan kitoblarni orqa fonda yuklab oladi (sahifalarni sekinlashtirmaydi)."""
+    if os.environ.get("LIBRARY_AUTOFETCH", "1") == "0":
+        return
+    with _LIB_LOCK:
+        if _LIB_WORKER["running"]:
+            return
+        _LIB_WORKER["running"] = True
+    threading.Thread(target=_library_worker, name="linko-library", daemon=True).start()
+
+
+def genre_label(g_):
+    return tr("genre_" + g_) if g_ else ""
+
+
+app.jinja_env.globals["genre_label"] = genre_label
+
+
+@app.route("/library")
+def library():
+    me = session["username"]
+    lang = request.args.get("lang") or ""
+    if lang not in BOOK_LANGS:
+        lang = current_lang() if current_lang() in BOOK_LANGS else "en"
+    q = (request.args.get("q") or "").strip()[:80]
+    genre = request.args.get("genre") or ""
+    if genre not in BOOK_GENRES:
+        genre = ""
+    conn = get_db()
+    where, params = ["status = 'active'", "lang = ?"], [lang]
+    if genre:
+        where.append("genre = ?"); params.append(genre)
+    if q:
+        where.append("(LOWER(title) LIKE LOWER(?) OR LOWER(COALESCE(author, '')) LIKE LOWER(?))")
+        params += [f"%{q}%", f"%{q}%"]
+    rows = conn.execute(
+        f"SELECT {BOOK_LIST_COLS} FROM books WHERE {' AND '.join(where)} ORDER BY featured DESC, views DESC, id",
+        tuple(params),
+    ).fetchall()
+    progress = {r["book_id"]: dict(r) for r in conn.execute(
+        "SELECT book_id, page, pages, updated_ts FROM book_progress WHERE username = ?", (me,)).fetchall()}
+    saved = {r["book_id"] for r in conn.execute("SELECT book_id FROM book_saves WHERE username = ?", (me,)).fetchall()}
+    reading = []
+    for r in conn.execute(
+        f"""SELECT {', '.join('b.' + c.strip() for c in BOOK_LIST_COLS.split(','))} FROM book_progress p
+            JOIN books b ON b.id = p.book_id WHERE p.username = ? AND b.status = 'active'
+            ORDER BY p.updated_ts DESC LIMIT 8""",
+        (me,),
+    ).fetchall():
+        reading.append(book_card(dict(r), progress.get(r["id"])))
+    counts = {r["lang"]: r["c"] for r in conn.execute(
+        "SELECT lang, COUNT(*) AS c FROM books WHERE status = 'active' GROUP BY lang").fetchall()}
+    genres = [r["genre"] for r in conn.execute(
+        "SELECT DISTINCT genre FROM books WHERE status = 'active' AND lang = ? AND genre IS NOT NULL", (lang,)).fetchall()]
+    pending = conn.execute(
+        "SELECT 1 FROM books WHERE fetch_status IN ('pending', 'loading') AND status != 'deleted' LIMIT 1").fetchone()
+    conn.close()
+    if pending:
+        start_library_worker()
+    books = [book_card(dict(r), progress.get(r["id"])) for r in rows]
+    for b in books:
+        b["saved"] = b["id"] in saved
+    return render_template(
+        "library.html", username=me, avatar_letter=session["avatar_letter"], books=books, reading=reading,
+        book_lang=lang, book_langs=BOOK_LANGS, counts=counts, q=q, genre=genre,
+        genres=[x for x in BOOK_GENRES if x in genres], saved_ids=saved, active="home",
+    )
+
+
+@app.route("/library/book/<int:book_id>")
+def library_book(book_id):
+    me = session["username"]
+    conn = get_db()
+    b = book_row(conn, book_id)
+    if not b or (b["status"] != "active" and not g.is_admin):
+        conn.close()
+        flash(tr("lib_not_found"))
+        return redirect(url_for("library"))
+    prog = conn.execute("SELECT page, pages FROM book_progress WHERE username = ? AND book_id = ?", (me, book_id)).fetchone()
+    saved = bool(conn.execute("SELECT 1 FROM book_saves WHERE username = ? AND book_id = ?", (me, book_id)).fetchone())
+    readers = conn.execute("SELECT COUNT(*) AS c FROM book_progress WHERE book_id = ?", (book_id,)).fetchone()["c"]
+    more = [book_card(dict(r)) for r in conn.execute(
+        f"SELECT {BOOK_LIST_COLS} FROM books WHERE status = 'active' AND lang = ? AND id != ? ORDER BY featured DESC, views DESC LIMIT 8",
+        (b["lang"], book_id)).fetchall()]
+    conn.close()
+    if b["fetch_status"] in ("pending", "loading"):
+        start_library_worker()
+    card = book_card(b, dict(prog) if prog else None)
+    # taxminiy o'qish vaqti
+    minutes = int(b["chars"] or 0) // (450 if b["lang"] == "zh" else 1100)
+    read_time = ""
+    if minutes:
+        h, m = divmod(max(1, minutes), 60)
+        read_time = tr("lib_time_hm").replace("{h}", str(h)).replace("{m}", str(m)) if h else tr("lib_time_m").replace("{m}", str(m))
+    return render_template(
+        "library_book.html", username=me, avatar_letter=session["avatar_letter"], b=card, saved=saved,
+        progress=dict(prog) if prog else None, readers=readers, more=more,
+        read_time=read_time, active="home",
+    )
+
+
+@app.route("/library/read/<int:book_id>")
+def library_read(book_id):
+    me = session["username"]
+    conn = get_db()
+    b = book_row(conn, book_id, with_text=True)
+    if not b or (b["status"] != "active" and not g.is_admin):
+        conn.close()
+        return redirect(url_for("library"))
+    kind = book_kind(b)
+    if kind == "none":
+        conn.close()
+        return redirect(url_for("library_book", book_id=book_id))
+    prog = conn.execute("SELECT page FROM book_progress WHERE username = ? AND book_id = ?", (me, book_id)).fetchone()
+    if not prog:  # birinchi marta ochildi
+        conn.execute("UPDATE books SET views = COALESCE(views, 0) + 1 WHERE id = ?", (book_id,))
+        conn.execute("INSERT OR IGNORE INTO book_progress (username, book_id, page, pages, updated_ts) VALUES (?, ?, 0, 0, ?)",
+                     (me, book_id, int(time.time())))
+    else:
+        conn.execute("UPDATE book_progress SET updated_ts = ? WHERE username = ? AND book_id = ?", (int(time.time()), me, book_id))
+    conn.commit()
+    conn.close()
+    page_arg = request.args.get("p")
+    try:
+        page = int(page_arg) - 1 if page_arg else (prog["page"] if prog else 0)
+    except ValueError:
+        page = 0
+    text_html, total = "", 0
+    if kind == "text":
+        pages = book_pages(book_id, b["updated_ts"], b["content_text"])
+        total = len(pages)
+        page = max(0, min(page, total - 1))
+        s_, e_ = pages[page]
+        chunk = b["content_text"][s_:e_]
+        text_html = [p.strip() for p in re.split(r"\n\s*\n", chunk) if p.strip()]
+    return render_template(
+        "library_read.html", username=me, avatar_letter=session["avatar_letter"],
+        b=book_card({k: v for k, v in b.items() if k != "content_text"}), kind=kind, paras=text_html,
+        page=page, total=total, start_page=(prog["page"] if prog else 0),
+    )
+
+
+@app.route("/api/library/<int:book_id>/progress", methods=["POST"])
+def api_library_progress(book_id):
+    if "user_id" not in session:
+        return jsonify({"ok": False}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        page = max(0, int(data.get("page") or 0))
+        pages = max(0, int(data.get("pages") or 0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False}), 400
+    me = session["username"]
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM books WHERE id = ?", (book_id,)).fetchone():
+        conn.close()
+        return jsonify({"ok": False}), 404
+    row = conn.execute("SELECT id FROM book_progress WHERE username = ? AND book_id = ?", (me, book_id)).fetchone()
+    if row:
+        conn.execute("UPDATE book_progress SET page = ?, pages = ?, updated_ts = ? WHERE id = ?", (page, pages, int(time.time()), row["id"]))
+    else:
+        conn.execute("INSERT INTO book_progress (username, book_id, page, pages, updated_ts) VALUES (?, ?, ?, ?, ?)",
+                     (me, book_id, page, pages, int(time.time())))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/library/<int:book_id>/save", methods=["POST"])
+def api_library_save(book_id):
+    if "user_id" not in session:
+        return jsonify({"ok": False}), 401
+    me = session["username"]
+    conn = get_db()
+    row = conn.execute("SELECT id FROM book_saves WHERE username = ? AND book_id = ?", (me, book_id)).fetchone()
+    if row:
+        conn.execute("DELETE FROM book_saves WHERE id = ?", (row["id"],))
+        saved = False
+    else:
+        conn.execute("INSERT OR IGNORE INTO book_saves (username, book_id, created_ts) VALUES (?, ?, ?)", (me, book_id, int(time.time())))
+        saved = True
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "saved": saved})
+
+
+@app.route("/api/library/<int:book_id>/status")
+def api_library_status(book_id):
+    conn = get_db()
+    b = conn.execute("SELECT fetch_status, chars FROM books WHERE id = ?", (book_id,)).fetchone()
+    conn.close()
+    if not b:
+        return jsonify({"ok": False}), 404
+    if b["fetch_status"] in ("pending", "loading"):
+        start_library_worker()
+    return jsonify({"ok": True, "status": b["fetch_status"], "ready": int(b["chars"] or 0) > 0})
+
+
+# ---------------- ADMIN: kutubxona ----------------
+def _admin_book_form(existing=None):
+    f = request.form
+    data = {
+        "lang": f.get("lang") if f.get("lang") in BOOK_LANGS else "uz",
+        "title": (f.get("title") or "").strip()[:200],
+        "author": (f.get("author") or "").strip()[:160],
+        "description": (f.get("description") or "").strip()[:3000],
+        "genre": f.get("genre") if f.get("genre") in BOOK_GENRES else "other",
+        "year": (f.get("year") or "").strip()[:12],
+        "status": "hidden" if f.get("status") == "hidden" else "active",
+        "featured": 1 if f.get("featured") else 0,
+        "source": (f.get("source") or "").strip()[:500],
+        "c1": (f.get("c1") or "#4338ca")[:9], "c2": (f.get("c2") or "#a855f7")[:9],
+        "text": (f.get("text") or "").replace("\r\n", "\n"),
+    }
+    return data
+
+
+@app.route("/admin/books/new", methods=["GET", "POST"])
+@app.route("/admin/books/<int:book_id>/edit", methods=["GET", "POST"])
+def admin_book_form(book_id=None):
+    if not admin_required():
+        flash(tr("admin_only"))
+        return redirect(url_for("dashboard"))
+    conn = get_db()
+    b = book_row(conn, book_id) if book_id else None
+    if book_id and not b:
+        conn.close()
+        return redirect(url_for("admin_page", tab="books"))
+    error = None
+    if request.method == "POST":
+        d = _admin_book_form(b)
+        if not d["title"]:
+            error = tr("lib_err_title")
+        cover = request.files.get("cover")
+        bookfile = request.files.get("file")
+        file_bytes, file_mime, file_text = None, None, None
+        if not error and bookfile and bookfile.filename:
+            ext = bookfile.filename.rsplit(".", 1)[-1].lower() if "." in bookfile.filename else ""
+            raw = bookfile.read()
+            if len(raw) > MAX_BOOK_FILE:
+                error = tr("lib_err_file_big")
+            elif ext == "pdf" or raw[:5] == b"%PDF-":
+                file_bytes, file_mime = raw, "application/pdf"
+            elif ext in ("txt", "md", "text"):
+                file_text = library_fetch.tidy(library_fetch.reflow(library_fetch.decode_bytes(raw)))
+            elif ext in ("html", "htm"):
+                file_text, _ = library_fetch.html_to_text(library_fetch.decode_bytes(raw))
+            else:
+                error = tr("lib_err_file_type")
+        if not error:
+            now = int(time.time())
+            colors = d["c1"] + "," + d["c2"]
+            if b:
+                conn.execute(
+                    """UPDATE books SET lang = ?, title = ?, author = ?, description = ?, genre = ?, year = ?, status = ?,
+                       featured = ?, source = ?, colors = ?, updated_ts = ? WHERE id = ?""",
+                    (d["lang"], d["title"], d["author"], d["description"], d["genre"], d["year"], d["status"],
+                     d["featured"], d["source"], colors, now, b["id"]),
+                )
+                bid = b["id"]
+            else:
+                cur = conn.execute(
+                    """INSERT INTO books (lang, title, author, description, genre, year, colors, source, fetch_status, status,
+                       featured, views, chars, added_by, created_ts, updated_ts)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'none', ?, ?, 0, 0, ?, ?, ?)""",
+                    (d["lang"], d["title"], d["author"], d["description"], d["genre"], d["year"], colors, d["source"],
+                     d["status"], d["featured"], session["username"], now, now),
+                )
+                bid = cur.lastrowid
+            if cover and cover.filename and allowed_file(cover.filename):
+                old = b["cover_file"] if b else None
+                name = save_image_to_db(conn, cover, prefix="book_")
+                conn.execute("UPDATE books SET cover_file = ? WHERE id = ?", (name, bid))
+                if old:
+                    delete_image_from_db(conn, old)
+            if f_remove := request.form.get("remove_cover"):
+                if b and b["cover_file"] and f_remove == "1":
+                    delete_image_from_db(conn, b["cover_file"])
+                    conn.execute("UPDATE books SET cover_file = NULL WHERE id = ?", (bid,))
+            new_text = file_text or (d["text"].strip() if d["text"].strip() else None)
+            if file_bytes:
+                old = b["file_name"] if b else None
+                name = f"book{bid}_{secrets.token_hex(4)}.pdf"
+                conn.execute(
+                    "INSERT INTO uploaded_images (filename, mimetype, data, created_at) VALUES (?, ?, ?, ?)",
+                    (name, "application/pdf", psycopg2.Binary(file_bytes) if USE_POSTGRES else file_bytes,
+                     datetime.now().strftime("%d.%m.%Y %H:%M")),
+                )
+                conn.execute("UPDATE books SET file_name = ?, file_mime = 'application/pdf', fetch_status = 'ready', fetch_error = NULL WHERE id = ?", (name, bid))
+                if old:
+                    delete_image_from_db(conn, old)
+            elif new_text:
+                conn.execute(
+                    """UPDATE books SET content_text = ?, chars = ?, fetch_status = 'ready', fetch_error = NULL,
+                       file_name = NULL, file_mime = NULL, updated_ts = ? WHERE id = ?""",
+                    (new_text[:library_fetch.MAX_CHARS], len(new_text[:library_fetch.MAX_CHARS]), now, bid),
+                )
+                if b and b["file_name"]:
+                    delete_image_from_db(conn, b["file_name"])
+            elif d["source"] and (not b or d["source"] != (b["source"] or "") or request.form.get("refetch")):
+                conn.execute("UPDATE books SET fetch_status = 'pending', fetch_error = NULL WHERE id = ?", (bid,))
+            conn.commit()
+            conn.close()
+            start_library_worker()
+            flash(tr("lib_saved"))
+            return redirect(url_for("admin_page", tab="books"))
+        form = {**(b or {}), **d, "colors": d["c1"] + "," + d["c2"]}
+    else:
+        form = dict(b) if b else {"lang": request.args.get("lang") if request.args.get("lang") in BOOK_LANGS else "uz",
+                                  "genre": "novel", "status": "active", "colors": "#4338ca,#a855f7"}
+    conn.close()
+    cols = (form.get("colors") or "#4338ca,#a855f7").split(",")
+    return render_template(
+        "admin_book_form.html", username=session["username"], avatar_letter=session["avatar_letter"],
+        f=form, c1=cols[0], c2=cols[-1], editing=bool(b), book_langs=BOOK_LANGS, book_genres=BOOK_GENRES,
+        error=error, active="profile",
+    )
+
+
+@app.route("/api/admin/books/<int:book_id>/<action>", methods=["POST"])
+def api_admin_book_action(book_id, action):
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    conn = get_db()
+    b = book_row(conn, book_id)
+    if not b:
+        conn.close()
+        return jsonify({"ok": False}), 404
+    now = int(time.time())
+    if action == "delete":
+        for n in (b["cover_file"], b["file_name"]):
+            if n:
+                delete_image_from_db(conn, n)
+        conn.execute("DELETE FROM book_progress WHERE book_id = ?", (book_id,))
+        conn.execute("DELETE FROM book_saves WHERE book_id = ?", (book_id,))
+        if b["seed_key"]:  # boshlang'ich kitob qayta paydo bo'lmasligi uchun belgi qoladi
+            conn.execute("""UPDATE books SET status = 'deleted', content_text = NULL, chars = 0, cover_file = NULL,
+                            file_name = NULL, fetch_status = 'none' WHERE id = ?""", (book_id,))
+        else:
+            conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
+    elif action == "toggle":
+        conn.execute("UPDATE books SET status = ? WHERE id = ?", ("hidden" if b["status"] == "active" else "active", book_id))
+    elif action == "feature":
+        conn.execute("UPDATE books SET featured = ? WHERE id = ?", (0 if b["featured"] else 1, book_id))
+    elif action == "refetch":
+        if not b["source"]:
+            conn.close()
+            return jsonify({"ok": False, "message": tr("lib_no_source")}), 400
+        conn.execute("UPDATE books SET fetch_status = 'pending', fetch_error = NULL, fetch_ts = ? WHERE id = ?", (now, book_id))
+    else:
+        conn.close()
+        return jsonify({"ok": False}), 400
+    conn.commit()
+    conn.close()
+    if action == "refetch":
+        start_library_worker()
+    return jsonify({"ok": True})
+
+
+# ---------------- ADMIN: foydalanuvchilar, do'konlar, guruhlar ----------------
+@app.route("/api/admin/role/<target_username>", methods=["POST"])
+def api_admin_role(target_username):
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    if target_username == session["username"] or target_username.lower() in ADMIN_USERNAMES:
+        return jsonify({"ok": False, "message": tr("admin_cant_change")}), 400
+    conn = get_db()
+    u = conn.execute("SELECT is_admin FROM users WHERE username = ?", (target_username,)).fetchone()
+    if not u:
+        conn.close()
+        return jsonify({"ok": False}), 404
+    new = 0 if u["is_admin"] else 1
+    conn.execute("UPDATE users SET is_admin = ? WHERE username = ?", (new, target_username))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "is_admin": bool(new)})
+
+
+@app.route("/api/admin/user/<target_username>/delete", methods=["POST"])
+def api_admin_user_delete(target_username):
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    conn = get_db()
+    if target_username == session["username"] or is_admin_user(conn, target_username):
+        conn.close()
+        return jsonify({"ok": False, "message": tr("admin_cant_change")}), 400
+    if not conn.execute("SELECT 1 FROM users WHERE username = ?", (target_username,)).fetchone():
+        conn.close()
+        return jsonify({"ok": False}), 404
+    delete_user_everything(conn, target_username)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/store/<target_username>/delete", methods=["POST"])
+def api_admin_store_delete(target_username):
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    conn = get_db()
+    delete_store_everything(conn, target_username)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/product/<int:product_id>/toggle", methods=["POST"])
+def api_admin_product_toggle(product_id):
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    conn = get_db()
+    p_ = conn.execute("SELECT status FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not p_:
+        conn.close()
+        return jsonify({"ok": False}), 404
+    new = "hidden" if (p_["status"] or "active") == "active" else "active"
+    conn.execute("UPDATE products SET status = ? WHERE id = ?", (new, product_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "status": new})
+
+
 @app.route("/feed/activity")
 def feed_activity():
     """Eski havola: faollik endi feed ichida (Faollik tabi)."""
@@ -6250,6 +7043,7 @@ def logout():
 
 if __name__ == "__main__":
     init_db()
+    start_library_worker()
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_DEBUG", "1") == "1"
     print(f"Linko ishga tushmoqda... http://127.0.0.1:{port} manzilida oching")
@@ -6257,3 +7051,4 @@ if __name__ == "__main__":
 else:
     # Hosting (gunicorn) orqali ishga tushganda ham baza tayyor bo'lishi uchun
     init_db()
+    start_library_worker()  # kutubxona kitoblari matnini orqa fonda yuklaydi

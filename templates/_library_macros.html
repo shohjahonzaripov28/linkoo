@@ -1,0 +1,27 @@
+{# Kutubxona: kitob muqovasi (rasm bo'lmasa - chiroyli gradient muqova avtomatik chiziladi) #}
+{% macro book_cover(b, size='md') %}
+<div class="bk-cover bk-{{ size }}{% if b.cover_file %} has-img{% endif %}" style="--c1: {{ b.c1 }}; --c2: {{ b.c2 }};">
+  {% if b.cover_file %}
+    <img src="{{ url_for('media', filename=b.cover_file) }}" alt="" loading="lazy">
+  {% else %}
+    <span class="bk-spine"></span>
+    <span class="bk-glow"></span>
+    <span class="bk-lang">{{ b.lang|upper }}</span>
+    <span class="bk-title{% if b.lang == 'zh' %} cjk{% endif %}">{{ b.title }}</span>
+    <span class="bk-rule"></span>
+    <span class="bk-author">{{ b.author }}</span>
+  {% endif %}
+  {% if b.kind == 'pdf' %}<span class="bk-badge">PDF</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro book_tile(b, t) %}
+<a class="bk-tile" href="{{ url_for('library_book', book_id=b.id) }}">
+  {{ book_cover(b) }}
+  {% if b.pct %}<span class="bk-progress"><i style="width: {{ b.pct }}%;"></i></span>{% endif %}
+  <span class="bk-name">{{ b.title }}</span>
+  <span class="bk-by">{{ b.author }}</span>
+  {% if b.loading %}<span class="bk-state loading">{{ t.lib_loading_short }}</span>
+  {% elif b.kind == 'none' %}<span class="bk-state">{{ t.lib_soon }}</span>{% endif %}
+</a>
+{% endmacro %}

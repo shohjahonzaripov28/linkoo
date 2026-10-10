@@ -125,6 +125,20 @@
       </a>
     </div>
 
+    <a href="{{ url_for('library') }}" class="lib-dash">
+      <span class="lib-dash-books" aria-hidden="true">
+        <i style="--c1:#7c2d12;--c2:#f59e0b;--h:92%;"></i><i style="--c1:#1e3a8a;--c2:#60a5fa;--h:78%;"></i>
+        <i style="--c1:#831843;--c2:#f9a8d4;--h:100%;"></i><i style="--c1:#14532d;--c2:#86efac;--h:84%;"></i>
+        <i style="--c1:#312e81;--c2:#a5b4fc;--h:70%;"></i>
+      </span>
+      <span class="lib-dash-body">
+        <span class="hero-tag lib-tag">{{ t.lib_dash_tag }}</span>
+        <b>{{ t.lib_title }}</b>
+        <small>{{ t.lib_dash_sub }}</small>
+        <em class="lib-dash-langs"><span>O'zbek</span><span>Русский</span><span>English</span><span>中文</span></em>
+      </span>
+      <span class="chevron">{{ icon('chevron', 18) }}</span>
+    </a>
 
   </div>
 

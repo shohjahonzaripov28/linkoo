@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.admin_edit_book if editing else t.admin_add_book }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon %}
+  <div class="glass-card feed-card adm-page">
+    <div class="chat-header">
+      <a href="{{ url_for('admin_page', tab='books') }}" class="back-link">←</a>
+      <h1 style="font-size:19px;">{{ t.admin_edit_book if editing else t.admin_add_book }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+    <form method="POST" enctype="multipart/form-data" class="bk-form" id="bk-form">
+      <div class="bk-form-top">
+        <div class="bk-cover bk-lg bk-preview{% if f.cover_file %} has-img{% endif %}" id="bk-preview" style="--c1: {{ c1 }}; --c2: {{ c2 }};">
+          {% if f.cover_file %}<img src="{{ url_for('media', filename=f.cover_file) }}" alt="" id="bk-prev-img">{% else %}<img alt="" id="bk-prev-img" hidden>{% endif %}
+          <span class="bk-spine"></span><span class="bk-glow"></span>
+          <span class="bk-lang" id="pv-lang">{{ (f.lang or 'uz')|upper }}</span>
+          <span class="bk-title" id="pv-title">{{ f.title or t.lib_f_title }}</span>
+          <span class="bk-rule"></span>
+          <span class="bk-author" id="pv-author">{{ f.author or '' }}</span>
+        </div>
+        <div class="bk-colors">
+          <label>{{ t.lib_f_colors }}</label>
+          <div><input type="color" name="c1" value="{{ c1 }}" id="c1"><input type="color" name="c2" value="{{ c2 }}" id="c2"></div>
+          <label class="file-btn">{{ icon('image', 16) }} {{ t.lib_f_cover }}<input type="file" name="cover" accept="image/*" id="cover-in" hidden></label>
+          {% if f.cover_file %}<label class="check-row"><input type="checkbox" name="remove_cover" value="1"> {{ t.lib_f_remove_cover }}</label>{% endif %}
+        </div>
+      </div>
+
+      <label>{{ t.lib_f_title }} *<input type="text" name="title" value="{{ f.title or '' }}" maxlength="200" required id="in-title"></label>
+      <label>{{ t.lib_f_author }}<input type="text" name="author" value="{{ f.author or '' }}" maxlength="160" id="in-author"></label>
+      <div class="bk-form-row">
+        <label>{{ t.lib_language }}
+          <select name="lang" id="in-lang">
+            {% for l in book_langs %}<option value="{{ l }}" {% if f.lang == l %}selected{% endif %}>{{ langs[l] }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>{{ t.lib_f_genre }}
+          <select name="genre">
+            {% for gname in book_genres %}<option value="{{ gname }}" {% if f.genre == gname %}selected{% endif %}>{{ genre_label(gname) }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>{{ t.lib_f_year }}<input type="text" name="year" value="{{ f.year or '' }}" maxlength="12" inputmode="numeric"></label>
+      </div>
+      <label>{{ t.lib_f_desc }}<textarea name="description" rows="3" maxlength="3000">{{ f.description or '' }}</textarea></label>
+
+      <fieldset class="bk-content">
+        <legend>{{ t.lib_f_content }}</legend>
+        {% if editing %}
+        <p class="hint-text">
+          {% if f.file_name %}{{ t.lib_f_has_pdf }}{% elif f.chars %}{{ t.lib_f_has_text.replace('{n}', f.chars|string) }}{% else %}{{ t.admin_book_empty }}{% endif %}
+        </p>
+        {% endif %}
+        <label class="file-btn big">{{ icon('attach', 18) }} <span id="file-name">{{ t.lib_f_file }}</span><input type="file" name="file" accept=".pdf,.txt,.html,.htm,application/pdf,text/plain" id="file-in" hidden></label>
+        <p class="hint-text">{{ t.lib_f_file_hint }}</p>
+        <details {% if f.text %}open{% endif %}>
+          <summary>{{ t.lib_f_paste }}</summary>
+          <textarea name="text" rows="8" placeholder="{{ t.lib_f_paste_hint }}">{{ f.text or '' }}</textarea>
+        </details>
+        <details {% if f.source %}open{% endif %}>
+          <summary>{{ t.lib_f_source }}</summary>
+          <input type="text" name="source" value="{{ f.source or '' }}" placeholder="gutenberg:1342" maxlength="500">
+          <p class="hint-text">{{ t.lib_f_source_hint }}</p>
+          {% if editing and f.source %}<label class="check-row"><input type="checkbox" name="refetch" value="1"> {{ t.admin_refetch }}</label>{% endif %}
+        </details>
+      </fieldset>
+
+      <label class="check-row"><input type="checkbox" name="featured" value="1" {% if f.featured %}checked{% endif %}> {{ t.lib_f_featured }}</label>
+      <label class="check-row"><input type="checkbox" name="status" value="hidden" {% if f.status == 'hidden' %}checked{% endif %}> {{ t.lib_f_hidden }}</label>
+
+      <button type="submit" class="btn-primary bk-submit" id="bk-submit">{{ t.save }}</button>
+    </form>
+  </div>
+
+  <script>
+    (function () {
+      var pv = document.getElementById("bk-preview");
+      function bind(id, target, fallback) {
+        var el = document.getElementById(id), out = document.getElementById(target);
+        el.addEventListener("input", function () { out.textContent = el.value || fallback; });
+      }
+      bind("in-title", "pv-title", {{ t.lib_f_title|tojson }});
+      bind("in-author", "pv-author", "");
+      document.getElementById("in-lang").addEventListener("change", function () { document.getElementById("pv-lang").textContent = this.value.toUpperCase(); });
+      ["c1", "c2"].forEach(function (k) {
+        document.getElementById(k).addEventListener("input", function () { pv.style.setProperty("--" + k, this.value); });
+      });
+      document.getElementById("cover-in").addEventListener("change", function () {
+        var f = this.files[0], img = document.getElementById("bk-prev-img");
+        if (!f) return;
+        img.src = URL.createObjectURL(f); img.hidden = false; pv.classList.add("has-img");
+      });
+      document.getElementById("file-in").addEventListener("change", function () {
+        var f = this.files[0];
+        document.getElementById("file-name").textContent = f ? f.name + " (" + (f.size / 1048576).toFixed(1) + " MB)" : {{ t.lib_f_file|tojson }};
+      });
+      document.getElementById("bk-form").addEventListener("submit", function () {
+        var b = document.getElementById("bk-submit"); b.disabled = true; b.textContent = {{ t.uploading|tojson }};
+      });
+    })();
+  </script>
+  {% include 'navbar.html' %}
+</body>
+</html>

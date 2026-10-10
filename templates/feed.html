@@ -113,7 +113,11 @@
           {% endif %}
         </div>
 
-        <div class="post-likes"><b class="like-count">{{ post.like_count }}</b> <span>{{ t.feed_likes_word }}</span><span class="share-line"> · <span class="share-count">{{ post.share_count }}</span> {{ t.stat_shares|lower }}</span></div>
+        <div class="post-likes">
+          <button type="button" class="likes-open" aria-label="{{ t.likes_title }}" data-likers="{{ post.likers|tojson|forceescape }}" data-count="{{ post.like_count }}">
+            <span class="liker-stack"></span><span class="likes-text"><b class="like-count">{{ post.like_count }}</b> {{ t.feed_likes_word }}</span>
+          </button><span class="share-line"><span class="share-count">{{ post.share_count }}</span> {{ t.stat_shares|lower }}</span>
+        </div>
 
         {% if post.content and has_media %}
         <div class="post-caption{% if post.content|length > 140 %} clamp{% endif %}"><a class="cap-author" href="{{ url_for('profile') if post.is_owner else url_for('user_profile', target_username=post.username) }}">@{{ post.display }}</a> <span class="caption-text">{{ post.content }}</span>{% if post.content|length > 140 %}<button type="button" class="cap-more">{{ t.feed_more }}</button>{% endif %}</div>
@@ -184,6 +188,18 @@
     </div>
   </div>
 
+  <div class="modal-overlay sheet-overlay" id="likes-modal" hidden>
+    <div class="modal-card sheet-card likes-sheet">
+      <div class="sheet-grip"></div>
+      <div class="modal-head">
+        <h3>{{ t.likes_title }}</h3>
+        <button type="button" class="modal-close" id="likes-close">{{ icon('close', 20) }}</button>
+      </div>
+      <div id="likes-list" class="follow-list"></div>
+      <button type="button" class="load-more secondary" id="likes-more" hidden>{{ t.load_more }}</button>
+    </div>
+  </div>
+
   <div class="toast" id="toast" hidden></div>
 
   <script>
@@ -203,8 +219,13 @@
       addComment: "{{ t.feed_add_comment }}",
       less: "{{ t.feed_less }}",
       more: "{{ t.feed_more }}",
+      likedOne: {{ t.liked_by_one|tojson }},
+      likedMany: {{ t.liked_by_many|tojson }},
+      likesWord: {{ t.feed_likes_word|tojson }},
+      likesNone: {{ t.likes_none|tojson }},
     };
     const ME = "{{ username }}";
+    const ME_CARD = {{ {"username": username, "display": (session.get('nickname') or username), "letter": avatar_letter, "avatar_file": session.get('avatar_file')}|tojson }};
     const SINGLE = {{ 'true' if single else 'false' }};
     const MAX_MEDIA = 10;
     const MAX_VIDEO = 25 * 1024 * 1024;
@@ -466,6 +487,78 @@
       } catch (e) { modal.hidden = true; toast(L.netError); }
     }
 
+    /* ---------------- Kim layk bosgan (Instagram uslubi) ---------------- */
+    function esc(x) { const d = document.createElement("span"); d.textContent = x; return d.innerHTML; }
+    function avatarHTML(u, cls) {
+      return u.avatar_file || u.avatar
+        ? `<img class="${cls}" src="${u.avatar || ("/media/" + encodeURIComponent(u.avatar_file))}" alt="">`
+        : `<span class="${cls} letter">${esc(u.letter || "?")}</span>`;
+    }
+    function renderLikers(card, total, likers) {
+      const btn = card.querySelector(".likes-open");
+      if (!btn) return;
+      btn.dataset.count = total;
+      btn.dataset.likers = JSON.stringify(likers || []);
+      const stack = btn.querySelector(".liker-stack");
+      const text = btn.querySelector(".likes-text");
+      const top = (likers || []).slice(0, 3);
+      stack.innerHTML = total > 0 ? top.map((u) => avatarHTML(u, "lk-av")).join("") : "";
+      if (total > 0 && top.length) {
+        const name = `<b>${esc(top[0].display)}</b>`;
+        const tpl = total > 1 ? L.likedMany : L.likedOne;
+        text.innerHTML = esc(tpl).replace("{name}", name).replace("{n}", `<b>${total - 1}</b>`) +
+          `<b class="like-count" hidden>${total}</b>`;
+      } else {
+        text.innerHTML = `<b class="like-count">${total}</b> ${esc(L.likesWord)}`;
+      }
+    }
+    document.querySelectorAll(".post-card").forEach((card) => {
+      const b = card.querySelector(".likes-open");
+      if (!b) return;
+      let lk = [];
+      try { lk = JSON.parse(b.dataset.likers || "[]"); } catch (e) { lk = []; }
+      renderLikers(card, parseInt(b.dataset.count, 10) || 0, lk);
+    });
+    async function refreshLikers(card) {
+      try {
+        const r = await fetch(`/api/posts/${card.dataset.postId}/likes`);
+        if (!r.ok) return;
+        const d = await r.json();
+        renderLikers(card, d.total, d.items.slice(0, 3));
+      } catch (e) { /* muhim emas */ }
+    }
+    const likesModal = document.getElementById("likes-modal");
+    const likesList = document.getElementById("likes-list");
+    const likesMore = document.getElementById("likes-more");
+    let likesState = { id: null, next: 0 };
+    async function loadLikes(append) {
+      likesMore.hidden = true;
+      try {
+        const r = await fetch(`/api/posts/${likesState.id}/likes?offset=${likesState.next || 0}`);
+        if (!r.ok) throw new Error("bad");
+        const d = await r.json();
+        if (!append) likesList.innerHTML = "";
+        if (!d.items.length && !append) { likesList.innerHTML = `<p class="hint-text center" style="padding:18px 0;">${esc(L.likesNone)}</p>`; return; }
+        d.items.forEach((it) => {
+          const a = document.createElement("a");
+          a.className = "follow-row"; a.href = it.url;
+          a.innerHTML = avatarHTML(it, "avatar-circle tiny") + `<span><b>${esc(it.display)}</b><small>@${esc(it.username)}</small></span>`;
+          likesList.appendChild(a);
+        });
+        likesState.next = d.next;
+        likesMore.hidden = d.next === null;
+      } catch (e) { if (!append) likesModal.hidden = true; toast(L.netError); }
+    }
+    function openLikes(card) {
+      likesState = { id: card.dataset.postId, next: 0 };
+      likesList.innerHTML = '<div class="likes-loading"></div>';
+      likesModal.hidden = false;
+      loadLikes(false);
+    }
+    likesMore.addEventListener("click", () => loadLikes(true));
+    document.getElementById("likes-close").addEventListener("click", () => { likesModal.hidden = true; });
+    likesModal.addEventListener("click", (e) => { if (e.target === likesModal) likesModal.hidden = true; });
+
     /* ---------------- Layk: Instagram uslubi ---------------- */
     const liking = new Set();
     async function toggleLike(card, btn, forceOn) {
@@ -475,19 +568,22 @@
       if (liking.has(id)) return;
       liking.add(id);
       const wasLiked = btn.classList.contains("liked");
-      const countEl = card.querySelector(".like-count");
-      const prev = parseInt(countEl.textContent, 10) || 0;
+      const lo = card.querySelector(".likes-open");
+      const prev = parseInt(lo.dataset.count, 10) || 0;
+      let prevLikers = [];
+      try { prevLikers = JSON.parse(lo.dataset.likers || "[]"); } catch (e) { prevLikers = []; }
       // darhol (optimistik) ko'rsatamiz
       btn.classList.toggle("liked", !wasLiked);
       if (!wasLiked) { btn.classList.remove("pop"); void btn.offsetWidth; btn.classList.add("pop"); }
-      countEl.textContent = Math.max(0, prev + (wasLiked ? -1 : 1));
+      const optimistic = wasLiked ? prevLikers.filter((u) => u.username !== ME) : [ME_CARD].concat(prevLikers.filter((u) => u.username !== ME));
+      renderLikers(card, Math.max(0, prev + (wasLiked ? -1 : 1)), optimistic);
       try {
         const data = await postJSON(`/api/like/${id}`);
-        countEl.textContent = data.like_count;
         btn.classList.toggle("liked", data.liked);
+        refreshLikers(card);
       } catch (err) {
         btn.classList.toggle("liked", wasLiked);
-        countEl.textContent = prev;
+        renderLikers(card, prev, prevLikers);
         toast(L.netError);
       }
       liking.delete(id);
@@ -553,6 +649,10 @@
       }
       const likeBtn = e.target.closest(".like-btn");
       if (likeBtn) { toggleLike(card, likeBtn); return; }
+      if (e.target.closest(".likes-open")) {
+        if ((parseInt(card.querySelector(".likes-open").dataset.count, 10) || 0) > 0) openLikes(card);
+        return;
+      }
       const moreBtn = e.target.closest(".cap-more");
       if (moreBtn) {
         const cap = card.querySelector(".post-caption");

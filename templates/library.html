@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.lib_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% from '_icons.html' import icon, empty_state %}
+  {% from '_library_macros.html' import book_cover, book_tile %}
+  <div class="glass-card feed-card lib-page">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.lib_title }}</h1>
+      {% if is_admin %}
+      <a href="{{ url_for('admin_page', tab='books') }}" class="head-btn" title="{{ t.admin_panel }}">{{ icon('settings', 20) }}</a>
+      {% else %}<div style="width:36px;"></div>{% endif %}
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <nav class="lib-langs" aria-label="{{ t.lib_language }}">
+      {% for l in book_langs %}
+      <a href="{{ url_for('library', lang=l) }}" class="lib-lang{% if l == book_lang %} active{% endif %}">
+        <span>{{ langs[l] }}</span><em>{{ counts.get(l, 0) }}</em>
+      </a>
+      {% endfor %}
+    </nav>
+
+    <form method="GET" class="home-search lib-search">
+      {{ icon('search', 18) }}
+      <input type="hidden" name="lang" value="{{ book_lang }}">
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ t.lib_search }}" enterkeyhint="search">
+    </form>
+
+    {% if genres|length > 1 %}
+    <div class="lib-chips">
+      <a href="{{ url_for('library', lang=book_lang, q=q or None) }}" class="lib-chip{% if not genre %} on{% endif %}">{{ t.lib_all }}</a>
+      {% for gname in genres %}
+      <a href="{{ url_for('library', lang=book_lang, genre=gname, q=q or None) }}" class="lib-chip{% if genre == gname %} on{% endif %}">{{ genre_label(gname) }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if reading and not q and not genre %}
+    <h2 class="lib-h">{{ t.lib_continue }}</h2>
+    <div class="lib-continue">
+      {% for b in reading %}
+      <a class="lib-cont" href="{{ url_for('library_read', book_id=b.id) if b.kind != 'none' else url_for('library_book', book_id=b.id) }}">
+        {{ book_cover(b, 'sm') }}
+        <span class="lib-cont-body">
+          <b>{{ b.title }}</b>
+          <small>{{ b.author }}</small>
+          <span class="bk-progress wide"><i style="width: {{ b.pct }}%;"></i></span>
+          <em>{{ b.pct }}% · {{ t.lib_read_cta }}</em>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% set feat = books|selectattr('featured')|list %}
+    {% if feat and not q and not genre %}
+    {% set fb = feat[0] %}
+    <a class="lib-hero" href="{{ url_for('library_book', book_id=fb.id) }}" style="--c1: {{ fb.c1 }}; --c2: {{ fb.c2 }};">
+      <span class="lib-hero-text">
+        <small>{{ t.lib_featured }}</small>
+        <b class="{% if fb.lang == 'zh' %}cjk{% endif %}">{{ fb.title }}</b>
+        <span>{{ fb.author }}{% if fb.year %} · {{ fb.year }}{% endif %}</span>
+        <p>{{ fb.description|truncate(130) }}</p>
+        <em>{{ t.lib_read_cta }} →</em>
+      </span>
+      {{ book_cover(fb, 'lg') }}
+    </a>
+    {% endif %}
+
+    <h2 class="lib-h">{{ t.lib_books }} <span>{{ books|length }}</span></h2>
+    {% if books %}
+    <div class="lib-grid">
+      {% for b in books %}{{ book_tile(b, t) }}{% endfor %}
+    </div>
+    {% else %}
+      {{ empty_state('book', t.lib_empty) }}
+    {% endif %}
+
+    <p class="lib-note">{{ icon('info', 14) }} {{ t.lib_pd_note }}</p>
+  </div>
+
+  {% include 'navbar.html' %}
+</body>
+</html>

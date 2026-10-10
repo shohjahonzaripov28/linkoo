@@ -4,7 +4,45 @@
 {% set _can_post = can_post if can_post is defined else True %}
 <div id="messages" class="messages-box wp-{{ prefs.wallpaper }}"></div>
 
-{% if not _can_post %}
+{% if not _can_post and dm_gate is defined and dm_gate %}
+<div class="readonly-bar dm-gate" id="dm-gate" data-target="{{ other_username }}">
+  <div class="dm-gate-ico">{{ icon('lock' if dm_gate.state in ('blocked', 'closed') else 'user-plus', 22) }}</div>
+  {% if dm_gate.state == 'blocked' %}
+    <b>{{ t.chat_blocked_msg }}</b>
+  {% else %}
+    <b>{{ t.dm_contacts_only_title }}</b>
+    <span>{{ t.dm_contacts_only_text }}</span>
+    {% if dm_gate.state == 'none' %}
+      <button type="button" class="btn-primary dm-gate-btn" data-act="request">{{ t.dm_send_request }}</button>
+    {% elif dm_gate.state == 'sent' %}
+      <button type="button" class="btn-primary dm-gate-btn" disabled>{{ icon('check', 16) }} {{ t.dm_request_sent }}</button>
+    {% elif dm_gate.state == 'incoming' %}
+      <button type="button" class="btn-primary dm-gate-btn" data-act="accept" data-id="{{ dm_gate.request_id }}">{{ t.dm_accept_request }}</button>
+    {% else %}
+      <span class="dm-gate-note">{{ t.request_not_allowed }}</span>
+    {% endif %}
+  {% endif %}
+</div>
+<script>
+  (function () {
+    var box = document.getElementById("dm-gate");
+    var btn = box && box.querySelector(".dm-gate-btn[data-act]");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      var url = btn.dataset.act === "accept" ? "/api/contacts/accept/" + btn.dataset.id
+                                             : "/api/contacts/request/" + encodeURIComponent(box.dataset.target);
+      fetch(url, { method: "POST" }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          if (!res.ok) { btn.disabled = false; alert(res.d.message || {{ t.err_network|tojson }}); return; }
+          if (btn.dataset.act === "accept" || res.d.status === "accepted" || res.d.status === "already_contact") { location.reload(); return; }
+          btn.textContent = {{ t.dm_request_sent|tojson }};
+        })
+        .catch(function () { btn.disabled = false; alert({{ t.err_network|tojson }}); });
+    });
+  })();
+</script>
+{% elif not _can_post %}
 <div class="readonly-bar">
   {% if not _member %}
     <button type="button" class="btn-primary join-btn" id="join-btn">{{ t.channel_join }}</button>
