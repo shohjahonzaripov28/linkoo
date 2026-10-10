@@ -752,10 +752,13 @@ INDEX_STATEMENTS = [
 ]
 
 
+_DB_TLS = threading.local()  # baza ko'chirishda shu oqim (thread) vaqtincha boshqa bazaga ulanadi
+
+
 def get_db():
     """Bazaga ulanish yaratadi - DATABASE_URL bo'lsa PostgreSQL, bo'lmasa lokal SQLite"""
     if USE_POSTGRES:
-        conn = PGConnWrapper(psycopg2.connect(DATABASE_URL))
+        conn = PGConnWrapper(psycopg2.connect(getattr(_DB_TLS, "url", None) or DATABASE_URL))
     else:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -2475,7 +2478,7 @@ def api_post_delete(post_id):
 
 # ---------------- ADMIN ----------------
 
-ADMIN_TABS = ("stats", "users", "posts", "products", "stores", "groups", "books")
+ADMIN_TABS = ("stats", "users", "posts", "products", "stores", "groups", "books", "backup")
 
 
 @app.route("/admin")
@@ -2577,7 +2580,22 @@ def admin_page():
         ctx["book_langs"] = BOOK_LANGS
         if any(b["loading"] for b in ctx["books"]):
             start_library_worker()
+    if tab == "backup":
+        ctx["db_kind"] = db_kind()
+        ctx["db_host"] = db_host(DATABASE_URL) if USE_POSTGRES else "linko.db"
+        ctx["mig_target"] = db_host(MIGRATE_TO_URL) if MIGRATE_TO_URL else ""
+        ctx["db_size"] = ""
+        if USE_POSTGRES:
+            try:
+                ctx["db_size"] = conn.execute("SELECT pg_size_pretty(pg_database_size(current_database())) AS s").fetchone()["s"]
+            except Exception:
+                conn.rollback()
+        ctx["job"] = None
     conn.close()
+    if tab == "backup":
+        ctx["job"] = job_status()
+        if ctx["job"] and ctx["job"]["status"] == "running" and int(time.time()) - int(ctx["job"]["updated_ts"] or 0) > 180:
+            ctx["job"]["status"] = "stale"
     return render_template(
         "admin.html",
         username=session["username"],
@@ -7075,6 +7093,272 @@ def api_admin_product_toggle(product_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "status": new})
+
+
+# =====================================================================
+#  ZAXIRA va BAZANI KO'CHIRISH (Render bepul bazasi 30 kunda o'chadi -> Neon)
+# =====================================================================
+MIGRATE_TO_URL = os.environ.get("MIGRATE_TO_URL", "").strip()
+if MIGRATE_TO_URL.startswith("postgres://"):
+    MIGRATE_TO_URL = MIGRATE_TO_URL.replace("postgres://", "postgresql://", 1)
+_MIG = {"running": False}
+
+
+def db_host(url):
+    try:
+        return urllib.parse.urlparse(url).hostname or ""
+    except Exception:
+        return ""
+
+
+def db_kind():
+    """Hozirgi baza turi: sqlite / render (30 kunlik bepul) / neon / postgres."""
+    if not USE_POSTGRES:
+        return "sqlite"
+    h = db_host(DATABASE_URL)
+    if h.startswith("dpg-") or "render.com" in h:
+        return "render"
+    if "neon.tech" in h:
+        return "neon"
+    return "postgres"
+
+
+def _job_set(conn, status, detail):
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS admin_jobs (
+        id {'SERIAL PRIMARY KEY' if USE_POSTGRES else 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+        name TEXT UNIQUE NOT NULL, status TEXT, detail TEXT, updated_ts BIGINT)""")
+    row = conn.execute("SELECT id FROM admin_jobs WHERE name = 'migrate'").fetchone()
+    if row:
+        conn.execute("UPDATE admin_jobs SET status = ?, detail = ?, updated_ts = ? WHERE id = ?",
+                     (status, detail[:4000], int(time.time()), row["id"]))
+    else:
+        conn.execute("INSERT INTO admin_jobs (name, status, detail, updated_ts) VALUES ('migrate', ?, ?, ?)",
+                     (status, detail[:4000], int(time.time())))
+    conn.commit()
+
+
+def job_status():
+    conn = get_db()
+    try:
+        _job_set_table = conn.execute(
+            "SELECT status, detail, updated_ts FROM admin_jobs WHERE name = 'migrate'"
+        ).fetchone()
+        return dict(_job_set_table) if _job_set_table else None
+    except Exception:
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
+
+
+def _pg_tables(raw):
+    cur = raw.cursor()
+    cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")
+    out = [r[0] for r in cur.fetchall()]
+    cur.close()
+    return out
+
+
+def _pg_columns(raw, table):
+    cur = raw.cursor()
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s ORDER BY ordinal_position", (table,))
+    out = [r[0] for r in cur.fetchall()]
+    cur.close()
+    return out
+
+
+def run_migration(target_url):
+    """Hozirgi PostgreSQL bazadagi BARCHA ma'lumotni (rasm/videolar bilan) yangi bazaga ko'chiradi."""
+    log = []
+    status_conn = get_db()
+
+    def say(msg, status="running"):
+        log.append(msg)
+        _job_set(status_conn, status, "\n".join(log[-60:]))
+
+    try:
+        say("Yangi bazaga ulanilmoqda: " + db_host(target_url))
+        tgt = psycopg2.connect(target_url)
+        tcur = tgt.cursor()
+        tcur.execute("CREATE TABLE IF NOT EXISTS linko_meta (key TEXT PRIMARY KEY, value TEXT)")
+        tcur.execute("SELECT value FROM linko_meta WHERE key = 'migration'")
+        mark = tcur.fetchone()
+        mark = mark[0] if mark else None
+        if mark == "done":
+            raise RuntimeError("Bu bazaga ko'chirish allaqachon tugagan. Yangi ma'lumotlar ustidan yozmaslik uchun to'xtatildi.")
+        tcur.execute("SELECT to_regclass('public.users')")
+        if tcur.fetchone()[0] and mark != "in_progress":
+            tcur.execute("SELECT COUNT(*) FROM users")
+            if tcur.fetchone()[0] > 0:
+                raise RuntimeError("Yangi bazada allaqachon foydalanuvchilar bor - xavfsizlik uchun to'xtatildi. Bo'sh baza kerak.")
+        tcur.execute("INSERT INTO linko_meta (key, value) VALUES ('migration', 'in_progress') ON CONFLICT (key) DO UPDATE SET value = 'in_progress'")
+        tgt.commit()
+        tgt.close()
+
+        say("Jadvallar yaratilmoqda...")
+        _DB_TLS.url = target_url
+        try:
+            init_db_postgres()
+        finally:
+            _DB_TLS.url = None
+
+        src = psycopg2.connect(DATABASE_URL)
+        tgt = psycopg2.connect(target_url)
+        tables = sorted(set(_pg_tables(src)) & set(_pg_tables(tgt)) - {"admin_jobs", "linko_meta"})
+        tcur = tgt.cursor()
+        tcur.execute("TRUNCATE " + ", ".join(f'"{t}"' for t in tables) + " RESTART IDENTITY")
+        tgt.commit()
+
+        totals = {}
+        for t in tables:
+            cols = [c for c in _pg_columns(src, t) if c in set(_pg_columns(tgt, t))]
+            if not cols:
+                continue
+            col_sql = ", ".join(f'"{c}"' for c in cols)
+            scur = src.cursor(name=f"mig_{t}")  # server tomonda o'qiladi - xotira to'lmaydi
+            scur.itersize = 20 if t == "uploaded_images" else 500
+            scur.execute(f'SELECT {col_sql} FROM "{t}"')
+            n = 0
+            while True:
+                rows = scur.fetchmany(20 if t == "uploaded_images" else 500)
+                if not rows:
+                    break
+                psycopg2.extras.execute_values(tcur, f'INSERT INTO "{t}" ({col_sql}) VALUES %s ON CONFLICT DO NOTHING', rows)
+                tgt.commit()
+                n += len(rows)
+                if t == "uploaded_images" and n % 40 == 0:
+                    say(f"  {t}: {n}...")
+            scur.close()
+            totals[t] = n
+            if "id" in cols:
+                tcur.execute(f"""SELECT setval(pg_get_serial_sequence('"{t}"', 'id'), COALESCE((SELECT MAX(id) FROM "{t}"), 0) + 1, false)""")
+                tgt.commit()
+            say(f"✓ {t}: {n}")
+
+        # tekshiruv: har jadvalda qatorlar soni teng bo'lishi kerak
+        bad = []
+        scheck = src.cursor()
+        for t in tables:
+            scheck.execute(f'SELECT COUNT(*) FROM "{t}"')
+            a = scheck.fetchone()[0]
+            tcur.execute(f'SELECT COUNT(*) FROM "{t}"')
+            b = tcur.fetchone()[0]
+            if b < a:
+                bad.append(f"{t}: {a} -> {b}")
+        src.close()
+        tgt.close()
+        if bad:
+            say("⚠ Ba'zi jadvallar to'liq ko'chmadi: " + "; ".join(bad), status="error")
+        else:
+            t2 = psycopg2.connect(target_url)
+            c2 = t2.cursor()
+            c2.execute("UPDATE linko_meta SET value = 'done' WHERE key = 'migration'")
+            t2.commit()
+            t2.close()
+            say(f"TAYYOR. {sum(totals.values())} ta yozuv ko'chirildi. Endi Render'da DATABASE_URL ni yangi manzilga almashtiring.", status="done")
+    except Exception as e:
+        app.logger.exception("Baza ko'chirishda xato")
+        say("XATO: " + f"{type(e).__name__}: {e}"[:500], status="error")
+    finally:
+        try:
+            status_conn.close()
+        except Exception:
+            pass
+        _MIG["running"] = False
+
+
+@app.route("/api/admin/migrate", methods=["POST"])
+def api_admin_migrate():
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    if not USE_POSTGRES or not MIGRATE_TO_URL:
+        return jsonify({"ok": False, "message": tr("bk_mig_no_target")}), 400
+    if db_host(MIGRATE_TO_URL) == db_host(DATABASE_URL):
+        return jsonify({"ok": False, "message": tr("bk_mig_same")}), 400
+    job = job_status()
+    if _MIG["running"] or (job and job["status"] == "running" and int(time.time()) - int(job["updated_ts"] or 0) < 180):
+        return jsonify({"ok": True})
+    _MIG["running"] = True
+    threading.Thread(target=run_migration, args=(MIGRATE_TO_URL,), daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/migrate/status")
+def api_admin_migrate_status():
+    if not admin_required():
+        return jsonify({"ok": False}), 403
+    job = job_status()
+    if job and job["status"] == "running" and int(time.time()) - int(job["updated_ts"] or 0) > 180:
+        job["status"] = "stale"  # server qayta ishga tushgan bo'lsa - qaytadan boshlash mumkin
+    return jsonify({"ok": True, "job": job})
+
+
+def _backup_rows():
+    """Barcha jadvallarni JSON qatorlar ko'rinishida beradi (rasm/fayllar base64)."""
+    conn = get_db()
+    try:
+        if USE_POSTGRES:
+            tables = [r["table_name"] for r in conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name").fetchall()]
+        else:
+            tables = [r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
+    finally:
+        conn.close()
+    yield json.dumps({"linko_backup": 1, "created": datetime.now().isoformat(timespec="seconds"), "db": db_kind(), "tables": tables}) + "\n"
+    for t in tables:
+        conn = get_db()
+        try:
+            last = 0
+            while True:
+                rows = conn.execute(f'SELECT * FROM "{t}" WHERE id > ? ORDER BY id LIMIT 200', (last,)).fetchall() \
+                    if t != "uploaded_images" else conn.execute(f'SELECT * FROM "{t}" WHERE id > ? ORDER BY id LIMIT 20', (last,)).fetchall()
+                if not rows:
+                    break
+                for r in rows:
+                    d = {}
+                    for k in r.keys():
+                        v = r[k]
+                        if isinstance(v, memoryview):
+                            v = bytes(v)
+                        if isinstance(v, (bytes, bytearray)):
+                            v = {"$b64": base64.b64encode(v).decode()}
+                        d[k] = v
+                    yield json.dumps({"t": t, "r": d}, ensure_ascii=False, default=str) + "\n"
+                    last = r["id"]
+        except Exception as e:  # id ustuni yo'q jadval bo'lsa
+            if USE_POSTGRES:
+                conn.rollback()
+            yield json.dumps({"t": t, "error": str(e)[:200]}) + "\n"
+        finally:
+            conn.close()
+
+
+@app.route("/admin/backup")
+def admin_backup_download():
+    """Butun bazaning zaxira nusxasi (.jsonl.gz) - kompyuterga yuklab olinadi."""
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+    import zlib
+
+    def gen():
+        z = zlib.compressobj(6, zlib.DEFLATED, 31)  # gzip formati
+        buf = []
+        size = 0
+        for line in _backup_rows():
+            b = line.encode("utf-8")
+            buf.append(b)
+            size += len(b)
+            if size > 256 * 1024:
+                yield z.compress(b"".join(buf))
+                buf, size = [], 0
+        yield z.compress(b"".join(buf))
+        yield z.flush()
+
+    name = "linko-backup-" + datetime.now().strftime("%Y%m%d-%H%M") + ".jsonl.gz"
+    from flask import stream_with_context
+    return Response(stream_with_context(gen()), mimetype="application/gzip",
+                    headers={"Content-Disposition": f"attachment; filename={name}", "Cache-Control": "no-store"})
 
 
 @app.route("/feed/activity")
