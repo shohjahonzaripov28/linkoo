@@ -23,15 +23,15 @@
     <form method="POST">
       <div class="field">
         <label>{{ t.username }}</label>
-        <input type="text" name="username" placeholder="masalan: aziz_dev" required>
+        <input type="text" name="username" placeholder="{{ t.ph_username }}" required>
       </div>
       <div class="field">
         <label>{{ t.password }}</label>
-        <input type="password" name="password" placeholder="kamida 4 ta belgi" required>
+        <input type="password" name="password" placeholder="{{ t.ph_password_min }}" minlength="6" autocomplete="new-password" required>
       </div>
       <div class="field">
         <label>{{ t.confirm_password }}</label>
-        <input type="password" name="confirm" placeholder="••••••••" required>
+        <input type="password" name="confirm" placeholder="••••••••" minlength="6" autocomplete="new-password" required>
       </div>
       <label class="terms-checkbox">
         <input type="checkbox" name="terms_accepted" value="1" required>

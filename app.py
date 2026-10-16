@@ -8,11 +8,11 @@ import json
 import urllib.request
 import urllib.parse
 import time
-import math
 import os
 import re
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
     import anthropic
@@ -150,7 +150,37 @@ MAX_VIDEO_BYTES = 25 * 1024 * 1024
 VIDEO_MIMES = {"mp4": "video/mp4", "m4v": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
 GOOGLE_CLIENT_ID = "".join(os.environ.get("GOOGLE_CLIENT_ID", "").split())  # ichidagi bo'shliq/yangi qatorlarni ham olib tashlaydi
 NICK_RE = re.compile(r"^[A-Za-z0-9_.]{3,24}$")
-app.secret_key = os.environ.get("SECRET_KEY", "linko-maxfiy-kalit-2026")
+
+
+def _load_secret_key():
+    """Sessiya kaliti. Kodda ochiq yozilgan kalit ishlatilmaydi.
+    1) Render'da SECRET_KEY o'zgaruvchisi bo'lsa — o'sha.
+    2) Bo'lmasa, DATABASE_URL'dan hosil qilinadi (u ham maxfiy, barcha workerlarda bir xil).
+    3) Lokalda — bir marta tasodifiy yaratilib, .secret_key fayliga saqlanadi (GitHub'ga chiqmaydi).
+    """
+    key = os.environ.get("SECRET_KEY", "").strip()
+    if key:
+        return key
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if db_url:
+        return hashlib.sha256(("linko-session-v2:" + db_url).encode()).hexdigest()
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".secret_key")
+    try:
+        with open(path, encoding="utf-8") as f:
+            key = f.read().strip()
+    except OSError:
+        key = ""
+    if not key:
+        key = secrets.token_hex(32)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(key)
+        except OSError:
+            pass
+    return key
+
+
+app.secret_key = _load_secret_key()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "linko.db")
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
@@ -1394,9 +1424,66 @@ def delete_image_from_db(conn, filename):
     conn.execute("DELETE FROM uploaded_images WHERE filename = ?", (filename,))
 
 
+MIN_PASSWORD_LEN = 6
+
+
 def hash_password(password):
-    """Parolni oddiy hash qilish (xavfsizlik uchun)"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Parolni xavfsiz hash qilish (tuzli, sekin algoritm - werkzeug pbkdf2/scrypt)."""
+    return generate_password_hash(password)
+
+
+def _is_legacy_hash(stored):
+    return bool(stored) and len(stored) == 64 and all(ch in "0123456789abcdef" for ch in stored)
+
+
+def verify_password(stored, password):
+    """Parolni tekshiradi. Eski (tuzsiz SHA-256) hashlarni ham taniydi."""
+    if not stored or password is None:
+        return False
+    if _is_legacy_hash(stored):
+        return secrets.compare_digest(stored, hashlib.sha256(password.encode()).hexdigest())
+    try:
+        return check_password_hash(stored, password)
+    except (ValueError, TypeError):
+        return False
+
+
+def upgrade_password_hash(conn, username, stored, password):
+    """Eski SHA-256 hashni yangi xavfsiz hashga almashtiradi (to'g'ri kirishdan keyin)."""
+    if _is_legacy_hash(stored):
+        conn.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hash_password(password), username))
+        conn.commit()
+
+
+# ---------- Login urinishlarini cheklash (parolni taxmin qilishdan himoya) ----------
+_LOGIN_FAILS = {}
+_LOGIN_LOCK = threading.Lock()
+LOGIN_MAX_FAILS = 8
+LOGIN_WINDOW = 15 * 60
+
+
+def _login_key(username):
+    return (request.remote_addr or "?") + "|" + (username or "").lower()
+
+
+def login_blocked(username):
+    now = time.time()
+    with _LOGIN_LOCK:
+        fails = [t for t in _LOGIN_FAILS.get(_login_key(username), []) if now - t < LOGIN_WINDOW]
+        _LOGIN_FAILS[_login_key(username)] = fails
+        return len(fails) >= LOGIN_MAX_FAILS
+
+
+def login_failed(username):
+    with _LOGIN_LOCK:
+        _LOGIN_FAILS.setdefault(_login_key(username), []).append(time.time())
+        if len(_LOGIN_FAILS) > 10000:
+            _LOGIN_FAILS.clear()
+
+
+def login_ok(username):
+    with _LOGIN_LOCK:
+        _LOGIN_FAILS.pop(_login_key(username), None)
 
 
 APP_VERSION = "linko-2026-10-06-v8"
@@ -1424,19 +1511,19 @@ def register():
         terms_accepted = request.form.get("terms_accepted")
 
         if not username or not password:
-            flash("Iltimos, hamma maydonlarni to'ldiring")
+            flash(tr("reg_fill_all"))
             return render_template("register.html")
 
         if not terms_accepted:
-            flash("Davom etish uchun ommaviy oferta va maxfiylik siyosatiga rozilik bildiring")
+            flash(tr("reg_accept_terms"))
             return render_template("register.html")
 
         if password != confirm:
-            flash("Parollar mos kelmadi")
+            flash(tr("reg_pw_mismatch"))
             return render_template("register.html")
 
-        if len(password) < 4:
-            flash("Parol kamida 4 ta belgidan iborat bo'lishi kerak")
+        if len(password) < MIN_PASSWORD_LEN:
+            flash(tr("reg_pw_short"))
             return render_template("register.html")
 
         conn = get_db()
@@ -1445,7 +1532,7 @@ def register():
         ).fetchone()
 
         if existing:
-            flash("Bu foydalanuvchi nomi allaqachon band")
+            flash(tr("reg_user_taken"))
             conn.close()
             return render_template("register.html")
 
@@ -1641,6 +1728,7 @@ def api_account_delete():
         delete_user_everything(conn, me)
         conn.commit()
     except Exception:
+        app.logger.exception("Baza amali bajarilmadi")
         conn.rollback()
         return jsonify({"ok": False, "error": tr("err_network")}), 500
     finally:
@@ -1781,14 +1869,20 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
 
+        if login_blocked(username):
+            flash(tr("login_too_many"))
+            return render_template("login.html")
+
         conn = get_db()
         user = conn.execute(
             "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
         conn.close()
 
-        if user and user["password_hash"] == hash_password(password):
+        if user and verify_password(user["password_hash"], password):
+            login_ok(username)
             conn = get_db()
+            upgrade_password_hash(conn, user["username"], user["password_hash"], password)
             is_blocked = conn.execute(
                 "SELECT 1 FROM blocked_users WHERE username = ?", (user["username"],)
             ).fetchone()
@@ -1800,7 +1894,8 @@ def login():
             nxt = request.args.get("next", "")
             return redirect(nxt if is_safe_next(nxt) else url_for("dashboard"))
         else:
-            flash("Login yoki parol xato")
+            login_failed(username)
+            flash(tr("login_wrong"))
 
     return render_template("login.html")
 
@@ -1816,7 +1911,7 @@ def forgot_password():
 
         if not user:
             conn.close()
-            flash("Bunday foydalanuvchi topilmadi")
+            flash(tr("forgot_no_user"))
             return render_template("forgot.html", step="username")
 
         if step == "username":
@@ -1831,14 +1926,20 @@ def forgot_password():
             answer = request.form.get("security_answer", "").strip().lower()
             new_password = request.form.get("new_password", "")
 
-            if user["security_answer_hash"] != hash_password(answer):
+            if login_blocked("forgot:" + username):
                 conn.close()
-                flash("Javob noto'g'ri")
+                flash(tr("login_too_many"))
                 return render_template("forgot.html", step="answer", username=username)
 
-            if len(new_password) < 4:
+            if not verify_password(user["security_answer_hash"], answer):
+                login_failed("forgot:" + username)
                 conn.close()
-                flash("Yangi parol kamida 4 ta belgidan iborat bo'lishi kerak")
+                flash(tr("forgot_wrong_answer"))
+                return render_template("forgot.html", step="answer", username=username)
+
+            if len(new_password) < MIN_PASSWORD_LEN:
+                conn.close()
+                flash(tr("password_short"))
                 return render_template("forgot.html", step="answer", username=username)
 
             conn.execute(
@@ -1847,7 +1948,7 @@ def forgot_password():
             )
             conn.commit()
             conn.close()
-            flash("Parol muvaffaqiyatli o'zgartirildi! Endi kirishingiz mumkin.")
+            flash(tr("forgot_done"))
             return redirect(url_for("login"))
 
     return render_template("forgot.html", step="username")
@@ -2589,6 +2690,7 @@ def admin_page():
             try:
                 ctx["db_size"] = conn.execute("SELECT pg_size_pretty(pg_database_size(current_database())) AS s").fetchone()["s"]
             except Exception:
+                app.logger.exception("Baza amali bajarilmadi")
                 conn.rollback()
         ctx["job"] = None
     conn.close()
@@ -4733,6 +4835,7 @@ def ensure_invite_code(conn, group):
             group["invite_code"] = code
             return code
         except Exception:
+            app.logger.exception("Baza amali bajarilmadi")
             conn.rollback()
     return ""
 
@@ -6144,10 +6247,10 @@ def api_change_password():
     conn = get_db()
     u = conn.execute("SELECT password_hash, password_set FROM users WHERE username = ?", (me,)).fetchone()
     password_set = bool(u["password_set"]) if u["password_set"] is not None else True
-    if password_set and u["password_hash"] != hash_password(current):
+    if password_set and not verify_password(u["password_hash"], current):
         conn.close()
         return jsonify({"ok": False, "message": tr("password_wrong")}), 400
-    if len(new) < 4:
+    if len(new) < MIN_PASSWORD_LEN:
         conn.close()
         return jsonify({"ok": False, "message": tr("password_short")}), 400
     conn.execute("UPDATE users SET password_hash = ?, password_set = 1 WHERE username = ?", (hash_password(new), me))
@@ -7145,6 +7248,7 @@ def job_status():
         ).fetchone()
         return dict(_job_set_table) if _job_set_table else None
     except Exception:
+        app.logger.exception("Baza amali bajarilmadi")
         conn.rollback()
         return None
     finally:
@@ -7390,8 +7494,14 @@ if __name__ == "__main__":
     start_library_worker()
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_DEBUG", "1") == "1"
+    # Debug rejimida faqat shu kompyuterdan ochiladi (Wi-Fi'dagi boshqalar debuggerga kira olmasin).
+    # Telefondan sinash kerak bo'lsa: set LINKO_LAN=1 (debug o'chadi).
+    lan = os.environ.get("LINKO_LAN") == "1"
+    host = "0.0.0.0" if lan else "127.0.0.1"
+    if lan:
+        debug_mode = False
     print(f"Linko ishga tushmoqda... http://127.0.0.1:{port} manzilida oching")
-    app.run(host="0.0.0.0", port=port, debug=debug_mode)
+    app.run(host=host, port=port, debug=debug_mode)
 else:
     # Hosting (gunicorn) orqali ishga tushganda ham baza tayyor bo'lishi uchun
     init_db()

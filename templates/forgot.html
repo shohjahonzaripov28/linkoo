@@ -31,7 +31,7 @@
       <input type="hidden" name="step" value="username">
       <div class="field">
         <label>{{ t.username }}</label>
-        <input type="text" name="username" placeholder="masalan: aziz_dev" required>
+        <input type="text" name="username" placeholder="{{ t.ph_username }}" required>
       </div>
       <button type="submit" class="btn-primary">{{ t.forgot_continue }}</button>
     </form>
@@ -45,7 +45,7 @@
       </div>
       <div class="field">
         <label>{{ t.new_password_label }}</label>
-        <input type="password" name="new_password" placeholder="••••••••" required>
+        <input type="password" name="new_password" placeholder="{{ t.ph_password_min }}" minlength="6" autocomplete="new-password" required>
       </div>
       <button type="submit" class="btn-primary">{{ t.forgot_change_password }}</button>
     </form>

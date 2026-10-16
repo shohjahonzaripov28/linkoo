@@ -6609,3 +6609,70 @@ _V12B = {
 }
 for _lang, _items in _V12B.items():
     TRANSLATIONS[_lang].update(_items)
+
+
+# ---------- v13: xavfsizlik yangilanishi (login/ro'yxatdan o'tish xabarlari, parol kamida 6 belgi) ----------
+_V13 = {
+    "uz": {
+        "reg_fill_all": "Iltimos, hamma maydonlarni to'ldiring",
+        "reg_accept_terms": "Davom etish uchun ommaviy oferta va maxfiylik siyosatiga rozilik bildiring",
+        "reg_pw_mismatch": "Parollar mos kelmadi",
+        "reg_pw_short": "Parol kamida 6 ta belgidan iborat bo'lishi kerak",
+        "reg_user_taken": "Bu foydalanuvchi nomi allaqachon band",
+        "login_wrong": "Login yoki parol xato",
+        "login_too_many": "Juda ko'p noto'g'ri urinish. 15 daqiqadan keyin qayta urinib ko'ring.",
+        "forgot_no_user": "Bunday foydalanuvchi topilmadi",
+        "forgot_wrong_answer": "Javob noto'g'ri",
+        "forgot_done": "Parol muvaffaqiyatli o'zgartirildi! Endi kirishingiz mumkin.",
+        "password_short": "Yangi parol kamida 6 ta belgidan iborat bo'lsin",
+        "ph_username": "masalan: aziz_dev",
+        "ph_password_min": "kamida 6 ta belgi",
+    },
+    "ru": {
+        "reg_fill_all": "Пожалуйста, заполните все поля",
+        "reg_accept_terms": "Чтобы продолжить, примите публичную оферту и политику конфиденциальности",
+        "reg_pw_mismatch": "Пароли не совпадают",
+        "reg_pw_short": "Пароль должен содержать минимум 6 символов",
+        "reg_user_taken": "Это имя пользователя уже занято",
+        "login_wrong": "Неверный логин или пароль",
+        "login_too_many": "Слишком много неудачных попыток. Попробуйте через 15 минут.",
+        "forgot_no_user": "Такой пользователь не найден",
+        "forgot_wrong_answer": "Неверный ответ",
+        "forgot_done": "Пароль успешно изменён! Теперь можно войти.",
+        "password_short": "Новый пароль — минимум 6 символов",
+        "ph_username": "например: aziz_dev",
+        "ph_password_min": "минимум 6 символов",
+    },
+    "zh": {
+        "reg_fill_all": "请填写所有字段",
+        "reg_accept_terms": "请同意公开要约和隐私政策后继续",
+        "reg_pw_mismatch": "两次输入的密码不一致",
+        "reg_pw_short": "密码至少 6 个字符",
+        "reg_user_taken": "该用户名已被占用",
+        "login_wrong": "用户名或密码错误",
+        "login_too_many": "错误尝试次数过多，请 15 分钟后再试。",
+        "forgot_no_user": "未找到该用户",
+        "forgot_wrong_answer": "答案不正确",
+        "forgot_done": "密码修改成功！现在可以登录了。",
+        "password_short": "新密码至少 6 个字符",
+        "ph_username": "例如：aziz_dev",
+        "ph_password_min": "至少 6 个字符",
+    },
+    "en": {
+        "reg_fill_all": "Please fill in all fields",
+        "reg_accept_terms": "To continue, please accept the public offer and privacy policy",
+        "reg_pw_mismatch": "Passwords do not match",
+        "reg_pw_short": "Password must be at least 6 characters",
+        "reg_user_taken": "This username is already taken",
+        "login_wrong": "Wrong username or password",
+        "login_too_many": "Too many failed attempts. Please try again in 15 minutes.",
+        "forgot_no_user": "No such user found",
+        "forgot_wrong_answer": "Wrong answer",
+        "forgot_done": "Password changed successfully! You can sign in now.",
+        "password_short": "New password must be at least 6 characters",
+        "ph_username": "e.g. aziz_dev",
+        "ph_password_min": "at least 6 characters",
+    },
+}
+for _lang, _items in _V13.items():
+    TRANSLATIONS[_lang].update(_items)

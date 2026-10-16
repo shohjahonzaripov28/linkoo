@@ -1,5 +1,6 @@
 # Shaxsiy kalitlar — hech qachon GitHub'ga yuklanmasin
 local_keys.py
+.secret_key
 .env
 
 # Foydalanuvchilar bazasi (ichida parollar va xabarlar bor)
