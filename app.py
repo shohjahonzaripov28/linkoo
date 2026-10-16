@@ -390,6 +390,14 @@ def is_admin_user(conn, username):
     return bool(row and row["is_admin"])
 
 
+def can_add_to_group(conn, adder, target):
+    """Guruh/kanalga boshqa odamni faqat uning kontakti qo'sha oladi (admin bundan mustasno).
+    Aks holda begona odam sizni o'z guruhiga qo'shib, u yerda yozishi mumkin edi."""
+    if is_blocked_between(conn, adder, target):
+        return False
+    return are_contacts(conn, adder, target) or is_admin_user(conn, adder)
+
+
 def can_message(conn, sender, receiver, allow_shop=True):
     """(ruxsat, xato_kaliti). Faqat kontaktlar bir-biriga yoza oladi.
     Istisno: do'kon suhbati (mahsulot sahifasidan "Sotuvchiga yozish" yoki buyurtma) va admin."""
@@ -4982,7 +4990,7 @@ def group_new():
             join_group(conn, group_id, me, "owner")
             for member in selected:
                 u = conn.execute("SELECT username FROM users WHERE username = ?", (member,)).fetchone()
-                if u and u["username"] != me and not is_blocked_between(conn, me, u["username"]):
+                if u and u["username"] != me and can_add_to_group(conn, me, u["username"]):
                     join_group(conn, group_id, u["username"])
             conn.commit()
             ensure_invite_code(conn, group_row(conn, group_id))
@@ -5232,7 +5240,7 @@ def api_group_add_members(group_id):
     added = 0
     for name in (data.get("usernames") or [])[:100]:
         u = conn.execute("SELECT username FROM users WHERE username = ?", (name,)).fetchone()
-        if u and not member_role(conn, group_id, u["username"]) and not is_blocked_between(conn, me, u["username"]):
+        if u and not member_role(conn, group_id, u["username"]) and can_add_to_group(conn, me, u["username"]):
             join_group(conn, group_id, u["username"])
             added += 1
     conn.commit()
