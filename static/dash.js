@@ -20,7 +20,7 @@
     return c;
   }
   const BLUE = sprite("70,200,255", 32), ORANGE = sprite("255,150,55", 32), GOLD = sprite("255,210,110", 32);
-  const VIOLET = sprite("167,139,250", 32), PINK = sprite("236,72,153", 32), CYAN = sprite("125,211,252", 32);
+  const VIOLET = sprite("96,165,250", 32), PINK = sprite("186,230,253", 32), CYAN = sprite("125,211,252", 32);
 
   /* ---- Humanoid (Linko AI) ---- */
   function halfWidth(y) {

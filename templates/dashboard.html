@@ -18,21 +18,21 @@
       transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
       isolation: isolate;
     }
-    .hero-map { background: radial-gradient(circle at 75% 45%, #1a1342, #070614 75%); border-color: rgba(192, 132, 252, .25); }
+    .hero-map { background: radial-gradient(circle at 75% 45%, #12224a, #060b18 75%); border-color: rgba(96, 165, 250, .25); }
     .hero-card:hover { transform: translateY(-3px); border-color: rgba(125, 211, 252, .55); box-shadow: 0 18px 50px rgba(30, 80, 200, .35); }
     .hero-canvas { position: absolute; top: 0; right: 0; width: 62%; height: 100%; z-index: -1; }
     .hero-body { position: relative; padding: 20px 20px 18px; max-width: 58%; display: flex; flex-direction: column; gap: 6px; min-height: 200px; box-sizing: border-box; }
     .hero-tag { font: 600 10.5px Consolas, "Courier New", monospace; letter-spacing: 2px; color: #7dd3fc; display: inline-flex; align-items: center; gap: 6px; }
-    .hero-map .hero-tag { color: #d8b4fe; }
+    .hero-map .hero-tag { color: #93c5fd; }
     .hero-tag i { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; animation: heroPulse 1.6s infinite; }
     @keyframes heroPulse { 50% { opacity: .3; } }
     .hero-card h2 { margin: 2px 0 0; font-size: 24px; font-weight: 800;
-      background: linear-gradient(90deg, #e0f2fe, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    .hero-map h2 { background: linear-gradient(90deg, #f5d0fe, #93c5fd); -webkit-background-clip: text; background-clip: text; }
+      background: linear-gradient(90deg, #e0f2fe, #93c5fd); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero-map h2 { background: linear-gradient(90deg, #e0f2fe, #7dd3fc); -webkit-background-clip: text; background-clip: text; }
     .hero-card p { margin: 0; font-size: 13.5px; line-height: 1.45; color: rgba(220, 235, 255, .78); }
     .hero-cta { margin-top: auto; align-self: flex-start; font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 12px;
-      background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: #fff; box-shadow: 0 6px 18px rgba(99, 102, 241, .4); }
-    .hero-map .hero-cta { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+      background: linear-gradient(135deg, #3b82f6, #3b82f6); color: #fff; box-shadow: 0 6px 18px rgba(59, 130, 246, .4); }
+    .hero-map .hero-cta { background: linear-gradient(135deg, #3b82f6, #38bdf8); }
 
     /* Gorizontal suriladigan bo'limlar (telefonda barmoq bilan suriladi) */
     .feat-row { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 2px 2px 10px; margin: 0 -2px 14px; scrollbar-width: none; }
@@ -48,10 +48,10 @@
     .feat-big { position: absolute; right: -14px; bottom: -18px; opacity: .16; transform: rotate(-12deg); }
     .feat-big svg { width: 110px; height: 110px; }
     .feat-badge { position: absolute; top: 14px; right: 14px; min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #fff; color: #111827; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
-    .f1 { background: linear-gradient(135deg, #2563eb, #7c3aed); }
+    .f1 { background: linear-gradient(135deg, #2563eb, #2563eb); }
     .f2 { background: linear-gradient(135deg, #059669, #0ea5e9); }
     .f3 { background: linear-gradient(135deg, #db2777, #f59e0b); }
-    .f4 { background: linear-gradient(135deg, #0891b2, #6366f1); }
+    .f4 { background: linear-gradient(135deg, #0891b2, #3b82f6); }
     .f5 { background: linear-gradient(135deg, #ea580c, #e11d48); }
     @media (min-width: 560px) { .feat-card { flex-basis: 44%; } }
     @media (min-width: 900px) { .feat-row { overflow: visible; } .feat-card { flex: 1 1 0; min-width: 0; min-height: 150px; } }
@@ -129,7 +129,7 @@
       <span class="lib-dash-books" aria-hidden="true">
         <i style="--c1:#7c2d12;--c2:#f59e0b;--h:92%;"></i><i style="--c1:#1e3a8a;--c2:#60a5fa;--h:78%;"></i>
         <i style="--c1:#831843;--c2:#f9a8d4;--h:100%;"></i><i style="--c1:#14532d;--c2:#86efac;--h:84%;"></i>
-        <i style="--c1:#312e81;--c2:#a5b4fc;--h:70%;"></i>
+        <i style="--c1:#312e81;--c2:#93c5fd;--h:70%;"></i>
       </span>
       <span class="lib-dash-body">
         <span class="hero-tag lib-tag">{{ t.lib_dash_tag }}</span>

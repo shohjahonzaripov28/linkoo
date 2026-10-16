@@ -1764,7 +1764,7 @@ BRAND_HEAD = (
     '<link rel="icon" type="image/png" sizes="64x64" href="/static/favicon-64.png">'
     '<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">'
     '<link rel="manifest" href="/manifest.webmanifest">'
-    '<meta name="theme-color" content="#0f1226">'
+    '<meta name="theme-color" content="#0b1220">'
     '<script>(function(){try{var m=localStorage.getItem("linko_theme")||"dark";'
     'if(m==="auto")m=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";'
     'document.documentElement.setAttribute("data-theme",m==="light"?"light":"dark");}catch(e){}})();</script>'
@@ -1841,7 +1841,7 @@ setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},2800);
 def web_manifest():
     data = {
         "name": "Linko", "short_name": "Linko", "start_url": "/", "display": "standalone",
-        "background_color": "#0f1226", "theme_color": "#0f1226",
+        "background_color": "#0b1220", "theme_color": "#0b1220",
         "icons": [
             {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
             {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
