@@ -6756,6 +6756,118 @@ def api_nav_signals():
     return jsonify({"signals": out[:1500], "checked": round(min(cum[-1], max_len))})
 
 
+# ---------- Koinot: Starlink yo'ldoshlari (CelesTrak, OMM/CSV) ----------
+# CelesTrak qoidasi: ma'lumot 2 soatda yangilanadi, undan tez-tez yuklamaslik kerak; xato bo'lsa to'xtash.
+# Shuning uchun server 4 soatda bir marta oladi, diskda saqlaydi va hamma foydalanuvchiga shu nusxani beradi.
+STARLINK_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=csv"
+STARLINK_TTL = 4 * 3600
+STARLINK_FILE = os.path.join("/tmp", "linko_starlink.json.gz")
+_SL = {"ts": 0, "gz": None, "count": 0, "fail_ts": 0}
+_SL_LOCK = threading.Lock()
+
+
+def _starlink_build(csv_text):
+    import csv
+    import gzip
+    import io
+    rows = []
+    for r in csv.DictReader(io.StringIO(csv_text)):
+        try:
+            rows.append([
+                r["OBJECT_NAME"].strip()[:24], r["EPOCH"].strip(),
+                float(r["MEAN_MOTION"]), float(r["ECCENTRICITY"]), float(r["INCLINATION"]),
+                float(r["RA_OF_ASC_NODE"]), float(r["ARG_OF_PERICENTER"]), float(r["MEAN_ANOMALY"]),
+                float(r["BSTAR"]), float(r["MEAN_MOTION_DOT"]), float(r["MEAN_MOTION_DDOT"]), int(r["NORAD_CAT_ID"]),
+            ])
+        except (KeyError, ValueError, TypeError):
+            continue
+    if len(rows) < 100:
+        raise ValueError("juda kam yozuv: %d" % len(rows))
+    payload = json.dumps({"t": int(time.time()), "n": len(rows), "d": rows}, separators=(",", ":")).encode()
+    return gzip.compress(payload, 6), len(rows)
+
+
+def get_starlink_gz():
+    now = time.time()
+    with _SL_LOCK:
+        if _SL["gz"] and now - _SL["ts"] < STARLINK_TTL:
+            return _SL["gz"], _SL["count"]
+        # Diskdagi nusxa (server qayta ishga tushganda ham CelesTrak'ni bezovta qilmaslik uchun)
+        if not _SL["gz"]:
+            try:
+                st = os.stat(STARLINK_FILE)
+                with open(STARLINK_FILE, "rb") as f:
+                    _SL.update(gz=f.read(), ts=st.st_mtime, count=-1)
+                if now - _SL["ts"] < STARLINK_TTL:
+                    return _SL["gz"], _SL["count"]
+            except OSError:
+                pass
+        if now - _SL["fail_ts"] < 2 * 3600:   # xatodan keyin 2 soat kutamiz
+            return _SL["gz"], _SL["count"]
+        try:
+            req = urllib.request.Request(STARLINK_URL, headers={"User-Agent": MAP_UA})
+            with urllib.request.urlopen(req, timeout=40) as r:
+                if r.status != 200:
+                    raise RuntimeError("status %s" % r.status)
+                text = r.read().decode("utf-8", "replace")
+            gz, n = _starlink_build(text)
+            _SL.update(gz=gz, ts=now, count=n, fail_ts=0)
+            try:
+                with open(STARLINK_FILE + ".tmp", "wb") as f:
+                    f.write(gz)
+                os.replace(STARLINK_FILE + ".tmp", STARLINK_FILE)
+            except OSError:
+                pass
+        except Exception:
+            app.logger.exception("Starlink ma'lumotini olib bo'lmadi")
+            _SL["fail_ts"] = now
+        return _SL["gz"], _SL["count"]
+
+
+@app.route("/api/space/starlink")
+def api_space_starlink():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    gz, _n = get_starlink_gz()
+    if not gz:
+        return jsonify({"error": "unavailable"}), 503
+    resp = Response(gz, mimetype="application/json")
+    resp.headers["Content-Encoding"] = "gzip"
+    resp.headers["Cache-Control"] = "private, max-age=1800"
+    resp.headers["Vary"] = "Accept-Encoding"
+    return resp
+
+
+@app.route("/api/space/where")
+def api_space_where():
+    """Yo'ldosh qaysi davlat ustida (Nominatim, 1 gradusga yaxlitlab keshlanadi)."""
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    try:
+        lat = max(-85.0, min(85.0, float(request.args.get("lat", ""))))
+        lon = max(-180.0, min(180.0, float(request.args.get("lon", ""))))
+    except ValueError:
+        return jsonify({"error": "bad"}), 400
+    lang = (request.args.get("lang") or current_lang())[:5]
+    key = f"where:{lang}:{round(lat)}:{round(lon)}"
+    hit = _map_cache_get(key, 30 * 86400)
+    if hit is not None:
+        return jsonify({"country": hit})
+    wait = 1.05 - (time.time() - _nominatim_last[0])
+    if wait > 0:
+        time.sleep(wait)
+    _nominatim_last[0] = time.time()
+    try:
+        url = "https://nominatim.openstreetmap.org/reverse?" + urllib.parse.urlencode(
+            {"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 3, "accept-language": lang})
+        data = _http_json(url, timeout=10)
+        country = (data.get("address") or {}).get("country") or ""
+    except Exception:
+        return jsonify({"country": None}), 503
+    _map_cache_set(key, country)
+    return jsonify({"country": country})
+
+
 @app.route("/map")
 def map_page():
     if "user_id" not in session:

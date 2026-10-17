@@ -37,6 +37,7 @@ const T = {
     kind: { sun: "Yulduz", planet: "Sayyora", moon: "Yerning yo'ldoshi" },
     diameter: "Diametri", dist: "Quyoshdan masofa", distMoon: "Yerdan masofa", day: "Bir sutka", year: "Bir yil", moons: "Yo'ldoshlari", temp: "Harorat", age: "Yoshi", spin: "O'z o'qi atrofida",
     km: "km", mkm: "mln km", h: "soat", min: "daq", days: "kun", years: "yil", byears: "mlrd yil", avg: "o'rtacha",
+    sl: "Starlink", slLoad: "Starlink yo'ldoshlari yuklanmoqda…", slFail: "Starlink ma'lumotini olib bo'lmadi. Keyinroq urinib ko'ring.", slCount: (n) => n + " ta Starlink yo'ldoshi", slNote: "Yo'ldoshlar balandligi ko'rinarli bo'lishi uchun 4 marta kattalashtirilgan. Ma'lumot: CelesTrak.", slAlt: "Balandlik", slSpeed: "Tezlik", slOver: "Hozir ustida", slOcean: "Okean ustida", slSat: "Starlink yo'ldoshi", kms: "km/s", 
     toEarth: "Xaritaga kirish", surface: "Sirt xaritasi", overview: "Quyosh tizimi", backHome: "Yerga qaytish",
     tip: "Sayyorani bosing", load: "Koinot yuklanmoqda…", fail: "3D koinotni ochib bo'lmadi. Internet yoki brauzerni tekshiring.",
     pause: "To'xtatish", play: "Davom ettirish", credit: "Teksturalar: Solar System Scope (CC BY 4.0), NASA ma'lumotlari",
@@ -58,6 +59,7 @@ const T = {
     kind: { sun: "Звезда", planet: "Планета", moon: "Спутник Земли" },
     diameter: "Диаметр", dist: "Расстояние от Солнца", distMoon: "Расстояние от Земли", day: "Сутки", year: "Год", moons: "Спутники", temp: "Температура", age: "Возраст", spin: "Оборот вокруг оси",
     km: "км", mkm: "млн км", h: "ч", min: "мин", days: "дн.", years: "лет", byears: "млрд лет", avg: "в среднем",
+    sl: "Starlink", slLoad: "Загружаем спутники Starlink…", slFail: "Не удалось загрузить Starlink. Попробуйте позже.", slCount: (n) => n + " спутников Starlink", slNote: "Высота спутников увеличена в 4 раза для наглядности. Данные: CelesTrak.", slAlt: "Высота", slSpeed: "Скорость", slOver: "Сейчас над", slOcean: "Над океаном", slSat: "Спутник Starlink", kms: "км/с", 
     toEarth: "Открыть карту", surface: "Карта поверхности", overview: "Солнечная система", backHome: "Вернуться на Землю",
     tip: "Нажмите на планету", load: "Загружаем космос…", fail: "Не удалось открыть 3D-космос. Проверьте интернет или браузер.",
     pause: "Пауза", play: "Продолжить", credit: "Текстуры: Solar System Scope (CC BY 4.0), данные NASA",
@@ -79,6 +81,7 @@ const T = {
     kind: { sun: "Star", planet: "Planet", moon: "Earth's moon" },
     diameter: "Diameter", dist: "Distance from the Sun", distMoon: "Distance from Earth", day: "One day", year: "One year", moons: "Moons", temp: "Temperature", age: "Age", spin: "Rotation",
     km: "km", mkm: "million km", h: "h", min: "min", days: "days", years: "years", byears: "billion years", avg: "average",
+    sl: "Starlink", slLoad: "Loading Starlink satellites…", slFail: "Couldn't load Starlink data. Try again later.", slCount: (n) => n + " Starlink satellites", slNote: "Satellite altitude is exaggerated 4× so you can see it. Data: CelesTrak.", slAlt: "Altitude", slSpeed: "Speed", slOver: "Now over", slOcean: "Over the ocean", slSat: "Starlink satellite", kms: "km/s", 
     toEarth: "Open the map", surface: "Surface map", overview: "Solar System", backHome: "Back to Earth",
     tip: "Tap a planet", load: "Loading space…", fail: "Couldn't open 3D space. Check your internet or browser.",
     pause: "Pause", play: "Play", credit: "Textures: Solar System Scope (CC BY 4.0), NASA data",
@@ -100,6 +103,7 @@ const T = {
     kind: { sun: "恒星", planet: "行星", moon: "地球的卫星" },
     diameter: "直径", dist: "与太阳的距离", distMoon: "与地球的距离", day: "一天", year: "一年", moons: "卫星", temp: "温度", age: "年龄", spin: "自转周期",
     km: "公里", mkm: "百万公里", h: "小时", min: "分", days: "天", years: "年", byears: "亿年", avg: "平均",
+    sl: "Starlink", slLoad: "正在加载星链卫星…", slFail: "无法加载星链数据，请稍后再试。", slCount: (n) => n + " 颗星链卫星", slNote: "为便于观看，卫星高度放大了 4 倍。数据：CelesTrak。", slAlt: "高度", slSpeed: "速度", slOver: "当前位于", slOcean: "海洋上空", slSat: "星链卫星", kms: "公里/秒", 
     toEarth: "进入地图", surface: "表面地图", overview: "太阳系", backHome: "返回地球",
     tip: "点击行星", load: "正在加载太空…", fail: "无法打开 3D 太空，请检查网络或浏览器。",
     pause: "暂停", play: "继续", credit: "纹理：Solar System Scope（CC BY 4.0），NASA 数据",
@@ -415,6 +419,13 @@ export function createSpace(opts) {
       const b = el("button", "sp-go", L.toEarth); b.type = "button";
       b.addEventListener("click", () => opts.onEarth && opts.onEarth());
       acts.appendChild(b);
+      const sb = el("button", "sp-go sp-alt" + (SL.on ? " on" : ""), "🛰 " + L.sl); sb.type = "button";
+      sb.addEventListener("click", () => toggleStarlink(sb));
+      acts.appendChild(sb);
+      const note = el("p", "sp-slnote", SL.on && SL.recs.length ? L.slCount(nf.format(SL.recs.length)) + " · " + L.slNote : "");
+      note.hidden = !SL.on;
+      card.appendChild(note);
+      SL.noteEl = note;
     }
     if (SURFACE[id]) {
       const b = el("button", "sp-go", L.surface); b.type = "button";
@@ -426,6 +437,144 @@ export function createSpace(opts) {
     card.scrollTop = 0;
     applyOffset();
   }
+
+  /* ---------- Starlink yo'ldoshlari (CelesTrak + SGP4, satellite.js) ---------- */
+  const SL = { on: false, loading: false, recs: [], points: null, pos: null, lastUpd: 0, sel: -1, marker: null, noteEl: null };
+  const SL_EXAG = 4; // balandlik ko'rinarli bo'lishi uchun kattalashtiriladi
+  const satBox = el("div", "sp-sat"); satBox.hidden = true;
+  root.appendChild(satBox);
+
+  function loadSatLib() {
+    return new Promise((ok, no) => {
+      if (window.satellite) return ok(window.satellite);
+      const sc = document.createElement("script");
+      sc.src = BASE + "satellite.min.js";
+      sc.onload = () => (window.satellite ? ok(window.satellite) : no(new Error("satellite.js")));
+      sc.onerror = no;
+      document.head.appendChild(sc);
+    });
+  }
+
+  async function loadStarlink() {
+    const sat = await loadSatLib();
+    const r = await fetch("/api/space/starlink", { credentials: "same-origin" });
+    if (!r.ok) throw new Error("http " + r.status);
+    const j = await r.json();
+    const recs = [];
+    for (const d of j.d || []) {
+      try {
+        const rec = sat.json2satrec({
+          OBJECT_NAME: d[0], EPOCH: d[1], MEAN_MOTION: d[2], ECCENTRICITY: d[3], INCLINATION: d[4], RA_OF_ASC_NODE: d[5],
+          ARG_OF_PERICENTER: d[6], MEAN_ANOMALY: d[7], BSTAR: d[8], MEAN_MOTION_DOT: d[9], MEAN_MOTION_DDOT: d[10], NORAD_CAT_ID: d[11],
+          EPHEMERIS_TYPE: 0, CLASSIFICATION_TYPE: "U", ELEMENT_SET_NO: 999, REV_AT_EPOCH: 0
+        });
+        if (rec && !rec.error) recs.push({ name: d[0], rec });
+      } catch (e) { /* buzuq yozuv */ }
+    }
+    if (!recs.length) throw new Error("empty");
+    SL.recs = recs;
+    SL.pos = new Float32Array(recs.length * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(SL.pos, 3));
+    SL.points = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x9be7ff, size: lite ? 0.03 : 0.022, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false }));
+    SL.points.frustumCulled = false;
+    objs.earth.mesh.add(SL.points);
+    SL.marker = new THREE.Mesh(new THREE.SphereGeometry(0.028, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfacc15 }));
+    SL.marker.visible = false;
+    objs.earth.mesh.add(SL.marker);
+    updateSats();
+  }
+
+  // Geografik koordinata -> Yer sferasining ichki koordinatasi (teksturaga mos: 0° uzunlama +X da)
+  function geoToLocal(lat, lon, altKm, out, o) {
+    const rr = objs.earth.cfg.r * (1 + (altKm * SL_EXAG) / 6371);
+    const cl = Math.cos(lat);
+    out[o] = rr * cl * Math.cos(lon); out[o + 1] = rr * Math.sin(lat); out[o + 2] = -rr * cl * Math.sin(lon);
+  }
+
+  function satState(i, date) {
+    const sat = window.satellite, rec = SL.recs[i].rec;
+    const pv = sat.propagate(rec, date);
+    if (!pv || !pv.position || typeof pv.position === "boolean") return null;
+    const gd = sat.eciToGeodetic(pv.position, sat.gstime(date));
+    const v = pv.velocity;
+    return { lat: gd.latitude, lon: gd.longitude, alt: gd.height, speed: v ? Math.hypot(v.x, v.y, v.z) : 0 };
+  }
+
+  function updateSats() {
+    if (!SL.recs.length || !window.satellite) return;
+    const now = new Date();
+    for (let i = 0; i < SL.recs.length; i++) {
+      const st = satState(i, now);
+      if (!st || !isFinite(st.alt) || st.alt < 100) { SL.pos[i * 3] = SL.pos[i * 3 + 1] = SL.pos[i * 3 + 2] = 0; continue; }
+      geoToLocal(st.lat, st.lon, st.alt, SL.pos, i * 3);
+    }
+    SL.points.geometry.attributes.position.needsUpdate = true;
+    if (SL.sel >= 0) { SL.marker.position.set(SL.pos[SL.sel * 3], SL.pos[SL.sel * 3 + 1], SL.pos[SL.sel * 3 + 2]); refreshSatBox(false); }
+  }
+
+  async function toggleStarlink(btnEl) {
+    if (SL.loading) return;
+    if (!SL.on) {
+      SL.on = true;
+      if (!SL.recs.length) {
+        SL.loading = true;
+        btnEl.textContent = "🛰 " + L.slLoad;
+        try { await loadStarlink(); }
+        catch (e) { console.warn("Starlink:", e); SL.on = false; SL.loading = false; btnEl.textContent = "🛰 " + L.sl; flash(L.slFail); return; }
+        SL.loading = false;
+      }
+      if (SL.points) SL.points.visible = true;
+    } else {
+      SL.on = false;
+      if (SL.points) SL.points.visible = false;
+      hideSat();
+    }
+    btnEl.textContent = "🛰 " + L.sl;
+    btnEl.classList.toggle("on", SL.on);
+    if (SL.noteEl) { SL.noteEl.hidden = !SL.on; SL.noteEl.textContent = L.slCount(nf.format(SL.recs.length)) + " · " + L.slNote; }
+  }
+
+  function flash(msg) {
+    satBox.hidden = false; satBox.innerHTML = ""; satBox.appendChild(el("div", "sp-satmsg", msg));
+    setTimeout(() => { if (SL.sel < 0) satBox.hidden = true; }, 3500);
+  }
+
+  let whereSeq = 0;
+  function refreshSatBox(lookup) {
+    const i = SL.sel;
+    if (i < 0) return;
+    const st = satState(i, new Date());
+    if (!st) return;
+    const lat = st.lat * 180 / Math.PI, lon = st.lon * 180 / Math.PI;
+    satBox.querySelector("[data-k=alt]").textContent = nf.format(Math.round(st.alt)) + " " + L.km;
+    satBox.querySelector("[data-k=spd]").textContent = nf.format(Math.round(st.speed * 100) / 100) + " " + L.kms;
+    satBox.querySelector("[data-k=pos]").textContent = Math.abs(lat).toFixed(1) + "°" + (lat >= 0 ? "N" : "S") + " " + Math.abs(lon).toFixed(1) + "°" + (lon >= 0 ? "E" : "W");
+    if (lookup) {
+      const my = ++whereSeq, over = satBox.querySelector("[data-k=over]");
+      over.textContent = "…";
+      fetch("/api/space/where?lat=" + lat.toFixed(2) + "&lon=" + lon.toFixed(2) + "&lang=" + lang)
+        .then((r) => r.json()).then((j) => { if (my === whereSeq) over.textContent = j.country || L.slOcean; })
+        .catch(() => { if (my === whereSeq) over.textContent = "—"; });
+    }
+  }
+
+  function selectSat(i) {
+    SL.sel = i;
+    satBox.innerHTML = "";
+    const x = el("button", "sp-satx", "×"); x.type = "button"; x.addEventListener("click", hideSat);
+    satBox.append(x, el("div", "sp-kind", L.slSat), el("b", "sp-satname", SL.recs[i].name));
+    const g = el("div", "sp-grid");
+    [[L.slAlt, "alt"], [L.slSpeed, "spd"], [L.slOver, "over"], ["", "pos"]].forEach(([k, key]) => {
+      const c = el("div", "sp-cell"); c.append(el("small", null, k || " ")); const b = el("b"); b.dataset.k = key; c.appendChild(b); g.appendChild(c);
+    });
+    satBox.appendChild(g);
+    satBox.hidden = false;
+    SL.marker.visible = true;
+    SL.marker.position.set(SL.pos[i * 3], SL.pos[i * 3 + 1], SL.pos[i * 3 + 2]);
+    refreshSatBox(true);
+  }
+  function hideSat() { SL.sel = -1; satBox.hidden = true; if (SL.marker) SL.marker.visible = false; }
 
   /* ---------- Bosish (raycast) ---------- */
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
@@ -440,8 +589,14 @@ export function createSpace(opts) {
     const rect = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
+    if (SL.on && SL.points) {
+      const dCam = camera.position.distanceTo(objs.earth.pivot.getWorldPosition(tmpV));
+      ray.params.Points.threshold = Math.max(0.01, dCam * 0.006);
+      const sh = ray.intersectObject(SL.points, false)[0];
+      if (sh && dCam < 25) { selectSat(sh.index); return; }
+    }
     const hit = ray.intersectObjects(pickables, false)[0];
-    if (hit) focus(hit.object.userData.id);
+    if (hit) { hideSat(); focus(hit.object.userData.id); }
   });
 
   homeBtn.addEventListener("click", () => {
@@ -528,6 +683,7 @@ export function createSpace(opts) {
       controls.target.add(delta);
       prevFocusPos.copy(p);
     }
+    if (SL.on && SL.recs.length && t - SL.lastUpd > (lite ? 2000 : 1000)) { SL.lastUpd = t; updateSats(); }
     controls.update();
     renderer.render(scene, camera);
     updateLabels();
@@ -567,6 +723,7 @@ export function createSpace(opts) {
       }
     },
     hide() { stop(); },
+    _test: { selectSat: (i) => selectSat(i), sl: () => SL },
     focus,
     overview,
     get running() { return running; },

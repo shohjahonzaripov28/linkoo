@@ -158,6 +158,16 @@
     .sp-acts { display: flex; gap: 8px; margin-top: 12px; }
     .sp-go { flex: 1; height: 42px; border: none; border-radius: 12px; background: #3b82f6; color: #fff; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
     .sp-go:hover { background: #2563eb; }
+    .sp-go.sp-alt { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); }
+    .sp-go.sp-alt.on { background: rgba(125,211,252,.18); border-color: #7dd3fc; color: #7dd3fc; }
+    .sp-slnote { margin: 10px 0 0; font-size: 11.5px; line-height: 1.5; color: rgba(238,242,251,.6); }
+    .sp-slnote[hidden], .sp-sat[hidden] { display: none; }
+    .sp-sat { position: absolute; z-index: 4; left: 14px; top: calc(110px + env(safe-area-inset-top)); width: min(280px, calc(100% - 28px)); box-sizing: border-box;
+      padding: 12px 14px; border-radius: 16px; background: rgba(6,10,22,.86); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(250,204,21,.45); animation: spIn .25s ease-out; }
+    .sp-satname { display: block; margin: 2px 0 8px; font-size: 16px; font-weight: 600; color: #fde68a; }
+    .sp-satx { position: absolute; right: 8px; top: 6px; background: none; border: none; color: #eef2fb; font-size: 20px; cursor: pointer; }
+    .sp-satmsg { font-size: 13px; color: #eef2fb; }
     .sp-tip { position: absolute; z-index: 2; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translateX(-50%); pointer-events: none;
       font-size: 10.5px; letter-spacing: .32em; text-transform: uppercase; color: rgba(238,242,251,.6); white-space: nowrap; }
     .sp-tip[hidden], .sp-card[hidden], .sp-btn[hidden], .sp-loading[hidden] { display: none; }
