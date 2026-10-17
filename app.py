@@ -1503,11 +1503,17 @@ def version():
     return jsonify({"version": APP_VERSION, "database": "postgresql" if USE_POSTGRES else "sqlite"})
 
 
+# Travelpayouts Drive skripti - faqat tizimga kirmagan mehmonlar ko'radigan ochiq bosh sahifada.
+# Render'da TP_DRIVE_SRC bilan o'zgartirish mumkin; bo'sh qiymat ("off") skriptni o'chiradi.
+_drive_env = os.environ.get("TP_DRIVE_SRC", "https://tp-em.com/NTg2NzYz.js?t=586763").strip()
+TP_DRIVE_SRC = _drive_env if _drive_env.startswith("https://tp-em.com/") else ""
+
+
 @app.route("/")
 def home():
     if "user_id" in session:
         return redirect(url_for("dashboard"))
-    return redirect(url_for("login"))
+    return render_template("welcome.html", drive_src=TP_DRIVE_SRC)
 
 
 @app.route("/register", methods=["GET", "POST"])

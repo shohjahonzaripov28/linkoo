@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko</title>
+  <meta name="description" content="{{ t.wl_tagline }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {#- Travelpayouts Drive: FAQAT shu ochiq sahifada. Login, chat va ilova ichida yo'q (u yerda shaxsiy ma'lumotlar bor). -#}
+  {% if drive_src %}
+  <script>
+  (function () {
+    var s = document.createElement("script");
+    s.async = 1;
+    s.setAttribute("data-cmp-ab", "2");
+    s.src = {{ drive_src|tojson }};
+    document.head.appendChild(s);
+  })();
+  </script>
+  {% endif %}
+  <style>
+    .wl-list { list-style: none; padding: 0; margin: 18px 0 22px; display: flex; flex-direction: column; gap: 10px; }
+    .wl-list li { display: flex; align-items: center; gap: 12px; background: var(--surface2); border: 1px solid var(--edge);
+      border-radius: 14px; padding: 11px 12px; font-size: 14px; text-align: left; }
+    .wl-list span { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; background: rgba(59, 130, 246, .14);
+      display: flex; align-items: center; justify-content: center; font-size: 17px; }
+    .wl-actions { display: flex; flex-direction: column; gap: 10px; }
+    .wl-actions a { display: block; text-align: center; text-decoration: none; padding: 13px; border-radius: 14px; font-weight: 700; font-size: 15px; }
+    .wl-main { background: var(--btn-bg); color: var(--btn-text); }
+    .wl-alt { border: 1px solid var(--edge); color: var(--text); background: var(--surface); }
+  </style>
+</head>
+<body>
+  <div class="glass-card">
+    {% include 'lang_switcher.html' %}
+    <div class="brand-head"><img class="brand-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="" width="64" height="64"><h1>Linko</h1></div>
+    <p class="subtitle">{{ t.wl_tagline }}</p>
+
+    <ul class="wl-list">
+      <li><span aria-hidden="true">💬</span>{{ t.wl_f_chat }}</li>
+      <li><span aria-hidden="true">🛍</span>{{ t.wl_f_shop }}</li>
+      <li><span aria-hidden="true">✈</span>{{ t.wl_f_travel }}</li>
+      <li><span aria-hidden="true">💱</span>{{ t.wl_f_rates }}</li>
+    </ul>
+
+    <div class="wl-actions">
+      <a class="wl-main" href="{{ url_for('register') }}">{{ t.wl_join }}</a>
+      <a class="wl-alt" href="{{ url_for('login') }}">{{ t.wl_login }}</a>
+    </div>
+  </div>
+</body>
+</html>

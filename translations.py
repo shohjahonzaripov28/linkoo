@@ -6862,3 +6862,46 @@ _V16 = {
 }
 for _lang, _items in _V16.items():
     TRANSLATIONS[_lang].update(_items)
+
+
+# ---------- v17: Ochiq bosh sahifa (mehmonlar uchun) ----------
+_V17 = {
+ "uz": {
+  "wl_tagline": "Chat, do'kon, sayohat va boshqalar — bitta ilovada",
+  "wl_f_chat": "Do'stlar bilan chat, guruhlar va qo'ng'iroqlar",
+  "wl_f_shop": "Do'kon: soting va xarid qiling",
+  "wl_f_travel": "Aviachipta va mehmonxona qidiruvi",
+  "wl_f_rates": "Valyuta kurslari va kalkulyator",
+  "wl_join": "Ro'yxatdan o'tish",
+  "wl_login": "Kirish"
+ },
+ "ru": {
+  "wl_tagline": "Чат, магазин, путешествия и многое другое — в одном приложении",
+  "wl_f_chat": "Чаты с друзьями, группы и звонки",
+  "wl_f_shop": "Магазин: продавайте и покупайте",
+  "wl_f_travel": "Поиск авиабилетов и отелей",
+  "wl_f_rates": "Курсы валют и конвертер",
+  "wl_join": "Зарегистрироваться",
+  "wl_login": "Войти"
+ },
+ "zh": {
+  "wl_tagline": "聊天、购物、旅行等，尽在一个应用",
+  "wl_f_chat": "与朋友聊天、群组和通话",
+  "wl_f_shop": "商店：买卖商品",
+  "wl_f_travel": "搜索机票和酒店",
+  "wl_f_rates": "汇率与换算器",
+  "wl_join": "注册",
+  "wl_login": "登录"
+ },
+ "en": {
+  "wl_tagline": "Chat, shop, travel and more — in one app",
+  "wl_f_chat": "Chat with friends, groups and calls",
+  "wl_f_shop": "Shop: sell and buy",
+  "wl_f_travel": "Search flights and hotels",
+  "wl_f_rates": "Exchange rates and converter",
+  "wl_join": "Sign up",
+  "wl_login": "Sign in"
+ }
+}
+for _lang, _items in _V17.items():
+    TRANSLATIONS[_lang].update(_items)
