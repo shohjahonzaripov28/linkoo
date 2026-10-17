@@ -6874,6 +6874,131 @@ def api_rates():
     return resp
 
 
+# ---------- Sayohat: aviachipta va mehmonxona (bron hamkor saytida, Linko komissiya oladi) ----------
+import travel_data
+
+# Travelpayouts hamkorlik ma'lumotlari Render > Environment'da saqlanadi (kodda emas):
+#   TP_TOKEN  - API token (Profile > API token)
+#   TP_MARKER - hamkor ID (marker)
+#   TP_TRS    - loyiha ID (trs)
+# Ular bo'lmasa ham bo'lim ishlaydi: foydalanuvchi oddiy havola orqali ketadi (komissiyasiz).
+TP_TOKEN = os.environ.get("TP_TOKEN", "").strip()
+TP_MARKER = os.environ.get("TP_MARKER", "").strip()
+TP_TRS = os.environ.get("TP_TRS", "").strip()
+_TP_LINKS = {}
+_TP_LOCK = threading.Lock()
+IATA_RE = re.compile(r"^[A-Z]{3}$")
+BOOKING_LANG = {"uz": "en-gb", "ru": "ru", "en": "en-gb", "zh": "zh-cn"}
+
+
+def partner_link(url):
+    """Oddiy brend havolasini Travelpayouts hamkor havolasiga aylantiradi (1 kun keshda).
+    Sozlanmagan yoki xato bo'lsa - oddiy havolaning o'zi qaytadi, foydalanuvchi baribir saytga o'tadi."""
+    if not (TP_TOKEN and TP_MARKER and TP_TRS):
+        return url
+    now = time.time()
+    with _TP_LOCK:
+        hit = _TP_LINKS.get(url)
+        if hit and now - hit[0] < 86400:
+            return hit[1]
+    try:
+        body = json.dumps({
+            "trs": int(TP_TRS), "marker": int(TP_MARKER), "shorten": False,
+            "links": [{"url": url, "sub_id": "linko"}],
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.travelpayouts.com/links/v1/create", data=body, method="POST",
+            headers={"X-Access-Token": TP_TOKEN, "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        item = ((data.get("result") or {}).get("links") or [{}])[0]
+        out = item.get("partner_url") if item.get("code") == "success" else None
+        if not out:
+            app.logger.warning("Travelpayouts havola yaratmadi: %s", item.get("message"))
+            return url
+        with _TP_LOCK:
+            if len(_TP_LINKS) > 5000:
+                _TP_LINKS.clear()
+            _TP_LINKS[url] = (now, out)
+        return out
+    except Exception:
+        app.logger.exception("Travelpayouts API xatosi")
+        return url
+
+
+def _parse_day(value):
+    try:
+        return datetime.strptime((value or "").strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _int_arg(name, default, lo, hi):
+    try:
+        v = int(request.args.get(name, default))
+    except (TypeError, ValueError):
+        v = default
+    return max(lo, min(hi, v))
+
+
+@app.route("/travel")
+def travel_page():
+    tab = request.args.get("tab", "flights")
+    if tab not in ("flights", "hotels"):
+        tab = "flights"
+    lang = current_lang()
+    today = datetime.now().date()
+    return render_template(
+        "travel.html", tab=tab, cities=travel_data.city_list(lang), active="home",
+        today=today.isoformat(), max_day=(today + timedelta(days=360)).isoformat(),
+        default_out=(today + timedelta(days=7)).isoformat(), default_back=(today + timedelta(days=14)).isoformat(),
+        err=request.args.get("err", ""),
+    )
+
+
+@app.route("/travel/go")
+def travel_go():
+    """Formadan kelgan qidiruvni tekshiradi va hamkor saytiga yo'naltiradi."""
+    kind = request.args.get("kind", "flights")
+    today = datetime.now().date()
+    if kind == "hotels":
+        city = re.sub(r"\s+", " ", request.args.get("city", "")).strip()[:80]
+        d_in, d_out = _parse_day(request.args.get("checkin")), _parse_day(request.args.get("checkout"))
+        adults = _int_arg("adults", 2, 1, 30)
+        rooms = _int_arg("rooms", 1, 1, 10)
+        if len(city) < 2:
+            return redirect(url_for("travel_page", tab="hotels", err="city"))
+        if not d_in or not d_out or d_in < today or d_out <= d_in or (d_out - d_in).days > 30:
+            return redirect(url_for("travel_page", tab="hotels", err="dates"))
+        rooms = min(rooms, adults)
+        url = "https://www.booking.com/searchresults.html?" + urllib.parse.urlencode({
+            "ss": city, "checkin": d_in.isoformat(), "checkout": d_out.isoformat(),
+            "group_adults": adults, "no_rooms": rooms, "group_children": 0,
+            "lang": BOOKING_LANG.get(current_lang(), "en-gb"),
+        })
+        return redirect(partner_link(url))
+
+    origin = request.args.get("from", "").strip().upper()
+    dest = request.args.get("to", "").strip().upper()
+    d_out = _parse_day(request.args.get("depart"))
+    d_back = _parse_day(request.args.get("return")) if request.args.get("oneway") != "1" else None
+    adults = _int_arg("adults", 1, 1, 9)
+    children = _int_arg("children", 0, 0, 9)
+    infants = _int_arg("infants", 0, 0, 9)
+    cabin = request.args.get("cabin", "")
+    if not IATA_RE.match(origin) or not IATA_RE.match(dest) or origin == dest:
+        return redirect(url_for("travel_page", tab="flights", err="route"))
+    if not d_out or d_out < today or (d_back and d_back < d_out):
+        return redirect(url_for("travel_page", tab="flights", err="dates"))
+    if infants > adults or adults + children + infants > 9:
+        return redirect(url_for("travel_page", tab="flights", err="pax"))
+    params = origin + d_out.strftime("%d%m") + dest + (d_back.strftime("%d%m") if d_back else "")
+    params += {"business": "c", "premium": "w", "first": "f"}.get(cabin, "")
+    params += f"{adults}{children}{infants}" if (children or infants) else str(adults)
+    return redirect(partner_link("https://www.aviasales.com/search/" + params))
+
+
 @app.route("/library")
 def library():
     me = session["username"]

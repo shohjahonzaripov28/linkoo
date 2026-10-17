@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.tr_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .tv-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: rgba(var(--fg), .07); border-radius: 14px; padding: 4px; margin: 0 0 16px; }
+    .tv-tabs a { text-align: center; padding: 9px 6px; border-radius: 11px; font-size: 14px; font-weight: 600; color: rgba(var(--fg), .7); text-decoration: none; }
+    .tv-tabs a.on { background: var(--btn-bg); color: var(--btn-text); }
+    .tv-card { background: var(--surface2); border: 1px solid var(--edge); border-radius: 18px; padding: 14px; margin-bottom: 16px; }
+    .tv-lbl { display: block; font-size: 12px; font-weight: 600; color: rgba(var(--fg), .6); margin: 0 0 5px 2px; }
+    .tv-in { width: 100%; box-sizing: border-box; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--edge);
+      background: var(--surface); color: var(--text); font-size: 15px; font-family: inherit; }
+    .tv-in:focus { outline: 2px solid rgba(59, 130, 246, .5); outline-offset: 0; }
+    .tv-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
+    .tv-route { display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); gap: 6px; align-items: end; margin-bottom: 12px; }
+    .tv-swap { width: 36px; height: 44px; border-radius: 12px; border: 1px solid var(--edge); background: var(--surface); color: var(--text); font-size: 17px; cursor: pointer; }
+    .tv-city { position: relative; min-width: 0; }
+    .tv-code { position: absolute; right: 10px; bottom: 12px; font-size: 11px; font-weight: 700; color: var(--c-blue); pointer-events: none; }
+    .tv-city .tv-in { padding-right: 42px; }
+    .tv-sug { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; margin-top: 4px; background: var(--surface); border: 1px solid var(--edge);
+      border-radius: 12px; box-shadow: 0 10px 30px var(--shadow); max-height: 240px; overflow-y: auto; }
+    .tv-sug button { display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 10px 12px; border: none; background: none;
+      color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; border-bottom: 1px solid var(--edge); }
+    .tv-sug button:last-child { border-bottom: none; }
+    .tv-sug button:hover, .tv-sug button.hl { background: var(--surface2); }
+    .tv-sug b { font-size: 12px; color: var(--c-blue); }
+    .tv-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin: -2px 0 12px 2px; }
+    .tv-pax { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .tv-step { background: var(--surface); border: 1px solid var(--edge); border-radius: 12px; padding: 8px; text-align: center; }
+    .tv-step small { display: block; font-size: 11px; color: rgba(var(--fg), .6); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tv-step div { display: flex; align-items: center; justify-content: space-between; }
+    .tv-step button { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--edge); background: var(--surface2); color: var(--text); font-size: 16px; cursor: pointer; }
+    .tv-step output { font-size: 16px; font-weight: 700; }
+    .tv-go { width: 100%; padding: 13px; border: none; border-radius: 14px; background: var(--btn-bg); color: var(--btn-text); font-size: 15.5px; font-weight: 700; cursor: pointer; }
+    .tv-err { background: rgba(239, 68, 68, .12); color: var(--c-red); border-radius: 12px; padding: 10px 12px; font-size: 13.5px; margin-bottom: 12px; }
+    .tv-h { font-size: 13px; font-weight: 600; color: rgba(var(--fg), .6); margin: 2px 2px 8px; }
+    .tv-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .tv-chips button { border: 1px solid var(--edge); background: var(--surface); color: var(--text); border-radius: 999px; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+    .tv-note { font-size: 11.5px; color: rgba(var(--fg), .45); text-align: center; line-height: 1.5; margin: 4px 8px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="glass-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.tr_title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    <nav class="tv-tabs">
+      <a href="{{ url_for('travel_page', tab='flights') }}" class="{{ 'on' if tab == 'flights' }}">✈ {{ t.tr_flights }}</a>
+      <a href="{{ url_for('travel_page', tab='hotels') }}" class="{{ 'on' if tab == 'hotels' }}">🏨 {{ t.tr_hotels }}</a>
+    </nav>
+
+    {% if err %}<div class="tv-err" role="alert">{{ t['tr_err_' ~ err] if ('tr_err_' ~ err) in t else t.tr_err_route }}</div>{% endif %}
+
+    {% if tab == 'flights' %}
+    <form class="tv-card" id="tv-flight" action="{{ url_for('travel_go') }}" method="get" target="_blank" rel="noopener" autocomplete="off">
+      <input type="hidden" name="kind" value="flights">
+      <div class="tv-route">
+        <div class="tv-city" data-for="from">
+          <label class="tv-lbl" for="tv-from-q">{{ t.tr_from }}</label>
+          <input class="tv-in" id="tv-from-q" placeholder="{{ t.tr_city_ph }}" required>
+          <input type="hidden" name="from" id="tv-from">
+          <span class="tv-code" id="tv-from-code"></span>
+          <div class="tv-sug" hidden></div>
+        </div>
+        <button type="button" class="tv-swap" id="tv-swap" aria-label="{{ t.tr_swap }}">⇄</button>
+        <div class="tv-city" data-for="to">
+          <label class="tv-lbl" for="tv-to-q">{{ t.tr_to }}</label>
+          <input class="tv-in" id="tv-to-q" placeholder="{{ t.tr_city_ph }}" required>
+          <input type="hidden" name="to" id="tv-to">
+          <span class="tv-code" id="tv-to-code"></span>
+          <div class="tv-sug" hidden></div>
+        </div>
+      </div>
+      <div class="tv-row">
+        <div><label class="tv-lbl" for="tv-depart">{{ t.tr_depart }}</label>
+          <input class="tv-in" type="date" name="depart" id="tv-depart" min="{{ today }}" max="{{ max_day }}" value="{{ default_out }}" required></div>
+        <div><label class="tv-lbl" for="tv-return">{{ t.tr_return }}</label>
+          <input class="tv-in" type="date" name="return" id="tv-return" min="{{ today }}" max="{{ max_day }}" value="{{ default_back }}"></div>
+      </div>
+      <label class="tv-check"><input type="checkbox" name="oneway" value="1" id="tv-oneway"> {{ t.tr_oneway }}</label>
+      <div class="tv-pax">
+        <div class="tv-step"><small>{{ t.tr_adults }}</small><div><button type="button" data-d="-1">−</button><output>1</output><button type="button" data-d="1">+</button></div><input type="hidden" name="adults" value="1" data-min="1"></div>
+        <div class="tv-step"><small>{{ t.tr_children }}</small><div><button type="button" data-d="-1">−</button><output>0</output><button type="button" data-d="1">+</button></div><input type="hidden" name="children" value="0" data-min="0"></div>
+        <div class="tv-step"><small>{{ t.tr_infants }}</small><div><button type="button" data-d="-1">−</button><output>0</output><button type="button" data-d="1">+</button></div><input type="hidden" name="infants" value="0" data-min="0"></div>
+      </div>
+      <div style="margin-bottom:14px;"><label class="tv-lbl" for="tv-cabin">{{ t.tr_cabin }}</label>
+        <select class="tv-in" name="cabin" id="tv-cabin">
+          <option value="">{{ t.tr_economy }}</option><option value="premium">{{ t.tr_premium }}</option>
+          <option value="business">{{ t.tr_business }}</option><option value="first">{{ t.tr_first }}</option>
+        </select></div>
+      <div class="tv-err" id="tv-ferr" hidden></div>
+      <button class="tv-go" type="submit">{{ t.tr_search_flights }}</button>
+    </form>
+
+    <div class="tv-h">{{ t.tr_popular }}</div>
+    <div class="tv-chips">
+      {% for a, b in [('TAS','IST'), ('TAS','MOW'), ('TAS','DXB'), ('TAS','BJS'), ('TAS','URC'), ('TAS','SEL'), ('SKD','MOW'), ('BHK','IST')] %}
+        <button type="button" data-from="{{ a }}" data-to="{{ b }}"></button>
+      {% endfor %}
+    </div>
+    {% else %}
+    <form class="tv-card" id="tv-hotel" action="{{ url_for('travel_go') }}" method="get" target="_blank" rel="noopener" autocomplete="off">
+      <input type="hidden" name="kind" value="hotels">
+      <div class="tv-city" style="margin-bottom:12px;">
+        <label class="tv-lbl" for="tv-hcity">{{ t.tr_hotel_city }}</label>
+        <input class="tv-in" id="tv-hcity" name="city" placeholder="{{ t.tr_hotel_ph }}" required minlength="2" maxlength="80">
+        <div class="tv-sug" hidden></div>
+      </div>
+      <div class="tv-row">
+        <div><label class="tv-lbl" for="tv-in">{{ t.tr_checkin }}</label>
+          <input class="tv-in" type="date" name="checkin" id="tv-in" min="{{ today }}" max="{{ max_day }}" value="{{ default_out }}" required></div>
+        <div><label class="tv-lbl" for="tv-out">{{ t.tr_checkout }}</label>
+          <input class="tv-in" type="date" name="checkout" id="tv-out" min="{{ today }}" max="{{ max_day }}" value="{{ default_back }}" required></div>
+      </div>
+      <div class="tv-pax" style="grid-template-columns:1fr 1fr;">
+        <div class="tv-step"><small>{{ t.tr_guests }}</small><div><button type="button" data-d="-1">−</button><output>2</output><button type="button" data-d="1">+</button></div><input type="hidden" name="adults" value="2" data-min="1" data-max="30"></div>
+        <div class="tv-step"><small>{{ t.tr_rooms }}</small><div><button type="button" data-d="-1">−</button><output>1</output><button type="button" data-d="1">+</button></div><input type="hidden" name="rooms" value="1" data-min="1" data-max="10"></div>
+      </div>
+      <div class="tv-err" id="tv-herr" hidden></div>
+      <button class="tv-go" type="submit">{{ t.tr_search_hotels }}</button>
+    </form>
+    {% endif %}
+
+    <p class="tv-note">{{ t.tr_note_flights if tab == 'flights' else t.tr_note_hotels }}</p>
+  </div>
+
+  {% include 'navbar.html' %}
+
+  <script>
+  (function () {
+    var CITIES = {{ cities|tojson }};
+    var T = {{ {"route": t.tr_err_route, "dates": t.tr_err_dates, "pax": t.tr_err_pax, "city": t.tr_err_city, "code": t.tr_code_hint}|tojson }};
+    var byCode = {}; CITIES.forEach(function (c) { byCode[c.code] = c; });
+    function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+    function load(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } }
+
+    function match(q) {
+      q = q.trim().toLowerCase(); if (!q) return CITIES.slice(0, 8);
+      return CITIES.filter(function (c) { return c.code.toLowerCase().indexOf(q) === 0 || c.alt.indexOf(q) !== -1; }).slice(0, 8);
+    }
+    function picker(box, onPick) {
+      var inp = box.querySelector(".tv-in"), sug = box.querySelector(".tv-sug"), hl = -1;
+      function render() {
+        var list = match(inp.value); sug.innerHTML = ""; hl = -1;
+        var raw = inp.value.trim().toUpperCase();
+        if (!list.length && /^[A-Z]{3}$/.test(raw)) list = [{ code: raw, name: raw + " — " + T.code }];
+        list.forEach(function (c) {
+          var b = document.createElement("button"); b.type = "button";
+          var s = document.createElement("span"); s.textContent = c.name;
+          var k = document.createElement("b"); k.textContent = c.code;
+          b.appendChild(s); b.appendChild(k);
+          b.addEventListener("mousedown", function (e) { e.preventDefault(); onPick(c); sug.hidden = true; });
+          sug.appendChild(b);
+        });
+        sug.hidden = !list.length;
+      }
+      inp.addEventListener("focus", render);
+      inp.addEventListener("input", function () { onPick(null, true); render(); });
+      inp.addEventListener("blur", function () { setTimeout(function () { sug.hidden = true; }, 120); });
+      inp.addEventListener("keydown", function (e) {
+        var items = sug.querySelectorAll("button"); if (sug.hidden || !items.length) return;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault(); hl = (hl + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+          items.forEach(function (b, i) { b.classList.toggle("hl", i === hl); });
+        } else if (e.key === "Enter" && hl >= 0) { e.preventDefault(); items[hl].dispatchEvent(new MouseEvent("mousedown")); }
+      });
+    }
+    function stepper(form) {
+      form.querySelectorAll(".tv-step").forEach(function (st) {
+        var hid = st.querySelector("input"), out = st.querySelector("output");
+        st.querySelectorAll("button").forEach(function (b) {
+          b.addEventListener("click", function () {
+            var v = +hid.value + +b.dataset.d, lo = +(hid.dataset.min || 0), hi = +(hid.dataset.max || 9);
+            v = Math.max(lo, Math.min(hi, v)); hid.value = v; out.textContent = v;
+          });
+        });
+      });
+    }
+    function showErr(el, msg) { el.textContent = msg; el.hidden = !msg; }
+
+    var f = document.getElementById("tv-flight");
+    if (f) {
+      var sides = {};
+      ["from", "to"].forEach(function (side) {
+        var q = document.getElementById("tv-" + side + "-q"), hid = document.getElementById("tv-" + side), tag = document.getElementById("tv-" + side + "-code");
+        sides[side] = function (c, typing) {
+          if (!c) { hid.value = ""; tag.textContent = ""; if (!typing) q.value = ""; return; }
+          hid.value = c.code; tag.textContent = c.code; if (!typing) q.value = byCode[c.code] ? byCode[c.code].name : c.code;
+        };
+        picker(q.parentNode, sides[side]);
+      });
+      var last = load("linko_trip") || { from: "TAS" };
+      if (byCode[last.from] || /^[A-Z]{3}$/.test(last.from || "")) sides.from(byCode[last.from] || { code: last.from });
+      if (last.to) sides.to(byCode[last.to] || { code: last.to });
+      document.getElementById("tv-swap").addEventListener("click", function () {
+        var a = document.getElementById("tv-from").value, b = document.getElementById("tv-to").value;
+        sides.from(b ? (byCode[b] || { code: b }) : null); sides.to(a ? (byCode[a] || { code: a }) : null);
+      });
+      var one = document.getElementById("tv-oneway"), ret = document.getElementById("tv-return"), dep = document.getElementById("tv-depart");
+      one.addEventListener("change", function () { ret.disabled = one.checked; });
+      dep.addEventListener("change", function () { ret.min = dep.value; if (ret.value && ret.value < dep.value) ret.value = dep.value; });
+      document.querySelectorAll(".tv-chips button").forEach(function (b) {
+        var a = byCode[b.dataset.from], c = byCode[b.dataset.to];
+        b.textContent = a.name + " → " + c.name;
+        b.addEventListener("click", function () { sides.from(a); sides.to(c); window.scrollTo({ top: 0, behavior: "smooth" }); });
+      });
+      stepper(f);
+      f.addEventListener("submit", function (e) {
+        var err = document.getElementById("tv-ferr");
+        var fr = document.getElementById("tv-from").value, to = document.getElementById("tv-to").value;
+        var ad = +f.adults.value, ch = +f.children.value, inf = +f.infants.value;
+        var msg = "";
+        if (!fr || !to || fr === to) msg = T.route;
+        else if (!dep.value || (!one.checked && ret.value && ret.value < dep.value)) msg = T.dates;
+        else if (inf > ad || ad + ch + inf > 9) msg = T.pax;
+        showErr(err, msg);
+        if (msg) { e.preventDefault(); return; }
+        store("linko_trip", { from: fr, to: to });
+      });
+    }
+
+    var h = document.getElementById("tv-hotel");
+    if (h) {
+      var hc = document.getElementById("tv-hcity");
+      picker(hc.parentNode, function (c, typing) { if (c && !typing) hc.value = c.name; });
+      var lastH = load("linko_hotel"); if (lastH && lastH.city) hc.value = lastH.city;
+      var din = document.getElementById("tv-in"), dout = document.getElementById("tv-out");
+      din.addEventListener("change", function () {
+        var d = new Date(din.value); d.setDate(d.getDate() + 1); var nx = d.toISOString().slice(0, 10);
+        dout.min = nx; if (!dout.value || dout.value <= din.value) dout.value = nx;
+      });
+      stepper(h);
+      h.addEventListener("submit", function (e) {
+        var msg = hc.value.trim().length < 2 ? T.city : (!din.value || !dout.value || dout.value <= din.value ? T.dates : "");
+        showErr(document.getElementById("tv-herr"), msg);
+        if (msg) { e.preventDefault(); return; }
+        store("linko_hotel", { city: hc.value.trim() });
+      });
+    }
+  })();
+  </script>
+</body>
+</html>

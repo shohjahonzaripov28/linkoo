@@ -66,6 +66,13 @@
     .fx-cell span { display: block; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .fx-cell i { display: block; font-style: normal; font-size: 10.5px; font-variant-numeric: tabular-nums; }
     .fx-up { color: var(--c-green); } .fx-down { color: var(--c-red); } .fx-flat { color: rgba(var(--fg), .45); }
+    .tv-dash { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 14px; }
+    .tv-dash a { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); background: var(--surface);
+      border: 1px solid var(--edge); border-radius: 16px; padding: 12px; min-width: 0; }
+    .tv-dash a span:first-child { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 11px; background: rgba(59, 130, 246, .14);
+      display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .tv-dash b { display: block; font-size: 13.5px; font-weight: 600; }
+    .tv-dash small { display: block; font-size: 11.5px; color: rgba(var(--fg), .55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   </style>
 </head>
 <body>
@@ -118,6 +125,11 @@
       <div class="fx-dash-top"><span>{{ t.rates_title }}</span><small id="fx-date"></small></div>
       <div class="fx-dash-row" id="fx-row"></div>
     </a>
+
+    <div class="tv-dash">
+      <a href="{{ url_for('travel_page', tab='flights') }}"><span aria-hidden="true">✈</span><span style="min-width:0"><b>{{ t.tr_flights }}</b><small>{{ t.tr_dash_flights }}</small></span></a>
+      <a href="{{ url_for('travel_page', tab='hotels') }}"><span aria-hidden="true">🏨</span><span style="min-width:0"><b>{{ t.tr_hotels }}</b><small>{{ t.tr_dash_hotels }}</small></span></a>
+    </div>
 
     <div class="hero-grid">
       <a href="{{ url_for('ai_page') }}" class="hero-card hero-ai">
