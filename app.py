@@ -6781,6 +6781,99 @@ def genre_label(g_):
 app.jinja_env.globals["genre_label"] = genre_label
 
 
+# ---------- Valyuta kurslari (O'zbekiston Markaziy banki, rasmiy va bepul manba) ----------
+CBU_RATES_URL = "https://cbu.uz/uz/arkhiv-kursov-valyut/json/"
+RATES_TTL = 30 * 60  # 30 daqiqa keshda saqlanadi (Markaziy bank kursni kuniga bir marta yangilaydi)
+RATES_MAIN = ["USD", "EUR", "RUB", "CNY", "KZT", "TRY", "GBP", "KRW", "AED", "JPY", "KGS", "TJS"]
+RATES_ZH_NAMES = {
+    "USD": "美元", "EUR": "欧元", "RUB": "俄罗斯卢布", "CNY": "人民币", "KZT": "哈萨克斯坦坚戈", "TRY": "土耳其里拉",
+    "GBP": "英镑", "KRW": "韩元", "AED": "阿联酋迪拉姆", "JPY": "日元", "KGS": "吉尔吉斯斯坦索姆", "TJS": "塔吉克斯坦索莫尼",
+    "UZS": "乌兹别克斯坦苏姆", "CHF": "瑞士法郎", "CAD": "加元", "AUD": "澳元", "INR": "印度卢比", "SAR": "沙特里亚尔",
+}
+RATES_UZS_NAMES = {"uz": "O'zbek so'mi", "ru": "Узбекский сум", "en": "Uzbek Sum", "zh": "乌兹别克斯坦苏姆"}
+_RATES_CACHE = {"ts": 0, "data": None, "fail_ts": 0}
+_RATES_LOCK = threading.Lock()
+
+
+def _parse_cbu(raw, lang):
+    items = []
+    for r in raw:
+        try:
+            code = str(r["Ccy"]).upper()
+            nominal = float(r.get("Nominal") or 1) or 1
+            rate = float(str(r["Rate"]).replace(",", "."))
+            diff = float(str(r.get("Diff") or 0).replace(",", "."))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if code == "XDR" or rate <= 0:
+            continue
+        if lang == "zh":
+            name = RATES_ZH_NAMES.get(code) or r.get("CcyNm_EN") or code
+        else:
+            name = r.get({"uz": "CcyNm_UZ", "ru": "CcyNm_RU"}.get(lang, "CcyNm_EN")) or r.get("CcyNm_EN") or code
+        items.append({
+            "code": code, "name": name, "nominal": int(nominal) if nominal.is_integer() else nominal,
+            "rate": rate, "per_one": rate / nominal, "diff": diff, "date": r.get("Date", ""),
+        })
+    return items
+
+
+def get_rates():
+    """Markaziy bank kurslari: {'date', 'raw', 'fetched_ts'} yoki None (manba ishlamasa va kesh bo'sh bo'lsa)."""
+    now = time.time()
+    with _RATES_LOCK:
+        cached = _RATES_CACHE["data"]
+        if cached and now - _RATES_CACHE["ts"] < RATES_TTL:
+            return cached
+        if not cached and now - _RATES_CACHE["fail_ts"] < 60:
+            return None  # manba yaqinda ishlamadi - har so'rovda 8 soniya kutmaslik uchun
+    try:
+        req = urllib.request.Request(CBU_RATES_URL, headers={"User-Agent": "Linko/1.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(raw, list) or not raw:
+            raise ValueError("bo'sh javob")
+        data = {"raw": raw, "date": raw[0].get("Date", ""), "fetched_ts": int(now)}
+        with _RATES_LOCK:
+            _RATES_CACHE.update(ts=now, data=data)
+        return data
+    except Exception:
+        app.logger.exception("Valyuta kurslarini olib bo'lmadi")
+        with _RATES_LOCK:
+            _RATES_CACHE["fail_ts"] = now
+            if _RATES_CACHE["data"]:
+                _RATES_CACHE["ts"] = now - RATES_TTL + 120  # 2 daqiqadan keyin qayta urinadi
+            return _RATES_CACHE["data"]
+
+
+def rates_payload(lang):
+    data = get_rates()
+    if not data:
+        return None
+    items = _parse_cbu(data["raw"], lang)
+    order = {c: i for i, c in enumerate(RATES_MAIN)}
+    main = sorted([i for i in items if i["code"] in order], key=lambda i: order[i["code"]])
+    others = sorted([i for i in items if i["code"] not in order], key=lambda i: i["code"])
+    return {"date": data["date"], "main": main, "others": others,
+            "uzs_name": RATES_UZS_NAMES.get(lang, RATES_UZS_NAMES["en"])}
+
+
+@app.route("/rates")
+def rates_page():
+    payload = rates_payload(current_lang())
+    return render_template("rates.html", rates=payload, active="home")
+
+
+@app.route("/api/rates")
+def api_rates():
+    payload = rates_payload(current_lang())
+    if not payload:
+        return jsonify({"ok": False}), 503
+    resp = jsonify({"ok": True, **payload})
+    resp.headers["Cache-Control"] = "private, max-age=300"
+    return resp
+
+
 @app.route("/library")
 def library():
     me = session["username"]

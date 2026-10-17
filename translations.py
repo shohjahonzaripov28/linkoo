@@ -6676,3 +6676,30 @@ _V13 = {
 }
 for _lang, _items in _V13.items():
     TRANSLATIONS[_lang].update(_items)
+
+
+# ---------- v15: Valyuta kurslari bo'limi ----------
+_V15 = {
+    "uz": {"rates_title": "Valyuta kurslari", "rates_source": "O'zbekiston Markaziy banki", "rates_converter": "Kalkulyator",
+           "rates_amount": "Miqdor", "rates_from": "Qaysi valyutadan", "rates_to": "Qaysi valyutaga", "rates_swap": "Almashtirish",
+           "rates_main": "Asosiy valyutalar", "rates_all": "Barcha valyutalar", "rates_search": "Valyutani qidiring: USD, yuan…",
+           "rates_sum": "so'm", "rates_error": "Kurslarni hozir yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring.",
+           "rates_note": "Markaziy bankning rasmiy kursi. Banklar va ayirboshlash shoxobchalarida kurs biroz farq qilishi mumkin."},
+    "ru": {"rates_title": "Курсы валют", "rates_source": "Центральный банк Узбекистана", "rates_converter": "Конвертер",
+           "rates_amount": "Сумма", "rates_from": "Из валюты", "rates_to": "В валюту", "rates_swap": "Поменять местами",
+           "rates_main": "Основные валюты", "rates_all": "Все валюты", "rates_search": "Поиск валюты: USD, юань…",
+           "rates_sum": "сум", "rates_error": "Не удалось загрузить курсы. Попробуйте чуть позже.",
+           "rates_note": "Официальный курс ЦБ. В банках и обменных пунктах курс может немного отличаться."},
+    "zh": {"rates_title": "汇率", "rates_source": "乌兹别克斯坦中央银行", "rates_converter": "换算器",
+           "rates_amount": "金额", "rates_from": "从", "rates_to": "到", "rates_swap": "互换",
+           "rates_main": "主要货币", "rates_all": "全部货币", "rates_search": "搜索货币：USD、人民币…",
+           "rates_sum": "苏姆", "rates_error": "暂时无法加载汇率，请稍后再试。",
+           "rates_note": "中央银行官方汇率。银行和兑换点的实际汇率可能略有不同。"},
+    "en": {"rates_title": "Exchange rates", "rates_source": "Central Bank of Uzbekistan", "rates_converter": "Converter",
+           "rates_amount": "Amount", "rates_from": "From", "rates_to": "To", "rates_swap": "Swap",
+           "rates_main": "Main currencies", "rates_all": "All currencies", "rates_search": "Search currency: USD, yuan…",
+           "rates_sum": "sum", "rates_error": "Couldn't load rates right now. Try again in a moment.",
+           "rates_note": "Official Central Bank rate. Banks and exchange offices may differ slightly."},
+}
+for _lang, _items in _V15.items():
+    TRANSLATIONS[_lang].update(_items)

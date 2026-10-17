@@ -56,6 +56,16 @@
     @media (min-width: 560px) { .feat-card { flex-basis: 44%; } }
     @media (min-width: 900px) { .feat-row { overflow: visible; } .feat-card { flex: 1 1 0; min-width: 0; min-height: 150px; } }
     @media (max-width: 420px) { .hero-body { max-width: 64%; } .hero-card h2 { font-size: 21px; } .hero-canvas { width: 58%; } }
+    .fx-dash { display: block; text-decoration: none; color: var(--text); background: var(--surface); border: 1px solid var(--edge);
+      border-radius: 18px; padding: 12px 14px; margin: 0 0 14px; }
+    .fx-dash-top { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    .fx-dash-top small { font-weight: 500; color: rgba(var(--fg), .5); font-size: 11.5px; }
+    .fx-dash-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .fx-cell { background: var(--surface2); border-radius: 12px; padding: 8px 6px; text-align: center; min-width: 0; }
+    .fx-cell b { display: block; font-size: 11.5px; color: var(--c-blue); letter-spacing: .4px; }
+    .fx-cell span { display: block; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fx-cell i { display: block; font-style: normal; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+    .fx-up { color: var(--c-green); } .fx-down { color: var(--c-red); } .fx-flat { color: rgba(var(--fg), .45); }
   </style>
 </head>
 <body>
@@ -104,6 +114,11 @@
     </a>
     {% endif %}
 
+    <a href="{{ url_for('rates_page') }}" class="fx-dash" id="fx-dash" hidden>
+      <div class="fx-dash-top"><span>{{ t.rates_title }}</span><small id="fx-date"></small></div>
+      <div class="fx-dash-row" id="fx-row"></div>
+    </a>
+
     <div class="hero-grid">
       <a href="{{ url_for('ai_page') }}" class="hero-card hero-ai">
         <canvas class="hero-canvas" data-kind="ai" aria-hidden="true"></canvas>
@@ -144,5 +159,25 @@
 
   {% include 'navbar.html' %}
   <script src="{{ url_for('static', filename='dash.js') }}"></script>
+  <script>
+  (function () {
+    var box = document.getElementById("fx-dash"); if (!box || !window.fetch) return;
+    var loc = { uz: "ru-RU", ru: "ru-RU", en: "en-US", zh: "zh-CN" }[{{ lang|tojson }}] || "en-US";
+    fetch("{{ url_for('api_rates') }}", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d || !d.ok) return;
+      var pick = ["USD", "EUR", "RUB", "CNY"], row = document.getElementById("fx-row");
+      d.main.filter(function (r) { return pick.indexOf(r.code) !== -1; }).forEach(function (r) {
+        var c = document.createElement("div"); c.className = "fx-cell";
+        var b = document.createElement("b"); b.textContent = (r.nominal > 1 ? r.nominal + " " : "") + r.code;
+        var v = document.createElement("span"); v.textContent = new Intl.NumberFormat(loc, { maximumFractionDigits: r.rate >= 1000 ? 0 : 2 }).format(r.rate);
+        var i = document.createElement("i"); i.className = r.diff > 0 ? "fx-up" : r.diff < 0 ? "fx-down" : "fx-flat";
+        i.textContent = (r.diff > 0 ? "▲ " : r.diff < 0 ? "▼ " : "") + new Intl.NumberFormat(loc, { maximumFractionDigits: 2 }).format(Math.abs(r.diff));
+        c.appendChild(b); c.appendChild(v); c.appendChild(i); row.appendChild(c);
+      });
+      document.getElementById("fx-date").textContent = d.date;
+      box.hidden = false;
+    }).catch(function () {});
+  })();
+  </script>
 </body>
 </html>

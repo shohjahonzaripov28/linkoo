@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linko - {{ t.rates_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .rt-sub { text-align: center; font-size: 12.5px; color: rgba(var(--fg), .6); margin: -6px 0 16px; }
+    .rt-card { background: var(--surface2); border: 1px solid var(--edge); border-radius: 18px; padding: 14px; margin-bottom: 18px; }
+    .rt-amount { width: 100%; box-sizing: border-box; font-size: 26px; font-weight: 700; background: transparent; border: none;
+      color: var(--text); padding: 2px 0 8px; outline: none; border-bottom: 1px solid rgba(var(--fg), .12); }
+    .rt-pair { display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); gap: 8px; align-items: center; margin: 12px 0; }
+    .rt-pair select { width: 100%; min-width: 0; font-size: 14px; padding: 10px; border-radius: 12px; background: var(--surface);
+      color: var(--text); border: 1px solid var(--edge); }
+    .rt-swap { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--edge); background: var(--surface);
+      color: var(--text); font-size: 18px; cursor: pointer; }
+    .rt-swap:active { transform: scale(.94); }
+    .rt-result { font-size: 24px; font-weight: 700; color: var(--c-blue); word-break: break-word; }
+    .rt-result small { display: block; font-size: 12px; font-weight: 500; color: rgba(var(--fg), .55); margin-top: 4px; }
+    .rt-h { font-size: 13px; font-weight: 600; color: rgba(var(--fg), .6); margin: 4px 2px 8px; }
+    .rt-list { display: flex; flex-direction: column; border: 1px solid var(--edge); border-radius: 16px; overflow: hidden; margin-bottom: 18px; }
+    .rt-row { display: flex; align-items: center; gap: 12px; padding: 11px 12px; background: var(--surface); cursor: pointer;
+      border: none; border-bottom: 1px solid var(--edge); color: var(--text); text-align: left; width: 100%; font: inherit; }
+    .rt-row:last-child { border-bottom: none; }
+    .rt-row:hover { background: var(--surface2); }
+    .rt-code { flex: 0 0 auto; width: 46px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; letter-spacing: .5px; background: rgba(59, 130, 246, .14); color: var(--c-blue); }
+    .rt-name { flex: 1 1 auto; min-width: 0; }
+    .rt-name b { display: block; font-size: 14px; font-weight: 600; }
+    .rt-name span { display: block; font-size: 12px; color: rgba(var(--fg), .55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rt-val { text-align: right; flex: 0 0 auto; }
+    .rt-val b { display: block; font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .rt-val span { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    .rt-up { color: var(--c-green); } .rt-down { color: var(--c-red); } .rt-flat { color: rgba(var(--fg), .45); }
+    .rt-search { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--edge);
+      background: var(--surface); color: var(--text); font-size: 14px; margin-bottom: 8px; }
+    .rt-note { font-size: 11.5px; color: rgba(var(--fg), .45); text-align: center; margin: 0 8px 6px; line-height: 1.5; }
+    .rt-empty { text-align: center; padding: 30px 10px; color: rgba(var(--fg), .6); }
+  </style>
+</head>
+<body>
+  <div class="glass-card">
+    <div class="chat-header">
+      <a href="{{ url_for('dashboard') }}" class="back-link">←</a>
+      <h1 style="font-size:20px;">{{ t.rates_title }}</h1>
+      <div style="width:36px;"></div>
+    </div>
+
+    {% if not rates %}
+      <div class="rt-empty">{{ t.rates_error }}</div>
+    {% else %}
+      <p class="rt-sub">{{ t.rates_source }} · {{ rates.date }}</p>
+
+      <div class="rt-card">
+        <label for="rt-amount" class="rt-h" style="display:block;margin:0 0 2px;">{{ t.rates_converter }}</label>
+        <input id="rt-amount" class="rt-amount" type="text" inputmode="decimal" value="100" autocomplete="off" aria-label="{{ t.rates_amount }}">
+        <div class="rt-pair">
+          <select id="rt-from" aria-label="{{ t.rates_from }}"></select>
+          <button type="button" class="rt-swap" id="rt-swap" aria-label="{{ t.rates_swap }}">⇄</button>
+          <select id="rt-to" aria-label="{{ t.rates_to }}"></select>
+        </div>
+        <div class="rt-result" id="rt-result" aria-live="polite">—<small></small></div>
+      </div>
+
+      <div class="rt-h">{{ t.rates_main }}</div>
+      <div class="rt-list">
+        {% for r in rates.main %}
+          <button type="button" class="rt-row" data-code="{{ r.code }}">
+            <span class="rt-code">{{ r.code }}</span>
+            <span class="rt-name"><b>{{ r.nominal }} {{ r.code }}</b><span>{{ r.name }}</span></span>
+            <span class="rt-val"><b data-num="{{ r.rate }}">{{ r.rate }}</b>
+              <span class="{{ 'rt-up' if r.diff > 0 else ('rt-down' if r.diff < 0 else 'rt-flat') }}" data-diff="{{ r.diff }}">{{ r.diff }}</span></span>
+          </button>
+        {% endfor %}
+      </div>
+
+      <div class="rt-h">{{ t.rates_all }}</div>
+      <input type="search" class="rt-search" id="rt-search" placeholder="{{ t.rates_search }}" autocomplete="off">
+      <div class="rt-list" id="rt-others">
+        {% for r in rates.others %}
+          <button type="button" class="rt-row" data-code="{{ r.code }}" data-q="{{ (r.code ~ ' ' ~ r.name)|lower }}">
+            <span class="rt-code">{{ r.code }}</span>
+            <span class="rt-name"><b>{{ r.nominal }} {{ r.code }}</b><span>{{ r.name }}</span></span>
+            <span class="rt-val"><b data-num="{{ r.rate }}">{{ r.rate }}</b>
+              <span class="{{ 'rt-up' if r.diff > 0 else ('rt-down' if r.diff < 0 else 'rt-flat') }}" data-diff="{{ r.diff }}">{{ r.diff }}</span></span>
+          </button>
+        {% endfor %}
+      </div>
+      <p class="rt-note">{{ t.rates_note }}</p>
+    {% endif %}
+  </div>
+
+  {% include 'navbar.html' %}
+
+  {% if rates %}
+  <script>
+  (function () {
+    var LANG = {{ lang|tojson }};
+    var UZS = {{ rates.uzs_name|tojson }};
+    var SUM = {{ t.rates_sum|tojson }};
+    var list = {{ (rates.main + rates.others)|tojson }};
+    var loc = { uz: "ru-RU", ru: "ru-RU", en: "en-US", zh: "zh-CN" }[LANG] || "en-US";
+    var per = { UZS: 1 }, names = { UZS: UZS };
+    list.forEach(function (r) { per[r.code] = r.per_one; names[r.code] = r.name; });
+
+    function fmt(n, max) {
+      var d = max != null ? max : (Math.abs(n) >= 100 ? 2 : (Math.abs(n) >= 1 ? 4 : 6));
+      return new Intl.NumberFormat(loc, { maximumFractionDigits: d, minimumFractionDigits: max === 2 ? 2 : 0 }).format(n);
+    }
+    document.querySelectorAll("[data-num]").forEach(function (el) { el.textContent = fmt(+el.dataset.num, 2) + " " + SUM; });
+    document.querySelectorAll("[data-diff]").forEach(function (el) {
+      var d = +el.dataset.diff;
+      el.textContent = (d > 0 ? "▲ +" : d < 0 ? "▼ " : "") + fmt(d, 2);
+    });
+
+    var from = document.getElementById("rt-from"), to = document.getElementById("rt-to");
+    var amount = document.getElementById("rt-amount"), out = document.getElementById("rt-result");
+    var codes = ["UZS"].concat(list.map(function (r) { return r.code; }));
+    [from, to].forEach(function (sel) {
+      codes.forEach(function (c) {
+        var o = document.createElement("option");
+        o.value = c; o.textContent = c + " — " + names[c];
+        sel.appendChild(o);
+      });
+    });
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem("linko_rates") || "null"); } catch (e) {}
+    from.value = saved && per[saved.f] ? saved.f : "USD";
+    to.value = saved && per[saved.t] ? saved.t : "UZS";
+    if (saved && saved.a) amount.value = saved.a;
+
+    function calc() {
+      var a = parseFloat(String(amount.value).replace(/\s/g, "").replace(",", "."));
+      if (!isFinite(a)) { out.innerHTML = "—<small></small>"; return; }
+      var res = a * per[from.value] / per[to.value];
+      var one = per[from.value] / per[to.value];
+      out.firstChild.nodeValue = fmt(res) + " " + to.value;
+      out.querySelector("small").textContent = "1 " + from.value + " = " + fmt(one) + " " + to.value;
+      try { localStorage.setItem("linko_rates", JSON.stringify({ f: from.value, t: to.value, a: amount.value })); } catch (e) {}
+    }
+    amount.addEventListener("input", calc);
+    from.addEventListener("change", calc);
+    to.addEventListener("change", calc);
+    document.getElementById("rt-swap").addEventListener("click", function () {
+      var x = from.value; from.value = to.value; to.value = x; calc();
+    });
+    document.querySelectorAll(".rt-row").forEach(function (row) {
+      row.addEventListener("click", function () {
+        from.value = row.dataset.code; to.value = "UZS"; calc();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+    var search = document.getElementById("rt-search");
+    search.addEventListener("input", function () {
+      var q = search.value.trim().toLowerCase();
+      document.querySelectorAll("#rt-others .rt-row").forEach(function (row) {
+        row.style.display = !q || row.dataset.q.indexOf(q) !== -1 ? "" : "none";
+      });
+    });
+    calc();
+  })();
+  </script>
+  {% endif %}
+</body>
+</html>
