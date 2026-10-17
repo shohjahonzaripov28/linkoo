@@ -8,6 +8,7 @@ import json
 import urllib.request
 import urllib.parse
 import time
+import math
 import os
 import re
 from datetime import datetime, timedelta
@@ -6561,6 +6562,198 @@ def _http_json(url, timeout=15):
     req = urllib.request.Request(url, headers={"User-Agent": MAP_UA, "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
+
+
+# ---------- Navigatsiya: marshrut (OpenRouteService) va svetaforlar (OpenStreetMap / Overpass) ----------
+# ORS_KEY - openrouteservice.org bepul kaliti, Render > Environment'da saqlanadi (kodda emas).
+ORS_KEY = os.environ.get("ORS_KEY", "").strip()
+NAV_PROFILES = {"car": "driving-car", "foot": "foot-walking", "bike": "cycling-regular"}
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
+_NAV_RATE = {}
+_NAV_LOCK = threading.Lock()
+
+
+def _nav_rate_ok(kind, limit_per_min):
+    key = (session.get("username") or request.remote_addr or "?") + ":" + kind
+    now = time.time()
+    with _NAV_LOCK:
+        hits = [t for t in _NAV_RATE.get(key, []) if now - t < 60]
+        if len(hits) >= limit_per_min:
+            _NAV_RATE[key] = hits
+            return False
+        hits.append(now)
+        _NAV_RATE[key] = hits
+        if len(_NAV_RATE) > 5000:
+            _NAV_RATE.clear()
+        return True
+
+
+def _geo_m(lat1, lon1, lat2, lon2):
+    """Ikki nuqta orasidagi masofa (metr)."""
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _valid_lonlat(pt):
+    try:
+        lon, lat = float(pt[0]), float(pt[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not (-180 <= lon <= 180 and -85 <= lat <= 85):
+        return None
+    return [round(lon, 6), round(lat, 6)]
+
+
+@app.route("/api/nav/route", methods=["POST"])
+def api_nav_route():
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    if not ORS_KEY:
+        return jsonify({"error": "nokey"}), 503
+    if not _nav_rate_ok("route", 20):
+        return jsonify({"error": "rate"}), 429
+    data = request.get_json(silent=True) or {}
+    profile = NAV_PROFILES.get(data.get("mode"), "driving-car")
+    pts = [_valid_lonlat(p) for p in (data.get("coords") or [])[:2]]
+    if len(pts) != 2 or None in pts:
+        return jsonify({"error": "bad"}), 400
+    if _geo_m(pts[0][1], pts[0][0], pts[1][1], pts[1][0]) < 5:
+        return jsonify({"error": "same"}), 400
+    body = json.dumps({"coordinates": pts, "instructions": True, "language": "en", "units": "m",
+                       "maneuvers": True, "radiuses": [350, 350]}).encode()
+    req = urllib.request.Request(
+        "https://api.openrouteservice.org/v2/directions/" + profile + "/geojson", data=body, method="POST",
+        headers={"Authorization": ORS_KEY, "Content-Type": "application/json", "Accept": "application/geo+json", "User-Agent": MAP_UA},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            gj = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.loads(e.read().decode("utf-8")).get("error", {})
+        except Exception:
+            err = {}
+        code = err.get("code") if isinstance(err, dict) else None
+        app.logger.warning("ORS %s: %s", e.code, err)
+        if e.code == 429:
+            return jsonify({"error": "busy"}), 503
+        if code in (2004,):
+            return jsonify({"error": "toolong"}), 400
+        if code in (2009, 2010, 2099) or e.code == 404:
+            return jsonify({"error": "noroute"}), 404
+        return jsonify({"error": "unavailable"}), 503
+    except Exception:
+        app.logger.exception("ORS so'rovi bajarilmadi")
+        return jsonify({"error": "unavailable"}), 503
+    try:
+        f = gj["features"][0]
+        coords = [[round(c[0], 6), round(c[1], 6)] for c in f["geometry"]["coordinates"]]
+        props = f["properties"]
+        steps = []
+        for seg in props.get("segments", []):
+            for st in seg.get("steps", []):
+                wp = st.get("way_points") or [0, 0]
+                steps.append({
+                    "type": int(st.get("type", 6)), "distance": float(st.get("distance", 0)),
+                    "duration": float(st.get("duration", 0)), "name": (st.get("name") or "").strip("- ")[:80],
+                    "exit": st.get("exit_number"), "from": int(wp[0]), "to": int(wp[-1]),
+                })
+        summ = props.get("summary", {})
+        return jsonify({"ok": True, "coords": coords, "steps": steps,
+                        "distance": float(summ.get("distance", 0)), "duration": float(summ.get("duration", 0))})
+    except (KeyError, IndexError, TypeError, ValueError):
+        app.logger.exception("ORS javobini o'qib bo'lmadi")
+        return jsonify({"error": "unavailable"}), 503
+
+
+def _overpass(query):
+    body = urllib.parse.urlencode({"data": query}).encode()
+    last = None
+    for url in OVERPASS_URLS:
+        try:
+            req = urllib.request.Request(url, data=body, method="POST", headers={"User-Agent": MAP_UA})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:  # keyingi serverni sinaymiz
+            last = e
+    raise last or RuntimeError("overpass")
+
+
+@app.route("/api/nav/signals", methods=["POST"])
+def api_nav_signals():
+    """Marshrut bo'ylab svetaforlar: OSM'dagi highway=traffic_signals va crossing=traffic_signals tugunlari.
+    Javob: [{lat, lon, along}] - along = marshrut boshidan masofa (metr)."""
+    if "user_id" not in session:
+        return jsonify({"error": "auth"}), 401
+    if not _nav_rate_ok("signals", 12):
+        return jsonify({"error": "rate"}), 429
+    data = request.get_json(silent=True) or {}
+    line = [p for p in (_valid_lonlat(c) for c in (data.get("coords") or [])[:6000]) if p]
+    if len(line) < 2:
+        return jsonify({"signals": []})
+    # Marshrutni ~3 km li bo'laklarga bo'lib, har biriga kichik bbox (ko'pi bilan 150 km tekshiriladi)
+    cum = [0.0]
+    for a, b in zip(line, line[1:]):
+        cum.append(cum[-1] + _geo_m(a[1], a[0], b[1], b[0]))
+    max_len = 150000
+    boxes, ranges, start = [], [], 0
+    for i in range(1, len(line)):
+        if cum[i] - cum[start] >= 3000 or i == len(line) - 1 or cum[i] >= max_len:
+            seg = line[start:i + 1]
+            lats, lons = [p[1] for p in seg], [p[0] for p in seg]
+            pad = 0.0004
+            boxes.append((round(min(lats) - pad, 5), round(min(lons) - pad, 5), round(max(lats) + pad, 5), round(max(lons) + pad, 5)))
+            ranges.append((start, i))
+            start = i
+            if cum[i] >= max_len:
+                break
+    key = "sig:" + hashlib.sha1(json.dumps(boxes).encode()).hexdigest()
+    nodes = _map_cache_get(key, 7 * 86400)
+    if nodes is None:
+        parts = "".join(
+            f'node["highway"="traffic_signals"]({s},{w},{n},{e});node["crossing"="traffic_signals"]({s},{w},{n},{e});'
+            for (s, w, n, e) in boxes
+        )
+        try:
+            res = _overpass(f"[out:json][timeout:25];({parts});out skel qt;")
+        except Exception:
+            app.logger.warning("Overpass ishlamadi")
+            return jsonify({"signals": [], "error": "unavailable"}), 503
+        nodes = [(el["lat"], el["lon"]) for el in res.get("elements", []) if el.get("type") == "node"]
+        _map_cache_set(key, nodes)
+
+    # Har bir svetaforni marshrutga proyeksiya qilamiz: 20 m dan uzoqdagilar boshqa ko'chada
+    out = []
+    cos0 = math.cos(math.radians(line[0][1]))
+    for lat, lon in nodes:
+        best, best_along = 1e9, 0.0
+        # faqat shu nuqta tushgan bo'laklardagi kesmalar tekshiriladi
+        seg_ids = set()
+        for (bs, bw, bn, be), (r0, r1) in zip(boxes, ranges):
+            if bs <= lat <= bn and bw <= lon <= be:
+                seg_ids.update(range(r0, r1))
+        for i in sorted(seg_ids):
+            ax, ay = line[i][0] * cos0, line[i][1]
+            bx, by = line[i + 1][0] * cos0, line[i + 1][1]
+            px, py = lon * cos0, lat
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy
+            t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+            qx, qy = ax + t * dx, ay + t * dy
+            d = math.hypot(px - qx, py - qy) * 111320.0
+            if d < best:
+                best, best_along = d, cum[i] + t * (cum[i + 1] - cum[i])
+        if best <= 20:
+            out.append({"lat": round(lat, 6), "lon": round(lon, 6), "along": round(best_along, 1)})
+    out.sort(key=lambda s: s["along"])
+    return jsonify({"signals": out[:1500], "checked": round(min(cum[-1], max_len))})
 
 
 @app.route("/map")

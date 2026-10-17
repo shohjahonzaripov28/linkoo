@@ -411,6 +411,7 @@
     });
     map.on("style.load", applyExtras);
     bindSpaceGestures();
+    if (window.LinkoNav) window.LinkoNav.attach(map, { lang: LANG, toast, esc });
     map.on("error", (e) => {
       // Tungi uslub topilmasa, oddiy uslubga qaytadi
       if (!TH.light && !darkFailed && styleKind === "map" && !map.isStyleLoaded()) { darkFailed = true; map.setStyle(vectorStyle(), { diff: false }); }
