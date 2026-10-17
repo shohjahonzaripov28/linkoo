@@ -339,6 +339,7 @@
   $("mode-lbl").textContent = L.toMap;
   function setMode(m) {
     if (m === mode) return;
+    if (spaceReset) spaceReset();
     fade.classList.add("on");
     setTimeout(() => {
       mode = m;
@@ -355,6 +356,9 @@
   /* ================= ERKIN XARITA (kerak bo'lganda yuklanadi) ================= */
   const KEY = CFG.maptilerKey || "";
   let map = null, mapLoading = false, styleKind = "map", terrainOn = false, meMarker = null, darkFailed = false;
+  // Koinot rejimi (pastda to'liq yozilgan): qaysi sayyora sirti ochiq, va yordamchi funksiyalar
+  let surface = null, spaceReset = null, bindSpaceGestures = () => {};
+  function spaceMinZoom() { return innerWidth < 700 ? 0.1 : 0.55; }
 
   function loadLib() {
     return new Promise((ok, no) => {
@@ -385,7 +389,7 @@
   }
   function applyExtras() {
     try { map.setProjection({ type: "globe" }); } catch (e) { /* oddiy xarita */ }
-    if (terrainOn) {
+    if (terrainOn && !surface) {
       try { if (!map.getSource("dem")) map.addSource("dem", demSource()); map.setTerrain({ source: "dem", exaggeration: 1.3 }); } catch (e) { /* relyefsiz */ }
     }
   }
@@ -401,10 +405,12 @@
       zoom: innerWidth < 700 ? 1.2 : 1.8,
       pixelRatio: Math.min(devicePixelRatio || 1, LITE ? 1 : 1.5),
       maxPitch: 75,
+      minZoom: spaceMinZoom(),
       attributionControl: { compact: true },
       fadeDuration: 0
     });
     map.on("style.load", applyExtras);
+    bindSpaceGestures();
     map.on("error", (e) => {
       // Tungi uslub topilmasa, oddiy uslubga qaytadi
       if (!TH.light && !darkFailed && styleKind === "map" && !map.isStyleLoaded()) { darkFailed = true; map.setStyle(vectorStyle(), { diff: false }); }
@@ -415,14 +421,14 @@
 
   $("style-lbl").textContent = L.styleSat;
   $("style-btn").addEventListener("click", () => {
-    if (!map) return;
+    if (!map || surface) return;
     styleKind = styleKind === "map" ? "sat" : "map";
     $("style-lbl").textContent = styleKind === "map" ? L.styleSat : L.styleMap;
     $("style-btn").classList.toggle("on", styleKind === "sat");
     map.setStyle(styleKind === "map" ? vectorStyle() : satStyle(), { diff: false });
   });
   $("tilt-btn").addEventListener("click", () => {
-    if (!map) return;
+    if (!map || surface) return;
     terrainOn = !terrainOn;
     $("tilt-btn").classList.toggle("on", terrainOn);
     if (terrainOn) { applyExtras(); map.easeTo({ pitch: 60, duration: 1200 }); }
@@ -434,7 +440,7 @@
     const n = readTheme();
     if (n.light === TH.light) return;
     TH = n; fogTex = null; grads = null; dirty = true;
-    if (map && styleKind === "map") map.setStyle(vectorStyle(), { diff: false });
+    if (map && styleKind === "map" && !surface) map.setStyle(vectorStyle(), { diff: false });
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   // Qidiruv (OpenStreetMap, server orqali)
@@ -477,6 +483,122 @@
       map.flyTo({ center: ll, zoom: 15, duration: 3000 });
     }, () => toast(L.noLoc), { enableHighAccuracy: true, timeout: 10000 });
   });
+
+
+  /* ================= KOINOT: Quyosh tizimi + Oy va Mars sirti =================
+     Globusni eng kichik holatdan yana uzoqlashtirsangiz, kamera Yerdan chiqib, Quyosh tizimi ochiladi.
+     Yerni bossangiz xaritaga qaytasiz; Oy va Mars uchun haqiqiy sirt xaritasi (OpenPlanetaryMap). */
+  const SPT = {
+    uz: { hint: "Koinotga chiqish uchun yana uzoqlashtiring", back: "Koinot", moon: "Oy", mars: "Mars", err: "Koinotni ochib bo'lmadi. Brauzeringiz 3D grafikani qo'llamasligi mumkin." },
+    ru: { hint: "Отдалите ещё, чтобы выйти в космос", back: "Космос", moon: "Луна", mars: "Марс", err: "Не удалось открыть космос. Возможно, браузер не поддерживает 3D-графику." },
+    en: { hint: "Zoom out further to fly into space", back: "Space", moon: "Moon", mars: "Mars", err: "Couldn't open space. Your browser may not support 3D graphics." },
+    zh: { hint: "继续缩小即可飞向太空", back: "太空", moon: "月球", mars: "火星", err: "无法打开太空，浏览器可能不支持 3D 图形。" }
+  }[LANG];
+  let space = null, spaceBusy = false, inSpace = false, gesturesBound = false;
+  const spaceEl = $("space"), spHint = $("space-hint");
+  spHint.textContent = SPT.hint;
+  $("surface-back-lbl").textContent = SPT.back;
+
+  function atMinZoom() { return !!map && map.getZoom() <= map.getMinZoom() + 0.04; }
+
+  function planetStyle(body) {
+    const id = body === "mars" ? "opm-mars-basemap-v0-2" : "opm-moon-basemap-v0-1";
+    return {
+      version: 8,
+      sources: { p: { type: "raster", tileSize: 256, maxzoom: body === "mars" ? 7 : 6,
+        tiles: ["https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/" + id + "/all/{z}/{x}/{y}.png"],
+        attribution: "© OpenPlanetaryMap · NASA/USGS" } },
+      layers: [{ id: "bg", type: "background", paint: { "background-color": "#05070d" } }, { id: "p", type: "raster", source: "p" }]
+    };
+  }
+
+  function setSurface(body) {
+    surface = body || null;
+    document.body.classList.toggle("surface", !!surface);
+    spHint.classList.remove("show");
+    if (!map) return;
+    if (surface) {
+      $("surface-name").textContent = SPT[surface];
+      if (terrainOn) { terrainOn = false; $("tilt-btn").classList.remove("on"); try { map.setTerrain(null); } catch (e) { /* */ } }
+      map.setStyle(planetStyle(surface), { diff: false });
+      map.jumpTo({ center: [surface === "mars" ? -70 : 0, surface === "mars" ? -5 : 0], zoom: spaceMinZoom() + 0.7, pitch: 0, bearing: 0 });
+    } else {
+      map.setStyle(styleKind === "map" ? vectorStyle() : satStyle(), { diff: false });
+      map.jumpTo({ zoom: spaceMinZoom() + 0.6, pitch: 0 });
+    }
+  }
+
+  async function enterSpace(o) {
+    if (inSpace || spaceBusy) return;
+    spaceBusy = true;
+    fade.classList.add("on");
+    try {
+      if (!space) {
+        const mod = await import("/static/space/space.js");
+        space = mod.createSpace({ container: spaceEl, lang: LANG, lite: LITE,
+          onEarth: () => leaveSpace(null), onSurface: (b) => leaveSpace(b) });
+      }
+    } catch (e) {
+      console.warn("Space:", e);
+      toast(SPT.err); fade.classList.remove("on"); spaceBusy = false; return;
+    }
+    setTimeout(() => {
+      inSpace = true;
+      document.body.classList.add("space");
+      spHint.classList.remove("show");
+      space.show(o || { fromEarth: true });
+      spaceBusy = false;
+      setTimeout(() => fade.classList.remove("on"), 150);
+    }, 700);
+  }
+
+  function leaveSpace(body) {
+    if (!inSpace) return;
+    fade.classList.add("on");
+    setTimeout(() => {
+      inSpace = false;
+      document.body.classList.remove("space");
+      if (space) space.hide();
+      setSurface(body);
+      if (map) map.resize();
+      setTimeout(() => fade.classList.remove("on"), 250);
+    }, 700);
+  }
+
+  // Sayohat rejimiga o'tilsa koinot yopiladi
+  spaceReset = function () {
+    if (inSpace) { inSpace = false; document.body.classList.remove("space"); if (space) space.hide(); }
+    if (surface) setSurface(null);
+  };
+
+  // "Uzoqlashtirish" niyatini yig'ish: g'ildirak yoki ikki barmoq bilan qisish (globus eng kichik holatda bo'lganda)
+  let outPush = 0, outT = 0;
+  function pushOut(amount) {
+    if (inSpace || spaceBusy || mode !== "map") return;
+    const now = performance.now();
+    if (now - outT > 900) outPush = 0;
+    outT = now; outPush += amount;
+    if (outPush >= 1) { outPush = 0; enterSpace(surface ? { focusOn: surface } : { fromEarth: true }); }
+  }
+  bindSpaceGestures = function () {
+    if (gesturesBound || !map) return;
+    gesturesBound = true;
+    const box = $("map");
+    box.addEventListener("wheel", (e) => {
+      if (e.deltaY > 0 && atMinZoom()) pushOut(Math.min(0.5, Math.abs(e.deltaY) / 260));
+    }, { passive: true });
+    let d0 = 0;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    box.addEventListener("touchstart", (e) => { d0 = e.touches.length === 2 ? dist(e.touches) : 0; }, { passive: true });
+    box.addEventListener("touchmove", (e) => {
+      if (e.touches.length !== 2 || !d0) return;
+      if (!atMinZoom()) { d0 = dist(e.touches); return; }
+      if (dist(e.touches) / d0 < 0.62) { d0 = 0; pushOut(1); }
+    }, { passive: true });
+    box.addEventListener("touchend", () => { d0 = 0; }, { passive: true });
+    map.on("zoom", () => { spHint.classList.toggle("show", !inSpace && map.getZoom() <= map.getMinZoom() + 0.35); });
+  };
+  $("surface-back").addEventListener("click", () => enterSpace({ focusOn: surface || "earth" }));
 
   if (CFG.startMode === "explore") setMode("map");
 })();

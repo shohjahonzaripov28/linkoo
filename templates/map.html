@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Linko Map</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script type="importmap">{"imports": {"three": "{{ url_for('static', filename='space/three.module.min.js') }}"}}</script>
   <style>
     /* ================================================================
        Linko Map: tumanli kinematik sayohat (canvas) + erkin xarita
@@ -124,6 +125,59 @@
       #ring { right: 40px; }
     }
     html.reduce-motion #hint i::after { animation: none; }
+    /* --- Koinot (Quyosh tizimi) --- */
+    #space { z-index: 8; display: none; background: #02040a; color: #eef2fb; overflow: hidden; }
+    body.space #space { display: block; }
+    body.space .lm-top .lm-brand, body.space .lm-top .lm-back { color: #eef2fb; }
+    body.space .lm-top [data-theme-toggle] { display: none; }
+    .sp-cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+    .sp-cv:active { cursor: grabbing; }
+    .sp-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .sp-label { position: absolute; left: 0; top: 0; pointer-events: auto; background: none; border: none; cursor: pointer; white-space: nowrap;
+      color: #dfe7f7; font: inherit; font-size: 10.5px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; padding: 4px 6px;
+      text-shadow: 0 1px 8px #000, 0 0 2px #000; opacity: .82; transition: opacity .3s, color .3s; }
+    .sp-label:hover, .sp-label.on { color: #7dd3fc; opacity: 1; }
+    .sp-labels.focused .sp-label:not(.on) { opacity: .32; }
+    .sp-bar { position: absolute; z-index: 3; right: 14px; top: calc(62px + env(safe-area-inset-top)); display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .sp-btn { height: 38px; min-width: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.2); background: rgba(8,12,24,.55);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: #eef2fb; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: .06em; cursor: pointer; }
+    .sp-btn:hover { background: rgba(255,255,255,.12); }
+    .sp-icon { padding: 0; width: 38px; font-size: 11px; }
+    .sp-card { position: absolute; z-index: 3; left: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); width: min(360px, calc(100% - 28px));
+      max-height: 56vh; overflow-y: auto; box-sizing: border-box; padding: 16px 16px 14px; border-radius: 20px;
+      background: rgba(6,10,22,.8); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.12);
+      animation: spIn .35s ease-out; }
+    @keyframes spIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .sp-kind { font-size: 10.5px; letter-spacing: .28em; text-transform: uppercase; color: #7dd3fc; }
+    .sp-name { margin: 4px 0 6px; font-size: 26px; font-weight: 300; letter-spacing: .02em; color: #fff; }
+    .sp-desc { margin: 0 0 12px; font-size: 13.5px; line-height: 1.55; color: rgba(238,242,251,.78); }
+    .sp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .sp-cell { background: rgba(255,255,255,.06); border-radius: 12px; padding: 8px 10px; min-width: 0; }
+    .sp-cell small { display: block; font-size: 10.5px; color: rgba(238,242,251,.55); margin-bottom: 2px; }
+    .sp-cell b { display: block; font-size: 13.5px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+    .sp-acts { display: flex; gap: 8px; margin-top: 12px; }
+    .sp-go { flex: 1; height: 42px; border: none; border-radius: 12px; background: #3b82f6; color: #fff; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+    .sp-go:hover { background: #2563eb; }
+    .sp-tip { position: absolute; z-index: 2; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translateX(-50%); pointer-events: none;
+      font-size: 10.5px; letter-spacing: .32em; text-transform: uppercase; color: rgba(238,242,251,.6); white-space: nowrap; }
+    .sp-tip[hidden], .sp-card[hidden], .sp-btn[hidden], .sp-loading[hidden] { display: none; }
+    .sp-credit { position: absolute; z-index: 2; right: 10px; bottom: calc(6px + env(safe-area-inset-bottom)); font-size: 9.5px; color: rgba(238,242,251,.35); pointer-events: none; }
+    .sp-loading { position: absolute; z-index: 4; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; letter-spacing: .3em;
+      text-transform: uppercase; color: rgba(238,242,251,.7); background: #02040a; pointer-events: none; }
+    #space-hint { position: absolute; z-index: 3; left: 50%; bottom: calc(26px + env(safe-area-inset-bottom)); transform: translate(-50%, 8px); opacity: 0;
+      pointer-events: none; transition: opacity .4s, transform .4s; padding: 9px 16px; border-radius: 999px; border: 1px solid var(--line);
+      background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--ink); font-size: 11px; letter-spacing: .14em; white-space: nowrap; }
+    #space-hint.show { opacity: 1; transform: translate(-50%, 0); }
+    #surface-bar { position: absolute; z-index: 3; left: 14px; right: 14px; top: calc(62px + env(safe-area-inset-top)); display: none; gap: 8px; align-items: center; }
+    body.surface #surface-bar { display: flex; }
+    body.surface #mapbar { display: none; }
+    #surface-name { font-size: 12px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase; color: var(--ink); padding: 0 6px; }
+    @media (max-width: 699px) {
+      .sp-card { left: 10px; right: 10px; width: auto; max-height: 46vh; bottom: calc(10px + env(safe-area-inset-bottom)); }
+      .sp-name { font-size: 22px; }
+      .sp-bar { right: 10px; }
+      .sp-credit { display: none; }
+    }
   </style>
 </head>
 <body class="map-page">
@@ -156,7 +210,13 @@
         <button type="button" class="lm-btn" id="tilt-btn">3D</button>
       </div>
     </div>
+    <div id="surface-bar">
+      <button type="button" class="lm-btn" id="surface-back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="4"/></svg><span class="lbl" id="surface-back-lbl"></span></button>
+      <span id="surface-name"></span>
+    </div>
+    <div id="space-hint"></div>
   </div>
+  <div id="space" class="lm-fixed" aria-label="Solar System"></div>
   <div id="fade" class="lm-fixed"></div>
 
   <header class="lm-top">
