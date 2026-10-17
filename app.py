@@ -6629,7 +6629,7 @@ def api_nav_route():
     body = json.dumps({"coordinates": pts, "instructions": True, "language": "en", "units": "m",
                        "maneuvers": True, "radiuses": [350, 350]}).encode()
     req = urllib.request.Request(
-        "https://api.openrouteservice.org/v2/directions/" + profile + "/geojson", data=body, method="POST",
+        "https://api.heigit.org/openrouteservice/v2/directions/" + profile + "/geojson", data=body, method="POST",
         headers={"Authorization": ORS_KEY, "Content-Type": "application/json", "Accept": "application/geo+json", "User-Agent": MAP_UA},
     )
     try:
