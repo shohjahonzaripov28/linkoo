@@ -73,6 +73,18 @@
       display: flex; align-items: center; justify-content: center; font-size: 18px; }
     .tv-dash b { display: block; font-size: 13.5px; font-weight: 600; }
     .tv-dash small { display: block; font-size: 11.5px; color: rgba(var(--fg), .55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .qr-menu-wrap { position: relative; }
+    .qr-menu-wrap > button { border: none; cursor: pointer; color: inherit; font: inherit; }
+    .qr-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; min-width: 210px; background: var(--surface);
+      border: 1px solid var(--edge); border-radius: 16px; padding: 6px; box-shadow: 0 14px 40px var(--shadow);
+      transform-origin: top right; animation: qrPop .16s ease-out; }
+    @keyframes qrPop { from { opacity: 0; transform: scale(.94) translateY(-4px); } to { opacity: 1; transform: none; } }
+    .qr-menu a { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 11px; color: var(--text);
+      text-decoration: none; font-size: 14.5px; font-weight: 600; }
+    .qr-menu a:hover, .qr-menu a:focus-visible { background: var(--surface2); outline: none; }
+    .qr-menu a span { width: 34px; height: 34px; border-radius: 10px; background: rgba(59, 130, 246, .14); color: var(--c-blue);
+      display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+    .qr-menu[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -95,12 +107,16 @@
         {% if pending_count > 0 %}<span class="notif-badge">{{ pending_count }}</span>{% endif %}
       </a>
       <button type="button" class="settings-icon-inline theme-toggle" data-theme-toggle title="{{ t.theme_title }}" aria-label="{{ t.theme_title }}"><span class="ti-moon">{{ icon('moon', 20) }}</span><span class="ti-sun">{{ icon('sun', 20) }}</span></button>
-      <a href="{{ url_for('qr_page') }}" class="settings-icon-inline" title="QR">
-        {{ icon('qr', 20) }}
-      </a>
-      <a href="{{ url_for('scan_page') }}" class="settings-icon-inline" title="Scan">
-        {{ icon('scan', 20) }}
-      </a>
+      <div class="qr-menu-wrap">
+        <button type="button" class="settings-icon-inline" id="qr-menu-btn" aria-haspopup="menu" aria-expanded="false"
+                aria-controls="qr-menu" title="{{ t.qr_title }} / {{ t.scan_title }}" aria-label="{{ t.qr_title }} / {{ t.scan_title }}">
+          {{ icon('qr', 20) }}
+        </button>
+        <div class="qr-menu" id="qr-menu" role="menu" hidden>
+          <a href="{{ url_for('scan_page') }}" role="menuitem"><span>{{ icon('scan', 20) }}</span>{{ t.scan_title }}</a>
+          <a href="{{ url_for('qr_page') }}" role="menuitem"><span>{{ icon('qr', 20) }}</span>{{ t.qr_title }}</a>
+        </div>
+      </div>
     </div>
 
     <form action="{{ url_for('people') }}" method="GET" class="home-search">
@@ -189,6 +205,19 @@
       document.getElementById("fx-date").textContent = d.date;
       box.hidden = false;
     }).catch(function () {});
+  })();
+  </script>
+  <script>
+  (function () {
+    var btn = document.getElementById("qr-menu-btn"), menu = document.getElementById("qr-menu");
+    if (!btn || !menu) return;
+    function set(open) {
+      menu.hidden = !open; btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) { var first = menu.querySelector("a"); if (first) first.focus({ preventScroll: true }); }
+    }
+    btn.addEventListener("click", function (e) { e.stopPropagation(); set(menu.hidden); });
+    document.addEventListener("click", function (e) { if (!menu.hidden && !menu.contains(e.target)) set(false); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !menu.hidden) { set(false); btn.focus(); } });
   })();
   </script>
 </body>
